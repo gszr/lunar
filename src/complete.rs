@@ -27,6 +27,32 @@ impl Config {
             model: nonempty("LUNAR_MODEL")?,
         })
     }
+
+    pub fn provider(&self) -> String {
+        if let Some(name) = nonempty("LUNAR_PROVIDER") {
+            return name;
+        }
+        provider_from_url(&self.base_url)
+    }
+}
+
+fn provider_from_url(base: &str) -> String {
+    let rest = base.split("://").nth(1).unwrap_or(base);
+    let host = rest.split('/').next().unwrap_or(rest);
+    let host = host.strip_prefix("api.").unwrap_or(host);
+    let mut parts: Vec<&str> = host.split('.').collect();
+    if parts.len() >= 2 {
+        let tld = parts.last().copied().unwrap_or("");
+        if matches!(tld, "com" | "ai" | "dev" | "io" | "net" | "org") {
+            parts.pop();
+        }
+    }
+    let name = parts.join("");
+    if name.is_empty() {
+        "openai".into()
+    } else {
+        name
+    }
 }
 
 #[derive(Clone)]

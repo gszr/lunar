@@ -651,7 +651,7 @@ fn draw(frame: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2),
+            Constraint::Length(1),
             Constraint::Min(0),
             Constraint::Length(working),
             Constraint::Length(ed_h),
@@ -686,18 +686,15 @@ fn draw_working(frame: &mut Frame, area: Rect) {
 
 fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
     let version = env!("CARGO_PKG_VERSION");
-    let status = match &app.config {
-        Some(cfg) => cfg.model.as_str(),
-        None => "no model configured",
+    let left = vec![
+        Span::styled("lunar", Style::default().fg(splash::GOLD)),
+        Span::styled(format!("  {version}"), Style::default().fg(splash::DUST)),
+    ];
+    let right = match &app.mission {
+        Some(m) => Span::styled(m.label(), Style::default().fg(splash::ASH)),
+        None => Span::raw(""),
     };
-    let header = Paragraph::new(vec![
-        Line::from(vec![
-            Span::styled("lunar", Style::default().fg(splash::GOLD)),
-            Span::styled(format!("  {version}"), Style::default().fg(splash::DUST)),
-        ]),
-        Line::from(Span::styled(status, Style::default().fg(splash::ASH))),
-    ]);
-    frame.render_widget(header, area);
+    frame.render_widget(spread(left, right, area.width), area);
 }
 
 fn draw_messages(frame: &mut Frame, area: Rect, app: &App) {
@@ -826,20 +823,24 @@ fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
-    let cwd = cwd_label();
-    let left = Span::styled(cwd, Style::default().fg(splash::ASH));
-    let right = match &app.mission {
-        Some(m) => Span::styled(m.label(), Style::default().fg(splash::DUST)),
-        None => match &app.config {
-            Some(cfg) => Span::styled(cfg.model.as_str(), Style::default().fg(splash::DUST)),
-            None => Span::styled("no model", Style::default().fg(splash::DUST)),
-        },
+    let left = Span::styled(cwd_label(), Style::default().fg(splash::ASH));
+    let right = match &app.config {
+        Some(cfg) => Span::styled(
+            format!("({}) {} • {}", cfg.provider(), cfg.model, "off"),
+            Style::default().fg(splash::DUST),
+        ),
+        None => Span::styled("no model", Style::default().fg(splash::DUST)),
     };
-    let gap = area
-        .width
-        .saturating_sub((left.content.len() + right.content.len()) as u16);
-    let line = Line::from(vec![left, Span::raw(" ".repeat(gap as usize)), right]);
-    frame.render_widget(Paragraph::new(line), area);
+    frame.render_widget(spread(vec![left], right, area.width), area);
+}
+
+fn spread(mut left: Vec<Span<'static>>, right: Span<'static>, width: u16) -> Paragraph<'static> {
+    let left_w: usize = left.iter().map(|s| s.content.chars().count()).sum();
+    let right_w = right.content.chars().count();
+    let gap = width.saturating_sub((left_w + right_w) as u16);
+    left.push(Span::raw(" ".repeat(gap as usize)));
+    left.push(right);
+    Paragraph::new(Line::from(left))
 }
 
 fn cwd_label() -> String {

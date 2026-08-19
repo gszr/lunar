@@ -265,6 +265,10 @@ fn parse_tool_calls(value: &Value) -> Vec<ToolCall> {
 
 impl Mission {
     pub fn label(&self) -> String {
+        format!("mission: {}", self.display_name())
+    }
+
+    fn display_name(&self) -> String {
         self.name
             .clone()
             .unwrap_or_else(|| format!("{}.jsonl", self.id))
@@ -273,6 +277,10 @@ impl Mission {
 
 impl Meta {
     pub fn label(&self) -> String {
+        format!("mission: {}", self.display_name())
+    }
+
+    fn display_name(&self) -> String {
         self.name
             .clone()
             .unwrap_or_else(|| format!("{}.jsonl", self.id))
