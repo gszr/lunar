@@ -39,6 +39,48 @@ pub fn budget_warning() -> Option<String> {
     }
 }
 
+/// Live listing of CWD files and skill summaries sent on every request.
+pub fn summary() -> String {
+    match std::env::current_dir() {
+        Ok(cwd) => summary_in(&cwd),
+        Err(_) => "no cwd".into(),
+    }
+}
+
+fn summary_in(cwd: &Path) -> String {
+    let files = load_files(cwd);
+    let skills = load_skills(cwd);
+    if files.is_empty() && skills.is_empty() {
+        return "no prompt context".into();
+    }
+    let text = render(&files, &skills);
+    let tokens = estimate_tokens(&text);
+    let budget = budget_tokens();
+    let mut out = format!("prompt context  ~{tokens} / {budget} tokens");
+    if !files.is_empty() {
+        out.push_str("\nfiles");
+        for (name, body) in &files {
+            let n = body.lines().count();
+            let _ = write!(out, "\n  {name}  {n} lines");
+        }
+    }
+    if !skills.is_empty() {
+        out.push_str("\nskills");
+        for skill in &skills {
+            if skill.description.is_empty() {
+                let _ = write!(out, "\n  {}  (`{}`)", skill.name, skill.path);
+            } else {
+                let _ = write!(
+                    out,
+                    "\n  {}: {}  (`{}`)",
+                    skill.name, skill.description, skill.path
+                );
+            }
+        }
+    }
+    out
+}
+
 fn load(cwd: &Path) -> Option<Loaded> {
     let files = load_files(cwd);
     let skills = load_skills(cwd);
@@ -264,5 +306,33 @@ mod tests {
         let text = load(&dir).unwrap().text;
         assert!(text.contains("- notes (`.agents/skills/notes/SKILL.md`)"));
         assert!(!text.contains("just a body"));
+    }
+
+    #[test]
+    fn summary_lists_files_and_skills() {
+        let dir = scratch();
+        fs::write(dir.join("AGENTS.md"), "be brief\n").unwrap();
+        let skill = dir.join(".agents").join("skills").join("review");
+        fs::create_dir_all(&skill).unwrap();
+        fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: review\ndescription: Review a diff.\n---\n\nbody\n",
+        )
+        .unwrap();
+        let text = summary_in(&dir);
+        assert!(text.starts_with("prompt context  ~"));
+        assert!(text.contains("files"));
+        assert!(text.contains("AGENTS.md  1 lines"));
+        assert!(!text.contains("CONTEXT.md"));
+        assert!(text.contains("skills"));
+        assert!(text.contains("review: Review a diff."));
+        assert!(text.contains(".agents/skills/review/SKILL.md"));
+        assert!(!text.contains("body"));
+    }
+
+    #[test]
+    fn summary_empty_cwd() {
+        let dir = scratch();
+        assert_eq!(summary_in(&dir), "no prompt context");
     }
 }

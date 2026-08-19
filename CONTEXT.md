@@ -92,7 +92,7 @@ Readline: Ctrl+W / Alt+Backspace word-kill, Ctrl+U/K, Ctrl+A/E, arrows, Alt+B/F,
 - Missions: `/new` `/resume` `/name` `/session`, `-c`
 - Token stats + refuse submit when last prompt ≥ window
 - CWD `AGENTS.md` / `CONTEXT.md` + `.agents/skills` summaries as a leading user message
-- Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/name` `/session`
+- Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/name` `/session` `/context`
 
 **Not shipped (still v0 intent)**
 

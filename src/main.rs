@@ -443,12 +443,15 @@ fn submit(app: &mut App) {
     match line.as_str() {
         "/quit" | "/q" => app.quit = true,
         "/help" => {
-            app.notice =
-                Some("/quit /new /resume /name /session /help    esc abort    ctrl+c quits".into());
+            app.notice = Some(
+                "/quit /new /resume /name /session /context /help    esc abort    ctrl+c quits"
+                    .into(),
+            );
         }
         "/new" => new_mission(app),
         "/resume" => open_resume(app),
         "/session" => show_session(app),
+        "/context" => app.notice = Some(prompt::summary()),
         cmd if let Some(name) = cmd.strip_prefix("/name ") => name_mission(app, name),
         cmd if let Some(prefix) = cmd.strip_prefix("/resume ") => resume_prefix(app, prefix),
         cmd if cmd.starts_with('/') => {
@@ -734,6 +737,10 @@ fn draw_messages(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
     if app.messages.is_empty() {
+        if app.notice.as_deref().is_some_and(|n| n.contains('\n')) {
+            draw_notice(frame, area, app.notice.as_deref().unwrap());
+            return;
+        }
         draw_splash(frame, area, app);
         return;
     }
@@ -767,11 +774,26 @@ fn draw_messages(frame: &mut Frame, area: Rect, app: &App) {
     }
     if let Some(notice) = &app.notice {
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            notice.as_str(),
-            Style::default().fg(splash::GOLD),
-        )));
+        lines.extend(notice_lines(notice));
     }
+    let skip = lines.len().saturating_sub(area.height as usize);
+    frame.render_widget(Paragraph::new(lines[skip..].to_vec()), area);
+}
+
+fn notice_lines(notice: &str) -> Vec<Line<'static>> {
+    notice
+        .lines()
+        .map(|line| {
+            Line::from(Span::styled(
+                line.to_string(),
+                Style::default().fg(splash::GOLD),
+            ))
+        })
+        .collect()
+}
+
+fn draw_notice(frame: &mut Frame, area: Rect, notice: &str) {
+    let lines = notice_lines(notice);
     let skip = lines.len().saturating_sub(area.height as usize);
     frame.render_widget(Paragraph::new(lines[skip..].to_vec()), area);
 }
