@@ -15,6 +15,13 @@ pub const ASH: Color = Color::Rgb(0x8A, 0x86, 0x80);
 pub const DUST: Color = Color::Rgb(0x5C, 0x58, 0x52);
 /// User-turn strip, Pi-style.
 pub const BAR: Color = Color::Rgb(0x3A, 0x38, 0x36);
+/// Tool card, Pi green.
+pub const TOOL_BG: Color = Color::Rgb(0x1C, 0x28, 0x20);
+pub const TOOL_FG: Color = Color::Rgb(0x9A, 0xB8, 0xA0);
+pub const TOOL_NAME: Color = Color::Rgb(0xC8, 0xE4, 0xCC);
+/// Fenced code in assistant text.
+pub const CODE_BG: Color = Color::Rgb(0x28, 0x26, 0x24);
+pub const CODE_FG: Color = Color::Rgb(0xC8, 0xC2, 0xB4);
 
 const RAW: &str = r#"
            +                  +

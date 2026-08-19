@@ -1,4 +1,5 @@
 mod complete;
+mod render;
 mod splash;
 mod tools;
 
@@ -11,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
@@ -372,28 +373,21 @@ fn draw_messages(frame: &mut Frame, area: Rect, app: &App) {
     }
     let width = area.width.max(1) as usize;
     let mut lines: Vec<Line> = Vec::new();
+    let mut prev_tool = false;
     for msg in &app.messages {
         if matches!(msg.role, Role::Assistant) && msg.text.is_empty() {
             continue;
         }
-        if !lines.is_empty() && !matches!(msg.role, Role::Tool) {
+        let is_tool = matches!(msg.role, Role::Tool);
+        if !(lines.is_empty() || (is_tool && prev_tool)) {
             lines.push(Line::from(""));
         }
         match msg.role {
-            Role::User => lines.extend(user_bar(&msg.text, width)),
-            Role::Assistant => {
-                let style = Style::default().fg(splash::BONE);
-                for wrapped in wrap(&msg.text, width) {
-                    lines.push(Line::from(Span::styled(wrapped, style)));
-                }
-            }
-            Role::Tool => {
-                lines.push(Line::from(Span::styled(
-                    msg.tool_title.as_str(),
-                    Style::default().fg(splash::GOLD),
-                )));
-            }
+            Role::User => lines.extend(render::user_bar(&msg.text, width)),
+            Role::Assistant => lines.extend(render::assistant(&msg.text, width)),
+            Role::Tool => lines.extend(render::tool_card(&msg.tool_title, &msg.text, width)),
         }
+        prev_tool = is_tool;
     }
     if let Some(notice) = &app.notice {
         lines.push(Line::from(""));
@@ -469,49 +463,6 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
         .saturating_sub((left.content.len() + right.content.len()) as u16);
     let line = Line::from(vec![left, Span::raw(" ".repeat(gap as usize)), right]);
     frame.render_widget(Paragraph::new(line), area);
-}
-
-fn user_bar(text: &str, width: usize) -> Vec<Line<'static>> {
-    let style = Style::default()
-        .fg(splash::BONE)
-        .bg(splash::BAR)
-        .add_modifier(Modifier::BOLD);
-    wrap(text, width)
-        .into_iter()
-        .map(|s| {
-            let pad = width.saturating_sub(s.chars().count());
-            Line::from(Span::styled(format!("{s}{}", " ".repeat(pad)), style))
-        })
-        .collect()
-}
-
-fn wrap(text: &str, width: usize) -> Vec<String> {
-    if width == 0 {
-        return vec![text.to_string()];
-    }
-    let mut out = Vec::new();
-    for paragraph in text.split('\n') {
-        if paragraph.is_empty() {
-            out.push(String::new());
-            continue;
-        }
-        let mut line = String::new();
-        for word in paragraph.split(' ') {
-            if line.is_empty() {
-                line.push_str(word);
-            } else if line.chars().count() + 1 + word.chars().count() <= width {
-                line.push(' ');
-                line.push_str(word);
-            } else {
-                out.push(std::mem::take(&mut line));
-                line.push_str(word);
-            }
-        }
-        if !line.is_empty() {
-            out.push(line);
-        }
-    }
-    out
 }
 
 fn cwd_label() -> String {
