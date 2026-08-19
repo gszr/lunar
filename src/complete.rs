@@ -1,5 +1,6 @@
 //! Chat Completions stream. Generic OpenAI-shaped HTTP. No branded providers.
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -8,6 +9,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 use ureq::Agent;
+
+use crate::tools;
 
 #[derive(Clone)]
 pub struct Config {
@@ -26,13 +29,62 @@ impl Config {
     }
 }
 
-pub struct ChatMessage {
-    pub role: &'static str,
+#[derive(Clone)]
+pub struct ToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: String,
+}
+
+pub enum ChatMessage {
+    User(String),
+    Assistant {
+        content: String,
+        tool_calls: Vec<ToolCall>,
+    },
+    Tool {
+        id: String,
+        content: String,
+    },
+}
+
+impl ChatMessage {
+    fn to_json(&self) -> Value {
+        match self {
+            ChatMessage::User(content) => json!({"role": "user", "content": content}),
+            ChatMessage::Assistant {
+                content,
+                tool_calls,
+            } if tool_calls.is_empty() => json!({"role": "assistant", "content": content}),
+            ChatMessage::Assistant {
+                content,
+                tool_calls,
+            } => json!({
+                "role": "assistant",
+                "content": if content.is_empty() { Value::Null } else { Value::String(content.clone()) },
+                "tool_calls": tool_calls.iter().map(|c| json!({
+                    "id": c.id,
+                    "type": "function",
+                    "function": { "name": c.name, "arguments": c.arguments },
+                })).collect::<Vec<_>>(),
+            }),
+            ChatMessage::Tool { id, content } => {
+                json!({"role": "tool", "tool_call_id": id, "content": content})
+            }
+        }
+    }
+}
+
+pub struct ToolResult {
+    pub id: String,
+    pub title: String,
     pub content: String,
 }
 
 pub enum StreamEvent {
     Delta(String),
+    Tools(Vec<ToolCall>),
+    ToolResults(Vec<ToolResult>),
     Done,
     Failed(String),
 }
@@ -58,10 +110,8 @@ fn stream_inner(
     let body = json!({
         "model": cfg.model,
         "stream": true,
-        "messages": messages.iter().map(|m| json!({
-            "role": m.role,
-            "content": m.content,
-        })).collect::<Vec<_>>(),
+        "tools": tools::definitions(),
+        "messages": messages.iter().map(ChatMessage::to_json).collect::<Vec<_>>(),
     })
     .to_string();
 
@@ -72,6 +122,7 @@ fn stream_inner(
         .send(&body)
         .map_err(|e| e.to_string())?;
 
+    let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();
     let reader = BufReader::new(response.body_mut().as_reader());
     for line in reader.lines() {
         if cancel.load(Ordering::Relaxed) {
@@ -97,17 +148,51 @@ fn stream_inner(
                 .unwrap_or("request failed");
             return Err(msg.to_string());
         }
-        let Some(text) = value
+        if let Some(text) = value
             .pointer("/choices/0/delta/content")
             .and_then(Value::as_str)
-        else {
-            continue;
-        };
-        if !text.is_empty() {
+            && !text.is_empty()
+        {
             let _ = tx.send(StreamEvent::Delta(text.to_string()));
         }
+        if let Some(chunks) = value
+            .pointer("/choices/0/delta/tool_calls")
+            .and_then(Value::as_array)
+        {
+            for chunk in chunks {
+                let index = chunk.get("index").and_then(Value::as_u64).unwrap_or(0);
+                let entry = calls.entry(index).or_insert_with(|| ToolCall {
+                    id: String::new(),
+                    name: String::new(),
+                    arguments: String::new(),
+                });
+                if let Some(id) = chunk.get("id").and_then(Value::as_str) {
+                    entry.id = id.to_string();
+                }
+                if let Some(name) = chunk.pointer("/function/name").and_then(Value::as_str) {
+                    entry.name.push_str(name);
+                }
+                if let Some(args) = chunk.pointer("/function/arguments").and_then(Value::as_str) {
+                    entry.arguments.push_str(args);
+                }
+            }
+        }
     }
-    let _ = tx.send(StreamEvent::Done);
+
+    let calls: Vec<ToolCall> = calls
+        .into_iter()
+        .map(|(index, mut call)| {
+            if call.id.is_empty() {
+                call.id = format!("call_{index}");
+            }
+            call
+        })
+        .collect();
+    if calls.is_empty() {
+        let _ = tx.send(StreamEvent::Done);
+    } else {
+        let _ = tx.send(StreamEvent::Tools(calls));
+    }
     Ok(())
 }
 

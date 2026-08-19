@@ -1,5 +1,6 @@
 mod complete;
 mod splash;
+mod tools;
 
 use std::io;
 use std::path::PathBuf;
@@ -15,7 +16,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 
-use complete::{ChatMessage, Config, StreamEvent};
+use complete::{ChatMessage, Config, StreamEvent, ToolCall, ToolResult};
+
+const MAX_ROUNDS: u32 = 20;
 
 struct App {
     input: String,
@@ -24,17 +27,54 @@ struct App {
     config: Option<Config>,
     stream_rx: Option<Receiver<StreamEvent>>,
     cancel: Option<Arc<AtomicBool>>,
+    rounds: u32,
     quit: bool,
 }
 
 struct Message {
     role: Role,
     text: String,
+    tool_calls: Vec<ToolCall>,
+    tool_id: String,
+    tool_title: String,
 }
 
 enum Role {
     User,
     Assistant,
+    Tool,
+}
+
+impl Message {
+    fn user(text: String) -> Self {
+        Self {
+            role: Role::User,
+            text,
+            tool_calls: Vec::new(),
+            tool_id: String::new(),
+            tool_title: String::new(),
+        }
+    }
+
+    fn assistant() -> Self {
+        Self {
+            role: Role::Assistant,
+            text: String::new(),
+            tool_calls: Vec::new(),
+            tool_id: String::new(),
+            tool_title: String::new(),
+        }
+    }
+
+    fn tool(id: String, title: String, content: String) -> Self {
+        Self {
+            role: Role::Tool,
+            text: content,
+            tool_calls: Vec::new(),
+            tool_id: id,
+            tool_title: title,
+        }
+    }
 }
 
 fn main() -> io::Result<()> {
@@ -46,6 +86,7 @@ fn main() -> io::Result<()> {
         config: Config::from_env(),
         stream_rx: None,
         cancel: None,
+        rounds: 0,
         quit: false,
     };
     let result = run(&mut terminal, &mut app);
@@ -57,7 +98,7 @@ fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
     while !app.quit {
         drain_stream(app);
         terminal.draw(|frame| draw(frame, app))?;
-        let wait = if app.stream_rx.is_some() {
+        let wait = if app.cancel.is_some() {
             Duration::from_millis(16)
         } else {
             Duration::from_secs(3600)
@@ -100,34 +141,89 @@ fn drain_stream(app: &mut App) {
 }
 
 fn finish_stream(app: &mut App, end: StreamEvent) {
-    app.stream_rx = None;
-    app.cancel = None;
     match end {
+        StreamEvent::Tools(calls) => begin_tools(app, calls),
+        StreamEvent::ToolResults(results) => apply_tool_results(app, results),
         StreamEvent::Done => {
-            if matches!(
-                app.messages.last(),
-                Some(Message {
-                    role: Role::Assistant,
-                    text,
-                }) if text.is_empty()
-            ) {
-                app.messages.pop();
-            }
+            app.stream_rx = None;
+            app.cancel = None;
+            pop_empty_assistant(app);
         }
         StreamEvent::Failed(err) => {
-            if matches!(
-                app.messages.last(),
-                Some(Message {
-                    role: Role::Assistant,
-                    text,
-                }) if text.is_empty()
-            ) {
-                app.messages.pop();
-            }
+            app.stream_rx = None;
+            app.cancel = None;
+            pop_empty_assistant(app);
             app.notice = Some(err);
         }
         StreamEvent::Delta(_) => {}
     }
+}
+
+fn pop_empty_assistant(app: &mut App) {
+    if matches!(
+        app.messages.last(),
+        Some(Message {
+            role: Role::Assistant,
+            text,
+            tool_calls,
+            ..
+        }) if text.is_empty() && tool_calls.is_empty()
+    ) {
+        app.messages.pop();
+    }
+}
+
+fn begin_tools(app: &mut App, calls: Vec<ToolCall>) {
+    if let Some(last) = app.messages.last_mut()
+        && matches!(last.role, Role::Assistant)
+    {
+        last.tool_calls = calls.clone();
+    }
+    let Some(cancel) = app.cancel.clone() else {
+        return;
+    };
+    let (tx, rx) = mpsc::channel();
+    app.stream_rx = Some(rx);
+    std::thread::spawn(move || {
+        let mut results = Vec::new();
+        for call in calls {
+            if cancel.load(Ordering::Relaxed) {
+                let _ = tx.send(StreamEvent::Failed("aborted".into()));
+                return;
+            }
+            let out = tools::run(&call.name, &call.arguments, &cancel);
+            results.push(ToolResult {
+                id: call.id,
+                title: out.title,
+                content: out.content,
+            });
+        }
+        let _ = tx.send(StreamEvent::ToolResults(results));
+    });
+}
+
+fn apply_tool_results(app: &mut App, results: Vec<ToolResult>) {
+    if app
+        .cancel
+        .as_ref()
+        .is_some_and(|c| c.load(Ordering::Relaxed))
+    {
+        app.stream_rx = None;
+        app.cancel = None;
+        return;
+    }
+    for result in results {
+        app.messages
+            .push(Message::tool(result.id, result.title, result.content));
+    }
+    app.rounds += 1;
+    if app.rounds >= MAX_ROUNDS {
+        app.stream_rx = None;
+        app.cancel = None;
+        app.notice = Some("stopped after too many tool rounds".into());
+        return;
+    }
+    continue_turn(app);
 }
 
 fn on_key(app: &mut App, key: KeyEvent) {
@@ -150,7 +246,7 @@ fn on_key(app: &mut App, key: KeyEvent) {
 }
 
 fn submit(app: &mut App) {
-    if app.stream_rx.is_some() {
+    if app.cancel.is_some() {
         return;
     }
     let line = app.input.trim().to_string();
@@ -171,42 +267,52 @@ fn submit(app: &mut App) {
 }
 
 fn send_prompt(app: &mut App, line: String) {
-    let Some(cfg) = app.config.clone() else {
+    if app.config.is_none() {
         app.notice = Some("no model configured".into());
         return;
-    };
+    }
     app.notice = None;
-    app.messages.push(Message {
-        role: Role::User,
-        text: line,
-    });
-    app.messages.push(Message {
-        role: Role::Assistant,
-        text: String::new(),
-    });
-
-    let history: Vec<ChatMessage> = app
-        .messages
-        .iter()
-        .filter(|m| !m.text.is_empty() || matches!(m.role, Role::User))
-        .map(|m| ChatMessage {
-            role: match m.role {
-                Role::User => "user",
-                Role::Assistant => "assistant",
-            },
-            content: m.text.clone(),
-        })
-        .collect();
-
+    app.rounds = 0;
+    app.messages.push(Message::user(line));
     let cancel = Arc::new(AtomicBool::new(false));
+    app.cancel = Some(cancel);
+    continue_turn(app);
+}
+
+fn continue_turn(app: &mut App) {
+    let Some(cfg) = app.config.clone() else {
+        return;
+    };
+    let Some(cancel) = app.cancel.clone() else {
+        return;
+    };
+    app.messages.push(Message::assistant());
+    let history = api_history(&app.messages);
     let (tx, rx) = mpsc::channel();
-    app.cancel = Some(cancel.clone());
     app.stream_rx = Some(rx);
     std::thread::spawn(move || complete::stream(cfg, history, cancel, tx));
 }
 
+fn api_history(messages: &[Message]) -> Vec<ChatMessage> {
+    messages
+        .iter()
+        .filter(|m| !m.text.is_empty() || matches!(m.role, Role::User) || !m.tool_calls.is_empty())
+        .map(|m| match m.role {
+            Role::User => ChatMessage::User(m.text.clone()),
+            Role::Assistant => ChatMessage::Assistant {
+                content: m.text.clone(),
+                tool_calls: m.tool_calls.clone(),
+            },
+            Role::Tool => ChatMessage::Tool {
+                id: m.tool_id.clone(),
+                content: m.text.clone(),
+            },
+        })
+        .collect()
+}
+
 fn draw(frame: &mut Frame, app: &App) {
-    let working = u16::from(app.stream_rx.is_some());
+    let working = u16::from(app.cancel.is_some());
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -270,7 +376,7 @@ fn draw_messages(frame: &mut Frame, area: Rect, app: &App) {
         if matches!(msg.role, Role::Assistant) && msg.text.is_empty() {
             continue;
         }
-        if !lines.is_empty() {
+        if !lines.is_empty() && !matches!(msg.role, Role::Tool) {
             lines.push(Line::from(""));
         }
         match msg.role {
@@ -280,6 +386,12 @@ fn draw_messages(frame: &mut Frame, area: Rect, app: &App) {
                 for wrapped in wrap(&msg.text, width) {
                     lines.push(Line::from(Span::styled(wrapped, style)));
                 }
+            }
+            Role::Tool => {
+                lines.push(Line::from(Span::styled(
+                    msg.tool_title.as_str(),
+                    Style::default().fg(splash::GOLD),
+                )));
             }
         }
     }
