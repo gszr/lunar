@@ -201,7 +201,8 @@ fn agent() -> Agent {
     AGENT
         .get_or_init(|| {
             Agent::config_builder()
-                .timeout_global(Some(Duration::from_secs(300)))
+                .timeout_global(None)
+                .timeout_connect(Some(Duration::from_secs(30)))
                 .build()
                 .into()
         })
