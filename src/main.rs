@@ -1,3 +1,4 @@
+mod commands;
 mod complete;
 mod mission;
 mod prompt;
@@ -36,6 +37,7 @@ struct App {
     last_prompt: u32,
     mission: Option<mission::Mission>,
     mode: Mode,
+    complete_sel: usize,
     quit: bool,
 }
 
@@ -115,6 +117,7 @@ fn main() -> io::Result<()> {
         last_prompt: 0,
         mission: None,
         mode: Mode::Chat,
+        complete_sel: 0,
         quit: false,
     };
     if resume_last {
@@ -308,6 +311,9 @@ fn on_key(app: &mut App, key: KeyEvent) {
         }
         return;
     }
+    if on_complete_key(app, key) {
+        return;
+    }
     match (key.modifiers, key.code) {
         (KeyModifiers::CONTROL, KeyCode::Char('c')) => app.quit = true,
         (_, KeyCode::Esc) => {
@@ -316,6 +322,7 @@ fn on_key(app: &mut App, key: KeyEvent) {
             } else {
                 app.input.clear();
                 app.cursor = 0;
+                app.complete_sel = 0;
             }
         }
         (KeyModifiers::CONTROL, KeyCode::Char('a')) => app.cursor = 0,
@@ -346,21 +353,26 @@ fn on_key(app: &mut App, key: KeyEvent) {
             let from = word_left(&app.input, app.cursor);
             app.input.replace_range(from..app.cursor, "");
             app.cursor = from;
+            app.complete_sel = 0;
         }
         (KeyModifiers::ALT, KeyCode::Char('d')) => {
             let to = word_right(&app.input, app.cursor);
             app.input.replace_range(app.cursor..to, "");
+            app.complete_sel = 0;
         }
         (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
             app.input.replace_range(..app.cursor, "");
             app.cursor = 0;
+            app.complete_sel = 0;
         }
         (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
             app.input.truncate(app.cursor);
+            app.complete_sel = 0;
         }
         (KeyModifiers::CONTROL, KeyCode::Char('d')) | (_, KeyCode::Delete) => {
             let to = next_char(&app.input, app.cursor);
             app.input.replace_range(app.cursor..to, "");
+            app.complete_sel = 0;
         }
         (_, KeyCode::Home) => app.cursor = 0,
         (_, KeyCode::End) => app.cursor = app.input.len(),
@@ -368,14 +380,56 @@ fn on_key(app: &mut App, key: KeyEvent) {
             let from = prev_char(&app.input, app.cursor);
             app.input.replace_range(from..app.cursor, "");
             app.cursor = from;
+            app.complete_sel = 0;
         }
         (_, KeyCode::Enter) => submit(app),
         (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
             app.input.insert(app.cursor, c);
             app.cursor += c.len_utf8();
+            app.complete_sel = 0;
         }
         _ => {}
     }
+}
+
+fn on_complete_key(app: &mut App, key: KeyEvent) -> bool {
+    let n = commands::matches(&app.input).len();
+    if n == 0 {
+        return false;
+    }
+    match (key.modifiers, key.code) {
+        (_, KeyCode::Tab) | (_, KeyCode::Down) | (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
+            app.complete_sel = commands::cycle(app.complete_sel, n, 1);
+            true
+        }
+        (_, KeyCode::BackTab) | (_, KeyCode::Up) | (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+            app.complete_sel = commands::cycle(app.complete_sel, n, -1);
+            true
+        }
+        (_, KeyCode::Enter) => {
+            accept_complete(app);
+            true
+        }
+        _ => false,
+    }
+}
+
+fn accept_complete(app: &mut App) {
+    let found = commands::matches(&app.input);
+    let Some(cmd) = found.get(app.complete_sel) else {
+        submit(app);
+        return;
+    };
+    if cmd.name == "name" {
+        app.input = commands::apply(cmd.name);
+        app.cursor = app.input.len();
+        app.complete_sel = 0;
+        return;
+    }
+    app.input = format!("/{}", cmd.name);
+    app.cursor = app.input.len();
+    app.complete_sel = 0;
+    submit(app);
 }
 
 fn prev_char(s: &str, cur: usize) -> usize {
@@ -444,7 +498,7 @@ fn submit(app: &mut App) {
         "/quit" | "/q" => app.quit = true,
         "/help" => {
             app.notice = Some(
-                "/quit /new /resume /name /session /context /help    esc abort    ctrl+c quits"
+                "/quit /new /resume /name /session /context /help    tab cycle    esc abort    ctrl+c quits"
                     .into(),
             );
         }
@@ -682,6 +736,13 @@ fn editor_height(input: &str, cursor: usize, width: u16) -> u16 {
 fn draw(frame: &mut Frame, app: &App) {
     let working = u16::from(app.cancel.is_some());
     let ed_h = editor_height(app.input.as_str(), app.cursor, frame.area().width);
+    let found = commands::matches(&app.input);
+    let selected = commands::clamp_selected(app.complete_sel, found.len());
+    let complete_h = if found.is_empty() {
+        0
+    } else {
+        commands::visible(&found, selected).1.len() as u16
+    };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -689,6 +750,7 @@ fn draw(frame: &mut Frame, app: &App) {
             Constraint::Min(0),
             Constraint::Length(working),
             Constraint::Length(ed_h),
+            Constraint::Length(complete_h),
             Constraint::Length(2),
         ])
         .split(frame.area());
@@ -697,12 +759,12 @@ fn draw(frame: &mut Frame, app: &App) {
     draw_messages(frame, chunks[1], app);
     if working == 1 {
         draw_working(frame, chunks[2]);
-        draw_editor(frame, chunks[3], app);
-        draw_footer(frame, chunks[4], app);
-    } else {
-        draw_editor(frame, chunks[3], app);
-        draw_footer(frame, chunks[4], app);
     }
+    draw_editor(frame, chunks[3], app);
+    if complete_h > 0 {
+        draw_complete(frame, chunks[4], &found, selected);
+    }
+    draw_footer(frame, chunks[5], app);
 }
 
 const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -845,6 +907,58 @@ fn draw_splash(frame: &mut Frame, area: Rect, app: &App) {
         Paragraph::new(lines).alignment(Alignment::Left),
         splash_area,
     );
+}
+
+fn draw_complete(
+    frame: &mut Frame,
+    area: Rect,
+    found: &[&'static commands::Command],
+    selected: usize,
+) {
+    let (start, view) = commands::visible(found, selected);
+    let name_w = view
+        .iter()
+        .map(|cmd| cmd.name.len())
+        .max()
+        .unwrap_or(0)
+        .min(16);
+    let width = area.width.max(1) as usize;
+    let lines: Vec<Line> = view
+        .iter()
+        .enumerate()
+        .map(|(i, cmd)| {
+            let sel = start + i == selected;
+            let marker = if sel { "→ " } else { "  " };
+            let name = format!("/{:<name_w$}", cmd.name);
+            let rest = width.saturating_sub(marker.len() + name.len() + 2);
+            let desc = if rest == 0 {
+                String::new()
+            } else {
+                let mut d = cmd.description.to_string();
+                if d.chars().count() > rest {
+                    d = d.chars().take(rest.saturating_sub(1)).collect();
+                    d.push('…');
+                }
+                d
+            };
+            if sel {
+                Line::from(vec![
+                    Span::styled(marker, Style::default().fg(splash::GOLD)),
+                    Span::styled(name, Style::default().fg(splash::GOLD)),
+                    Span::raw("  "),
+                    Span::styled(desc, Style::default().fg(splash::ASH)),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::styled(marker, Style::default().fg(splash::DUST)),
+                    Span::styled(name, Style::default().fg(splash::BONE)),
+                    Span::raw("  "),
+                    Span::styled(desc, Style::default().fg(splash::DUST)),
+                ])
+            }
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {

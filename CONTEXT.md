@@ -81,6 +81,8 @@ Top to bottom:
 
 Readline: Ctrl+W / Alt+Backspace word-kill, Ctrl+U/K, Ctrl+A/E, arrows, Alt+B/F, Delete. **Ctrl+C quits** (not clear). Esc aborts a turn or clears the editor.
 
+`/` opens command completion under the editor. Tab / ↑↓ cycle; Enter accepts (runs, except `/name` which stays in the editor). `/q` is a hidden quit alias.
+
 `/resume` is j/k + enter. `lunar -c` / `--continue` loads the latest mission for this cwd.
 
 ## Shipped vs not

@@ -37,6 +37,7 @@ The model has `read`, `write`, `edit`, and `bash`. Esc aborts a turn and kills b
 | `/session` | show mission path |
 | `/context` | files and skills sent every prompt |
 | `/help` | commands |
+| `/` then Tab | cycle commands |
 
 Missions are linear jsonl under `~/.lunar/missions/` (or `$LUNAR_HOME`). `lunar -c` continues the last one for this directory.
 
