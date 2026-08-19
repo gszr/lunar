@@ -23,8 +23,8 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Lua load | `~/.lunar/init.lua`, then trusted `.lunar/init.lua`. No auto-load directories |
 | Trust | Project Lua runs only after an explicit trust decision (`trust.json`) |
 | Language | Lua 5.5.1, vendored via `mlua` (`lua55` + `vendored`) — **not embedded yet** |
-| Prompt conventions | Agent Skills + context files (`AGENTS.md` and cousins), including `~/.agents/skills` — **not implemented yet** |
-| System prompt | None today. Request is messages + four tool schemas only (~400 tokens of tools) |
+| Prompt conventions | CWD `AGENTS.md` + `CONTEXT.md` in full. Skill *summaries* from `.agents/skills/*/SKILL.md`. `~/.agents/skills` later |
+| System prompt | None. Context is a leading user message, rebuilt every request, not persisted |
 | v0 goal | Daily driver for one user, not ecosystem parity |
 | Model protocol | Completions **and** Responses. **Only Completions is implemented** |
 | First brand | xAI. Config is env, not a compiled-in brand |
@@ -62,6 +62,7 @@ Default mission label is the filename. `/name` overrides. UI shows `mission: <na
 | `LUNAR_MODEL` | required (e.g. `grok-4.6`) |
 | `LUNAR_PROVIDER` | optional label; else inferred from URL |
 | `LUNAR_CONTEXT_WINDOW` | optional; else inferred for some Grok ids |
+| `LUNAR_PROMPT_BUDGET` | optional; warn at startup if context files + skill summaries exceed it (default 16000) |
 | `LUNAR_HOME` | overrides `~/.lunar` |
 
 ## TUI (what is on screen)
@@ -90,11 +91,12 @@ Readline: Ctrl+W / Alt+Backspace word-kill, Ctrl+U/K, Ctrl+A/E, arrows, Alt+B/F,
 - Four tools + continue-after-tools (20-round cap)
 - Missions: `/new` `/resume` `/name` `/session`, `-c`
 - Token stats + refuse submit when last prompt ≥ window
+- CWD `AGENTS.md` / `CONTEXT.md` + `.agents/skills` summaries as a leading user message
 - Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/name` `/session`
 
 **Not shipped (still v0 intent)**
 
-- Skills + `AGENTS.md` in the prompt
+- Walk-up discovery, `~/.agents/skills`, skill bodies (only summaries ship)
 - `/login` `/logout` `/model` `/reload` `/trust`
 - Responses API
 - Lua 5.5 embed / `init.lua`
@@ -114,12 +116,12 @@ Package manager, print/RPC/SDK, Pi session compatibility, provider zoo, themes, 
 
 ## Next slices (recommended order)
 
-1. Skills + context files in the default prompt
-2. `/login xai` (device-code + API key)
-3. Responses, if you actually use a Responses-only id
-4. Lua loader for `init.lua` setup only
-5. Dumb `/compact` after the window hurts
+1. `/login xai` (device-code + API key)
+2. Responses, if you actually use a Responses-only id
+3. Lua loader for `init.lua` setup only
+4. Dumb `/compact` after the window hurts
+5. Walk-up context + `~/.agents/skills`
 
 ## Layout in the repo
 
-`src/main.rs` app/TUI · `complete.rs` HTTP · `tools.rs` four tools · `mission.rs` jsonl · `render.rs` transcript paint · `splash.rs` art + colors
+`src/main.rs` app/TUI · `complete.rs` HTTP · `tools.rs` four tools · `mission.rs` jsonl · `prompt.rs` CWD context + skill summaries · `render.rs` transcript paint · `splash.rs` art + colors

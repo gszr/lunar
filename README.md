@@ -39,4 +39,6 @@ The model has `read`, `write`, `edit`, and `bash`. Esc aborts a turn and kills b
 
 Missions are linear jsonl under `~/.lunar/missions/` (or `$LUNAR_HOME`). `lunar -c` continues the last one for this directory.
 
+CWD `AGENTS.md` and `CONTEXT.md` are sent in full. Skill name + description from `.agents/skills/*/SKILL.md` are listed; read the file to use one.
+
 `/login` and Lua config are not in yet.

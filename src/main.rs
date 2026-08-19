@@ -1,5 +1,6 @@
 mod complete;
 mod mission;
+mod prompt;
 mod render;
 mod splash;
 mod tools;
@@ -121,6 +122,9 @@ fn main() -> io::Result<()> {
             Some(meta) => load_mission(&mut app, &meta.path),
             None => app.notice = Some("no missions in this directory".into()),
         }
+    }
+    if app.notice.is_none() {
+        app.notice = prompt::budget_warning();
     }
     let result = run(&mut terminal, &mut app);
     ratatui::restore();
@@ -605,21 +609,29 @@ fn continue_turn(app: &mut App) {
 }
 
 fn api_history(messages: &[Message]) -> Vec<ChatMessage> {
-    messages
-        .iter()
-        .filter(|m| !m.text.is_empty() || matches!(m.role, Role::User) || !m.tool_calls.is_empty())
-        .map(|m| match m.role {
-            Role::User => ChatMessage::User(m.text.clone()),
-            Role::Assistant => ChatMessage::Assistant {
-                content: m.text.clone(),
-                tool_calls: m.tool_calls.clone(),
-            },
-            Role::Tool => ChatMessage::Tool {
-                id: m.tool_id.clone(),
-                content: m.text.clone(),
-            },
-        })
-        .collect()
+    let mut out = Vec::new();
+    if let Some(text) = prompt::preamble() {
+        out.push(ChatMessage::User(text));
+    }
+    out.extend(
+        messages
+            .iter()
+            .filter(|m| {
+                !m.text.is_empty() || matches!(m.role, Role::User) || !m.tool_calls.is_empty()
+            })
+            .map(|m| match m.role {
+                Role::User => ChatMessage::User(m.text.clone()),
+                Role::Assistant => ChatMessage::Assistant {
+                    content: m.text.clone(),
+                    tool_calls: m.tool_calls.clone(),
+                },
+                Role::Tool => ChatMessage::Tool {
+                    id: m.tool_id.clone(),
+                    content: m.text.clone(),
+                },
+            }),
+    );
+    out
 }
 
 const EDITOR_MAX_LINES: u16 = 8;
