@@ -1,0 +1,9 @@
+[package]
+name = "lunar"
+version = "0.1.0"
+edition = "2024"
+description = "A terminal coding harness"
+license = "MIT"
+
+[dependencies]
+ratatui = "0.30"
