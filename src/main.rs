@@ -24,6 +24,7 @@ const MAX_ROUNDS: u32 = 20;
 
 struct App {
     input: String,
+    cursor: usize,
     notice: Option<String>,
     messages: Vec<Message>,
     config: Option<Config>,
@@ -100,6 +101,7 @@ fn main() -> io::Result<()> {
     let mut terminal = ratatui::init();
     let mut app = App {
         input: String::new(),
+        cursor: 0,
         notice: None,
         messages: Vec::new(),
         config: Config::from_env(),
@@ -301,15 +303,119 @@ fn on_key(app: &mut App, key: KeyEvent) {
                 flag.store(true, Ordering::Relaxed);
             } else {
                 app.input.clear();
+                app.cursor = 0;
             }
         }
+        (KeyModifiers::CONTROL, KeyCode::Char('a')) => app.cursor = 0,
+        (KeyModifiers::CONTROL, KeyCode::Char('e')) => app.cursor = app.input.len(),
+        (m, KeyCode::Left)
+            if m.contains(KeyModifiers::CONTROL) || m.contains(KeyModifiers::ALT) =>
+        {
+            app.cursor = word_left(&app.input, app.cursor);
+        }
+        (m, KeyCode::Right)
+            if m.contains(KeyModifiers::CONTROL) || m.contains(KeyModifiers::ALT) =>
+        {
+            app.cursor = word_right(&app.input, app.cursor);
+        }
+        (KeyModifiers::CONTROL, KeyCode::Char('b')) | (_, KeyCode::Left) => {
+            app.cursor = prev_char(&app.input, app.cursor);
+        }
+        (KeyModifiers::CONTROL, KeyCode::Char('f')) | (_, KeyCode::Right) => {
+            app.cursor = next_char(&app.input, app.cursor);
+        }
+        (KeyModifiers::ALT, KeyCode::Char('b')) => {
+            app.cursor = word_left(&app.input, app.cursor);
+        }
+        (KeyModifiers::ALT, KeyCode::Char('f')) => {
+            app.cursor = word_right(&app.input, app.cursor);
+        }
+        (KeyModifiers::CONTROL, KeyCode::Char('w')) | (KeyModifiers::ALT, KeyCode::Backspace) => {
+            let from = word_left(&app.input, app.cursor);
+            app.input.replace_range(from..app.cursor, "");
+            app.cursor = from;
+        }
+        (KeyModifiers::ALT, KeyCode::Char('d')) => {
+            let to = word_right(&app.input, app.cursor);
+            app.input.replace_range(app.cursor..to, "");
+        }
+        (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
+            app.input.replace_range(..app.cursor, "");
+            app.cursor = 0;
+        }
+        (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+            app.input.truncate(app.cursor);
+        }
+        (KeyModifiers::CONTROL, KeyCode::Char('d')) | (_, KeyCode::Delete) => {
+            let to = next_char(&app.input, app.cursor);
+            app.input.replace_range(app.cursor..to, "");
+        }
+        (_, KeyCode::Home) => app.cursor = 0,
+        (_, KeyCode::End) => app.cursor = app.input.len(),
         (_, KeyCode::Backspace) => {
-            app.input.pop();
+            let from = prev_char(&app.input, app.cursor);
+            app.input.replace_range(from..app.cursor, "");
+            app.cursor = from;
         }
         (_, KeyCode::Enter) => submit(app),
-        (_, KeyCode::Char(c)) => app.input.push(c),
+        (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
+            app.input.insert(app.cursor, c);
+            app.cursor += c.len_utf8();
+        }
         _ => {}
     }
+}
+
+fn prev_char(s: &str, cur: usize) -> usize {
+    s[..cur.min(s.len())]
+        .char_indices()
+        .next_back()
+        .map(|(i, _)| i)
+        .unwrap_or(0)
+}
+
+fn next_char(s: &str, cur: usize) -> usize {
+    if cur >= s.len() {
+        return s.len();
+    }
+    cur + s[cur..].chars().next().map(char::len_utf8).unwrap_or(0)
+}
+
+fn word_left(s: &str, mut cur: usize) -> usize {
+    cur = cur.min(s.len());
+    while let Some((i, c)) = s[..cur].char_indices().next_back() {
+        if !c.is_whitespace() {
+            break;
+        }
+        cur = i;
+    }
+    while let Some((i, c)) = s[..cur].char_indices().next_back() {
+        if c.is_whitespace() {
+            break;
+        }
+        cur = i;
+    }
+    cur
+}
+
+fn word_right(s: &str, cur: usize) -> usize {
+    let cur = cur.min(s.len());
+    let rest = &s[cur..];
+    let mut i = 0;
+    let mut in_word = false;
+    for (off, c) in rest.char_indices() {
+        if !in_word {
+            if !c.is_whitespace() {
+                in_word = true;
+            }
+            i = off + c.len_utf8();
+        } else if c.is_whitespace() {
+            return cur + off;
+        } else {
+            i = off + c.len_utf8();
+        }
+    }
+    cur + i
 }
 
 fn submit(app: &mut App) {
@@ -318,6 +424,7 @@ fn submit(app: &mut App) {
     }
     let line = app.input.trim().to_string();
     app.input.clear();
+    app.cursor = 0;
     if line.is_empty() {
         return;
     }
@@ -500,21 +607,48 @@ fn api_history(messages: &[Message]) -> Vec<ChatMessage> {
 const EDITOR_MAX_LINES: u16 = 8;
 
 fn editor_lines(input: &str, width: u16) -> Vec<String> {
-    let inner = width.max(1) as usize;
-    let mut lines = render::wrap(input, inner);
+    char_wrap(input, width.max(1) as usize)
+}
+
+fn char_wrap(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![text.to_string()];
+    }
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut cols = 0;
+    for c in text.chars() {
+        if cols == width {
+            lines.push(std::mem::take(&mut current));
+            cols = 0;
+        }
+        current.push(c);
+        cols += 1;
+    }
+    lines.push(current);
     if lines.is_empty() {
         lines.push(String::new());
     }
     lines
 }
 
-fn editor_height(input: &str, width: u16) -> u16 {
-    (editor_lines(input, width).len() as u16).min(EDITOR_MAX_LINES) + 2
+fn cursor_xy(text: &str, cursor: usize, width: usize) -> (u16, u16) {
+    if width == 0 {
+        return (0, 0);
+    }
+    let chars = text[..cursor.min(text.len())].chars().count();
+    ((chars / width) as u16, (chars % width) as u16)
+}
+
+fn editor_height(input: &str, cursor: usize, width: u16) -> u16 {
+    let lines = editor_lines(input, width).len() as u16;
+    let (row, _) = cursor_xy(input, cursor, width.max(1) as usize);
+    lines.max(row + 1).min(EDITOR_MAX_LINES) + 2
 }
 
 fn draw(frame: &mut Frame, app: &App) {
     let working = u16::from(app.cancel.is_some());
-    let ed_h = editor_height(app.input.as_str(), frame.area().width);
+    let ed_h = editor_height(app.input.as_str(), app.cursor, frame.area().width);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -676,20 +810,20 @@ fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
     }
 
     let mut lines = editor_lines(app.input.as_str(), inner.width);
+    let (mut row, col) = cursor_xy(&app.input, app.cursor, inner.width as usize);
     if lines.len() > inner.height as usize {
         let skip = lines.len() - inner.height as usize;
         lines = lines[skip..].to_vec();
+        row = row.saturating_sub(skip as u16);
     }
-    let last_w = lines.last().map(|s| s.chars().count() as u16).unwrap_or(0);
-    let last_row = lines.len().saturating_sub(1) as u16;
     let styled: Vec<Line> = lines
         .into_iter()
         .map(|s| Line::from(Span::styled(s, Style::default().fg(splash::BONE))))
         .collect();
     frame.render_widget(Paragraph::new(styled), inner);
 
-    let cursor_x = inner.x + last_w.min(inner.width.saturating_sub(1));
-    let cursor_y = inner.y + last_row.min(inner.height.saturating_sub(1));
+    let cursor_x = inner.x + col.min(inner.width.saturating_sub(1));
+    let cursor_y = inner.y + row.min(inner.height.saturating_sub(1));
     frame.set_cursor_position((cursor_x, cursor_y));
 }
 
