@@ -79,7 +79,7 @@ Top to bottom:
 4. **Editor** — top **and** bottom rules, char-wrap, grows/shrinks (max 8 lines), real cursor
 5. **Footer (2 lines)** — cwd; then `↑in ↓out R W pct/window` left and `(provider) model • off` right
 
-Readline: Ctrl+W / Alt+Backspace word-kill, Ctrl+U/K, Ctrl+A/E, arrows, Alt+B/F, Delete. **Ctrl+C quits** (not clear). Esc aborts a turn or clears the editor.
+Readline: Ctrl+W / Alt+Backspace word-kill, Ctrl+U/K, Ctrl+A/E, arrows, Alt+B/F, Delete. Enter sends. Shift+Enter / Ctrl+J insert a newline. **Ctrl+C quits** (not clear). Esc aborts a turn or clears the editor.
 
 `/` opens command completion under the editor. Tab / ↑↓ cycle; Enter accepts (runs, except `/name` which stays in the editor). `/q` is a hidden quit alias.
 

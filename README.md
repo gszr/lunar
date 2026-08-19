@@ -28,6 +28,7 @@ The model has `read`, `write`, `edit`, and `bash`. Esc aborts a turn and kills b
 | | |
 |---|---|
 | Enter | send |
+| Shift+Enter / Ctrl+J | newline |
 | Esc | abort / clear |
 | Ctrl+C | quit |
 | `/quit` | quit |

@@ -13,7 +13,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+};
+use ratatui::crossterm::execute;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -104,6 +108,7 @@ fn main() -> io::Result<()> {
         .skip(1)
         .any(|a| a == "-c" || a == "--continue");
     let mut terminal = ratatui::init();
+    enable_enhanced_keys();
     let mut app = App {
         input: String::new(),
         cursor: 0,
@@ -130,8 +135,30 @@ fn main() -> io::Result<()> {
         app.notice = prompt::budget_warning();
     }
     let result = run(&mut terminal, &mut app);
-    ratatui::restore();
+    restore_terminal();
     result
+}
+
+/// Shift+Enter is `\r` unless the terminal reports modifiers (kitty keyboard protocol).
+fn enable_enhanced_keys() {
+    let _ = execute!(
+        io::stdout(),
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+    );
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        pop_enhanced_keys();
+        hook(info);
+    }));
+}
+
+fn pop_enhanced_keys() {
+    let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
+}
+
+fn restore_terminal() {
+    pop_enhanced_keys();
+    ratatui::restore();
 }
 
 fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
@@ -382,11 +409,17 @@ fn on_key(app: &mut App, key: KeyEvent) {
             app.cursor = from;
             app.complete_sel = 0;
         }
+        (m, KeyCode::Enter)
+            if m.contains(KeyModifiers::SHIFT) || m.contains(KeyModifiers::CONTROL) =>
+        {
+            insert_input(app, '\n');
+        }
+        (KeyModifiers::CONTROL, KeyCode::Char('j')) | (_, KeyCode::Char('\n')) => {
+            insert_input(app, '\n');
+        }
         (_, KeyCode::Enter) => submit(app),
         (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
-            app.input.insert(app.cursor, c);
-            app.cursor += c.len_utf8();
-            app.complete_sel = 0;
+            insert_input(app, c);
         }
         _ => {}
     }
@@ -406,12 +439,18 @@ fn on_complete_key(app: &mut App, key: KeyEvent) -> bool {
             app.complete_sel = commands::cycle(app.complete_sel, n, -1);
             true
         }
-        (_, KeyCode::Enter) => {
+        (m, KeyCode::Enter) if m.is_empty() => {
             accept_complete(app);
             true
         }
         _ => false,
     }
+}
+
+fn insert_input(app: &mut App, c: char) {
+    app.input.insert(app.cursor, c);
+    app.cursor += c.len_utf8();
+    app.complete_sel = 0;
 }
 
 fn accept_complete(app: &mut App) {
@@ -498,7 +537,7 @@ fn submit(app: &mut App) {
         "/quit" | "/q" => app.quit = true,
         "/help" => {
             app.notice = Some(
-                "/quit /new /resume /name /session /context /help    tab cycle    esc abort    ctrl+c quits"
+                "/quit /new /resume /name /session /context /help    tab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits"
                     .into(),
             );
         }
@@ -702,17 +741,23 @@ fn char_wrap(text: &str, width: usize) -> Vec<String> {
         return vec![text.to_string()];
     }
     let mut lines = Vec::new();
-    let mut current = String::new();
-    let mut cols = 0;
-    for c in text.chars() {
-        if cols == width {
-            lines.push(std::mem::take(&mut current));
-            cols = 0;
+    for paragraph in text.split('\n') {
+        if paragraph.is_empty() {
+            lines.push(String::new());
+            continue;
         }
-        current.push(c);
-        cols += 1;
+        let mut current = String::new();
+        let mut cols = 0;
+        for c in paragraph.chars() {
+            if cols == width {
+                lines.push(std::mem::take(&mut current));
+                cols = 0;
+            }
+            current.push(c);
+            cols += 1;
+        }
+        lines.push(current);
     }
-    lines.push(current);
     if lines.is_empty() {
         lines.push(String::new());
     }
@@ -723,8 +768,15 @@ fn cursor_xy(text: &str, cursor: usize, width: usize) -> (u16, u16) {
     if width == 0 {
         return (0, 0);
     }
-    let chars = text[..cursor.min(text.len())].chars().count();
-    ((chars / width) as u16, (chars % width) as u16)
+    let prefix = &text[..cursor.min(text.len())];
+    let lines = char_wrap(prefix, width);
+    let row = lines.len().saturating_sub(1) as u16;
+    let col = lines.last().map(|l| l.chars().count() as u16).unwrap_or(0);
+    if col as usize == width {
+        (row + 1, 0)
+    } else {
+        (row, col)
+    }
 }
 
 fn editor_height(input: &str, cursor: usize, width: u16) -> u16 {
@@ -1054,6 +1106,90 @@ fn spread(mut left: Vec<Span<'static>>, right: Span<'static>, width: u16) -> Par
     left.push(Span::raw(" ".repeat(gap as usize)));
     left.push(right);
     Paragraph::new(Line::from(left))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_app() -> App {
+        App {
+            input: String::new(),
+            cursor: 0,
+            notice: None,
+            messages: Vec::new(),
+            config: None,
+            stream_rx: None,
+            cancel: None,
+            rounds: 0,
+            usage: Usage::default(),
+            last_prompt: 0,
+            mission: None,
+            mode: Mode::Chat,
+            complete_sel: 0,
+            quit: false,
+        }
+    }
+
+    fn key(modifiers: KeyModifiers, code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, modifiers)
+    }
+
+    #[test]
+    fn shift_enter_inserts_newline() {
+        let mut app = test_app();
+        app.input = "ab".into();
+        app.cursor = 1;
+        on_key(&mut app, key(KeyModifiers::SHIFT, KeyCode::Enter));
+        assert_eq!(app.input, "a\nb");
+        assert_eq!(app.cursor, 2);
+        assert!(app.messages.is_empty());
+    }
+
+    #[test]
+    fn ctrl_j_inserts_newline() {
+        let mut app = test_app();
+        app.input = "hi".into();
+        app.cursor = 2;
+        on_key(&mut app, key(KeyModifiers::CONTROL, KeyCode::Char('j')));
+        assert_eq!(app.input, "hi\n");
+        assert_eq!(app.cursor, 3);
+    }
+
+    #[test]
+    fn enter_still_sends() {
+        let mut app = test_app();
+        app.input = "hi".into();
+        app.cursor = 2;
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Enter));
+        assert_eq!(app.input, "");
+        assert_eq!(app.notice.as_deref(), Some("no model configured"));
+    }
+
+    #[test]
+    fn shift_enter_does_not_accept_completion() {
+        let mut app = test_app();
+        app.input = "/he".into();
+        app.cursor = 3;
+        on_key(&mut app, key(KeyModifiers::SHIFT, KeyCode::Enter));
+        assert_eq!(app.input, "/he\n");
+        assert_eq!(app.notice, None);
+    }
+
+    #[test]
+    fn char_wrap_keeps_hard_newlines() {
+        assert_eq!(char_wrap("ab\ncd", 10), vec!["ab", "cd"]);
+        assert_eq!(char_wrap("hello\n", 10), vec!["hello", ""]);
+        assert_eq!(char_wrap("abcd", 2), vec!["ab", "cd"]);
+        assert_eq!(char_wrap("ab\ncdef", 2), vec!["ab", "cd", "ef"]);
+    }
+
+    #[test]
+    fn cursor_follows_hard_newline() {
+        assert_eq!(cursor_xy("ab\ncd", 3, 10), (1, 0));
+        assert_eq!(cursor_xy("ab\ncd", 5, 10), (1, 2));
+        assert_eq!(cursor_xy("hello", 5, 5), (1, 0));
+    }
 }
 
 fn cwd_label() -> String {
