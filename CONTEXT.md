@@ -10,6 +10,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 - Shallow interfaces, deep implementations. A module hides a lot; its surface stays small.
 - Do not code before asking questions.
 - Small pieces. One vertical slice you can run, then the next.
+- Commits are conventional (`feat:`, `fix:`, `docs:`).
 
 ## Locked decisions
 
@@ -17,75 +18,108 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 |---|---|
 | Product shape | Pi-shaped: Rust is the program, Lua is a guest |
 | Workflow in the binary | None |
-| Extension model | Slots (replaceable parts). Hook bus does **not** ship in v0 |
+| Extension model | Slots (replaceable parts). Hook bus does **not** ship in v0. S only for now |
 | Config | Lua, when present. Exact `setup` table unspecified |
 | Lua load | `~/.lunar/init.lua`, then trusted `.lunar/init.lua`. No auto-load directories |
 | Trust | Project Lua runs only after an explicit trust decision (`trust.json`) |
-| Language | Lua 5.5.1, vendored via `mlua` (`lua55` + `vendored`) |
-| Prompt conventions | Agent Skills + context files (`AGENTS.md` and the usual cousins), including `~/.agents/skills` |
+| Language | Lua 5.5.1, vendored via `mlua` (`lua55` + `vendored`) — **not embedded yet** |
+| Prompt conventions | Agent Skills + context files (`AGENTS.md` and cousins), including `~/.agents/skills` — **not implemented yet** |
+| System prompt | None today. Request is messages + four tool schemas only (~400 tokens of tools) |
 | v0 goal | Daily driver for one user, not ecosystem parity |
-| Model protocol | OpenAI Chat Completions **and** Responses |
-| First brand | xAI (`api.x.ai/v1`). `/login xai` does SuperGrok/X Premium device-code **and** API key |
-| Auth store | `~/.lunar/auth.json`. Env keys still work. Lunar needs its own xAI OAuth client |
-| TUI | `ratatui` + `crossterm`. Pi’s four bands, skeleton chrome |
-| Tools | `read` / `write` / `edit` (old_string/new_string) / `bash`. Default gate = allow |
-| Missions | Linear append-only jsonl, not a tree, not Pi-compatible |
+| Model protocol | Completions **and** Responses. **Only Completions is implemented** |
+| First brand | xAI. Config is env, not a compiled-in brand |
+| Auth | Env for now. `/login xai` (device-code + key → `~/.lunar/auth.json`) is still todo. Own OAuth client; do not steal Pi’s |
+| TUI | `ratatui` + `crossterm` |
+| Tools | `read` / `write` / `edit` (`old_string`/`new_string`) / `bash`. Gate = allow. Bash timeout 60s, Esc kills |
+| Missions | Linear append-only jsonl. Not a tree. Not Pi-compatible |
 | Full context | Warn and refuse submit. No auto-compact. `/compact` only after this hurts |
-| Entry | `lunar` always opens the TUI. No one-shot print mode in v0 |
+| Entry | `lunar` always opens the TUI. No print mode in v0 |
 | Providers in source | None hardcoded. Unconfigured is a valid first run |
-| Look | Pi four bands + OpenCode empty-state. Splash (moon + astronaut) in an empty transcript, then gone. One dark lunar palette. No Pi hotkey novel, no session sidebar |
 
 ## On disk
 
 ```
-~/.lunar/
-  init.lua          -- optional user config
-  lua/              -- package.path, require()d not auto-loaded
-  missions/         -- linear jsonl; cwd is in the file header
-    2026-08-19-1.jsonl
-  trust.json
-  auth.json
+~/.lunar/                    # or $LUNAR_HOME
+  missions/                  # flat; cwd is in the jsonl header
+    2026-08-19-1.jsonl       # date-local N, monotonic for the day
+  init.lua                   # not loaded yet
+  lua/
+  trust.json                 # not used yet
+  auth.json                  # not used yet
 
 .lunar/
-  init.lua          -- project config, after trust
+  init.lua                   # not loaded yet
 ```
 
-`LUNAR_HOME` overrides `~/.lunar`.
+Default mission label is the filename. `/name` overrides. UI shows `mission: <name>`.
 
-## v0 product (day-1 binary)
+## Env (what actually talks)
 
-Something you can live in for a week. Zero Lua files required.
+| | |
+|---|---|
+| `LUNAR_API_KEY` | required to send |
+| `LUNAR_BASE_URL` | required (e.g. `https://api.x.ai/v1`) |
+| `LUNAR_MODEL` | required (e.g. `grok-4.6`) |
+| `LUNAR_PROVIDER` | optional label; else inferred from URL |
+| `LUNAR_CONTEXT_WINDOW` | optional; else inferred for some Grok ids |
+| `LUNAR_HOME` | overrides `~/.lunar` |
 
-- Skeleton TUI, top to bottom: **header** (what loaded) / **messages** / **editor** / **footer** (cwd, mission name, model, tokens used/window)
-- Editor: multiline, `/` commands, paste text, Esc abort, Ctrl+C clear
-- Stream assistant text, tool cards, thinking as collapsed-by-default transcript lines
-- xAI login + static Grok model list + `/model` among those ids
-- Four tools, allow-all gate, bash has a timeout, no background jobs
-- Skills + context files in the default prompt (progressive disclosure)
-- Missions: `/new`, `/resume`, `/name`, `lunar -c` continues last mission for this cwd
-- Commands: `/quit` `/new` `/resume` `/name` `/model` `/session` `/reload` `/trust` `/help` `/login` `/logout`
-- Full window: footer warning, submit refused
-- Optional `init.lua` may overlay setup (model id, etc.). Slot *replacement* from Lua is not v0
+## TUI (what is on screen)
 
-### TUI is not
+Top to bottom:
 
-Replaceable editor, overlays, status-line kit, `@` file picker, `!` bash, message queue, image paste, thinking-level border as a feature, `terminal.lua` as the glass.
+1. **Header (1 line)** — `lunar <ver>` left, `mission: <name>` right
+2. **Transcript** — empty state is the Lua-logo moon (disk + gold satellite), not an astronaut. After the first **prompt** (not `/help`), splash goes away
+   - User: Pi `#343541` bar, `#d4d4d4` text, 1-cell pad
+   - Thinking: 3-line italic ash preview + `...` (from `reasoning_content` / `reasoning` / `reasoning_text`). Not persisted
+   - Tools: green card, title + 8 lines of result
+   - Assistant: bone prose, gold headings, fenced code as a dim block
+3. **Working** — `⠋ Thinking...` while a turn is in flight
+4. **Editor** — top **and** bottom rules, char-wrap, grows/shrinks (max 8 lines), real cursor
+5. **Footer (2 lines)** — cwd; then `↑in ↓out R W pct/window` left and `(provider) model • off` right
 
-## Slots (foundation, Rust-filled in v0)
+Readline: Ctrl+W / Alt+Backspace word-kill, Ctrl+U/K, Ctrl+A/E, arrows, Alt+B/F, Delete. **Ctrl+C quits** (not clear). Esc aborts a turn or clears the editor.
+
+`/resume` is j/k + enter. `lunar -c` / `--continue` loads the latest mission for this cwd.
+
+## Shipped vs not
+
+**Shipped**
+
+- Glass, Completions stream, reused HTTP agent, no global timeout
+- Four tools + continue-after-tools (20-round cap)
+- Missions: `/new` `/resume` `/name` `/session`, `-c`
+- Token stats + refuse submit when last prompt ≥ window
+- Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/name` `/session`
+
+**Not shipped (still v0 intent)**
+
+- Skills + `AGENTS.md` in the prompt
+- `/login` `/logout` `/model` `/reload` `/trust`
+- Responses API
+- Lua 5.5 embed / `init.lua`
+- Thinking level (footer says `off` and it is not wired)
+- Cost in the footer, git branch, `$` prices
+- `/compact`
+
+## Slots (foundation, Rust-filled)
 
 `model` · `tools` · `prompt` · `compact` · `session` · `ui` · `gate` · `commands` · `keys`
 
-New customization = a new named slot, not an event. Lua fill comes after the binary is livable. `ui` must not leak `ratatui` types.
+These are a *list*, not a trait hierarchy in the code. Do not introduce one until Lua replaces a slot. `ui` must not leak `ratatui` types.
 
 ## Not v0
 
-Package manager, print/RPC/SDK, Pi session compatibility, provider zoo, themes, prompt templates, `/tree` `/fork` `/clone`, auto-compact, hook bus (`on`), `terminal.lua` UI, stealing Pi’s xAI OAuth client id as a product strategy.
+Package manager, print/RPC/SDK, Pi session compatibility, provider zoo, themes, prompt templates, `/tree` `/fork` `/clone`, auto-compact, hook bus (`on`), `terminal.lua` as the glass, stealing Pi’s xAI OAuth client id.
 
-## Implementation order
+## Next slices (recommended order)
 
-1. Host loop + Completions/Responses stream + xAI auth (key + device-code)
-2. Four tools + linear missions + skeleton TUI
-3. Skills/context prompt + trust + `-c` + context meter + warn-and-stop
-4. Optional Lua 5.5 loader for `init.lua` setup only
-5. After the window hurts: dumb `/compact`
-6. After you live in it: Lua slot replacement, then maybe a tiny lifecycle bus
+1. Skills + context files in the default prompt
+2. `/login xai` (device-code + API key)
+3. Responses, if you actually use a Responses-only id
+4. Lua loader for `init.lua` setup only
+5. Dumb `/compact` after the window hurts
+
+## Layout in the repo
+
+`src/main.rs` app/TUI · `complete.rs` HTTP · `tools.rs` four tools · `mission.rs` jsonl · `render.rs` transcript paint · `splash.rs` art + colors
