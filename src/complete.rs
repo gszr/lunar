@@ -83,6 +83,7 @@ pub struct ToolResult {
 
 pub enum StreamEvent {
     Delta(String),
+    Think(String),
     Tools(Vec<ToolCall>),
     ToolResults(Vec<ToolResult>),
     Done,
@@ -154,6 +155,16 @@ fn stream_inner(
             && !text.is_empty()
         {
             let _ = tx.send(StreamEvent::Delta(text.to_string()));
+        }
+        for field in ["reasoning_content", "reasoning", "reasoning_text"] {
+            if let Some(text) = value
+                .pointer(&format!("/choices/0/delta/{field}"))
+                .and_then(Value::as_str)
+                && !text.is_empty()
+            {
+                let _ = tx.send(StreamEvent::Think(text.to_string()));
+                break;
+            }
         }
         if let Some(chunks) = value
             .pointer("/choices/0/delta/tool_calls")

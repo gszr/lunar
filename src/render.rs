@@ -1,6 +1,6 @@
 //! Transcript paint. User bar, tool cards, light markdown.
 
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::splash;
@@ -11,6 +11,29 @@ pub fn user_bar(text: &str, width: usize) -> Vec<Line<'static>> {
     wrap(text, width)
         .into_iter()
         .map(|s| fill(&s, width, splash::BONE, splash::BAR))
+        .collect()
+}
+
+const THINK_LINES: usize = 3;
+
+pub fn thinking_preview(text: &str, width: usize) -> Vec<Line<'static>> {
+    let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut wrapped = wrap(&flat, width);
+    if wrapped.len() > THINK_LINES {
+        wrapped.truncate(THINK_LINES);
+        if let Some(last) = wrapped.last_mut() {
+            const ELLIP: &str = "...";
+            let max = width.saturating_sub(ELLIP.len());
+            let cut: String = last.chars().take(max).collect();
+            *last = format!("{cut}{ELLIP}");
+        }
+    }
+    let style = Style::default()
+        .fg(splash::ASH)
+        .add_modifier(Modifier::ITALIC);
+    wrapped
+        .into_iter()
+        .map(|s| Line::from(Span::styled(s, style)))
         .collect()
 }
 

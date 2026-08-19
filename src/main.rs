@@ -46,6 +46,7 @@ enum Mode {
 struct Message {
     role: Role,
     text: String,
+    thinking: String,
     tool_calls: Vec<ToolCall>,
     tool_id: String,
     tool_title: String,
@@ -62,6 +63,7 @@ impl Message {
         Self {
             role: Role::User,
             text,
+            thinking: String::new(),
             tool_calls: Vec::new(),
             tool_id: String::new(),
             tool_title: String::new(),
@@ -72,6 +74,7 @@ impl Message {
         Self {
             role: Role::Assistant,
             text: String::new(),
+            thinking: String::new(),
             tool_calls: Vec::new(),
             tool_id: String::new(),
             tool_title: String::new(),
@@ -82,6 +85,7 @@ impl Message {
         Self {
             role: Role::Tool,
             text: content,
+            thinking: String::new(),
             tool_calls: Vec::new(),
             tool_id: id,
             tool_title: title,
@@ -152,6 +156,13 @@ fn drain_stream(app: &mut App) {
                     last.text.push_str(&text);
                 }
             }
+            StreamEvent::Think(text) => {
+                if let Some(last) = app.messages.last_mut()
+                    && matches!(last.role, Role::Assistant)
+                {
+                    last.thinking.push_str(&text);
+                }
+            }
             other => {
                 end = Some(other);
                 break;
@@ -180,7 +191,7 @@ fn finish_stream(app: &mut App, end: StreamEvent) {
             pop_empty_assistant(app);
             app.notice = Some(err);
         }
-        StreamEvent::Delta(_) => {}
+        StreamEvent::Delta(_) | StreamEvent::Think(_) => {}
     }
 }
 
@@ -190,9 +201,10 @@ fn pop_empty_assistant(app: &mut App) {
         Some(Message {
             role: Role::Assistant,
             text,
+            thinking,
             tool_calls,
             ..
-        }) if text.is_empty() && tool_calls.is_empty()
+        }) if text.is_empty() && thinking.is_empty() && tool_calls.is_empty()
     ) {
         app.messages.pop();
     }
@@ -553,7 +565,7 @@ fn draw_messages(frame: &mut Frame, area: Rect, app: &App) {
     let mut lines: Vec<Line> = Vec::new();
     let mut prev_tool = false;
     for msg in &app.messages {
-        if matches!(msg.role, Role::Assistant) && msg.text.is_empty() {
+        if matches!(msg.role, Role::Assistant) && msg.text.is_empty() && msg.thinking.is_empty() {
             continue;
         }
         let is_tool = matches!(msg.role, Role::Tool);
@@ -562,7 +574,17 @@ fn draw_messages(frame: &mut Frame, area: Rect, app: &App) {
         }
         match msg.role {
             Role::User => lines.extend(render::user_bar(&msg.text, width)),
-            Role::Assistant => lines.extend(render::assistant(&msg.text, width)),
+            Role::Assistant => {
+                if !msg.thinking.is_empty() {
+                    lines.extend(render::thinking_preview(&msg.thinking, width));
+                    if !msg.text.is_empty() {
+                        lines.push(Line::from(""));
+                    }
+                }
+                if !msg.text.is_empty() {
+                    lines.extend(render::assistant(&msg.text, width));
+                }
+            }
             Role::Tool => lines.extend(render::tool_card(&msg.tool_title, &msg.text, width)),
         }
         prev_tool = is_tool;
