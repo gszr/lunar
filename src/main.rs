@@ -18,7 +18,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 
-use complete::{ChatMessage, Config, StreamEvent, ToolCall, ToolResult};
+use complete::{ChatMessage, Config, StreamEvent, ToolCall, ToolResult, Usage};
 
 const MAX_ROUNDS: u32 = 20;
 
@@ -31,6 +31,8 @@ struct App {
     stream_rx: Option<Receiver<StreamEvent>>,
     cancel: Option<Arc<AtomicBool>>,
     rounds: u32,
+    usage: Usage,
+    last_prompt: u32,
     mission: Option<mission::Mission>,
     mode: Mode,
     quit: bool,
@@ -108,6 +110,8 @@ fn main() -> io::Result<()> {
         stream_rx: None,
         cancel: None,
         rounds: 0,
+        usage: Usage::default(),
+        last_prompt: 0,
         mission: None,
         mode: Mode::Chat,
         quit: false,
@@ -165,6 +169,10 @@ fn drain_stream(app: &mut App) {
                     last.thinking.push_str(&text);
                 }
             }
+            StreamEvent::Usage(usage) => {
+                app.usage.add(usage);
+                app.last_prompt = usage.prompt();
+            }
             other => {
                 end = Some(other);
                 break;
@@ -193,7 +201,7 @@ fn finish_stream(app: &mut App, end: StreamEvent) {
             pop_empty_assistant(app);
             app.notice = Some(err);
         }
-        StreamEvent::Delta(_) | StreamEvent::Think(_) => {}
+        StreamEvent::Delta(_) | StreamEvent::Think(_) | StreamEvent::Usage(_) => {}
     }
 }
 
@@ -482,6 +490,8 @@ fn new_mission(app: &mut App) {
     }
     app.messages.clear();
     app.mission = None;
+    app.usage = Usage::default();
+    app.last_prompt = 0;
     app.notice = Some("new mission".into());
 }
 
@@ -551,6 +561,8 @@ fn load_mission(app: &mut App, path: &std::path::Path) {
                 })
                 .collect();
             app.mission = Some(loaded);
+            app.usage = Usage::default();
+            app.last_prompt = 0;
             app.notice = None;
         }
         Err(err) => app.notice = Some(format!("resume: {err}")),
@@ -560,6 +572,13 @@ fn load_mission(app: &mut App, path: &std::path::Path) {
 fn send_prompt(app: &mut App, line: String) {
     if app.config.is_none() {
         app.notice = Some("no model configured".into());
+        return;
+    }
+    if let Some(window) = app.config.as_ref().and_then(Config::context_window)
+        && window > 0
+        && app.last_prompt >= window
+    {
+        app.notice = Some("context window full".into());
         return;
     }
     app.notice = None;
@@ -655,7 +674,7 @@ fn draw(frame: &mut Frame, app: &App) {
             Constraint::Min(0),
             Constraint::Length(working),
             Constraint::Length(ed_h),
-            Constraint::Length(1),
+            Constraint::Length(2),
         ])
         .split(frame.area());
 
@@ -823,15 +842,61 @@ fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
-    let left = Span::styled(cwd_label(), Style::default().fg(splash::ASH));
-    let right = match &app.config {
-        Some(cfg) => Span::styled(
-            format!("({}) {} • {}", cfg.provider(), cfg.model, "off"),
-            Style::default().fg(splash::DUST),
-        ),
-        None => Span::styled("no model", Style::default().fg(splash::DUST)),
+    let cwd = Line::from(Span::styled(cwd_label(), Style::default().fg(splash::DUST)));
+    let stats = stats_line(app);
+    let model = match &app.config {
+        Some(cfg) => format!("({}) {} • {}", cfg.provider(), cfg.model, "off"),
+        None => "no model".into(),
     };
-    frame.render_widget(spread(vec![left], right, area.width), area);
+    let stats_row = spread(
+        vec![Span::styled(stats, Style::default().fg(splash::DUST))],
+        Span::styled(model, Style::default().fg(splash::DUST)),
+        area.width,
+    );
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Length(1)])
+        .split(area);
+    frame.render_widget(Paragraph::new(cwd), chunks[0]);
+    frame.render_widget(stats_row, chunks[1]);
+}
+
+fn stats_line(app: &App) -> String {
+    let mut parts = Vec::new();
+    if app.usage.input > 0 {
+        parts.push(format!("↑{}", format_tokens(app.usage.input)));
+    }
+    if app.usage.output > 0 {
+        parts.push(format!("↓{}", format_tokens(app.usage.output)));
+    }
+    if app.usage.cache_read > 0 {
+        parts.push(format!("R{}", format_tokens(app.usage.cache_read)));
+    }
+    if app.usage.cache_write > 0 {
+        parts.push(format!("W{}", format_tokens(app.usage.cache_write)));
+    }
+    if let Some(window) = app.config.as_ref().and_then(Config::context_window)
+        && window > 0
+        && app.last_prompt > 0
+    {
+        let pct = (f64::from(app.last_prompt) / f64::from(window)) * 100.0;
+        parts.push(format!("{pct:.1}%/{}", format_tokens(window)));
+    }
+    parts.join(" ")
+}
+
+fn format_tokens(count: u32) -> String {
+    if count < 1000 {
+        count.to_string()
+    } else if count < 10_000 {
+        format!("{:.1}k", f64::from(count) / 1000.0)
+    } else if count < 1_000_000 {
+        format!("{}k", (count + 500) / 1000)
+    } else if count < 10_000_000 {
+        format!("{:.1}M", f64::from(count) / 1_000_000.0)
+    } else {
+        format!("{}M", (count + 500_000) / 1_000_000)
+    }
 }
 
 fn spread(mut left: Vec<Span<'static>>, right: Span<'static>, width: u16) -> Paragraph<'static> {

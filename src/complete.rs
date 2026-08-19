@@ -28,6 +28,22 @@ impl Config {
         })
     }
 
+    pub fn context_window(&self) -> Option<u32> {
+        if let Some(n) = nonempty("LUNAR_CONTEXT_WINDOW").and_then(|s| s.parse().ok()) {
+            return Some(n);
+        }
+        let id = self.model.as_str();
+        if id.contains("grok-4.6") || id.contains("grok-4.5") {
+            Some(500_000)
+        } else if id.contains("grok-4.3") {
+            Some(1_000_000)
+        } else if id.contains("grok-build") {
+            Some(256_000)
+        } else {
+            None
+        }
+    }
+
     pub fn provider(&self) -> String {
         if let Some(name) = nonempty("LUNAR_PROVIDER") {
             return name;
@@ -107,9 +123,31 @@ pub struct ToolResult {
     pub content: String,
 }
 
+#[derive(Clone, Copy, Default)]
+pub struct Usage {
+    pub input: u32,
+    pub output: u32,
+    pub cache_read: u32,
+    pub cache_write: u32,
+}
+
+impl Usage {
+    pub fn add(&mut self, other: Usage) {
+        self.input += other.input;
+        self.output += other.output;
+        self.cache_read += other.cache_read;
+        self.cache_write += other.cache_write;
+    }
+
+    pub fn prompt(&self) -> u32 {
+        self.input + self.cache_read + self.cache_write
+    }
+}
+
 pub enum StreamEvent {
     Delta(String),
     Think(String),
+    Usage(Usage),
     Tools(Vec<ToolCall>),
     ToolResults(Vec<ToolResult>),
     Done,
@@ -137,6 +175,7 @@ fn stream_inner(
     let body = json!({
         "model": cfg.model,
         "stream": true,
+        "stream_options": { "include_usage": true },
         "tools": tools::definitions(),
         "messages": messages.iter().map(ChatMessage::to_json).collect::<Vec<_>>(),
     })
@@ -150,6 +189,7 @@ fn stream_inner(
         .map_err(|e| e.to_string())?;
 
     let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();
+    let mut usage = None;
     let reader = BufReader::new(response.body_mut().as_reader());
     for line in reader.lines() {
         if cancel.load(Ordering::Relaxed) {
@@ -168,6 +208,9 @@ fn stream_inner(
             break;
         }
         let value: Value = serde_json::from_str(data).map_err(|e| e.to_string())?;
+        if let Some(parsed) = parse_usage(&value) {
+            usage = Some(parsed);
+        }
         if let Some(err) = value.get("error") {
             let msg = err
                 .get("message")
@@ -216,6 +259,9 @@ fn stream_inner(
         }
     }
 
+    if let Some(usage) = usage {
+        let _ = tx.send(StreamEvent::Usage(usage));
+    }
     let calls: Vec<ToolCall> = calls
         .into_iter()
         .map(|(index, mut call)| {
@@ -244,6 +290,36 @@ fn agent() -> Agent {
                 .into()
         })
         .clone()
+}
+
+fn parse_usage(value: &Value) -> Option<Usage> {
+    let usage = value.get("usage")?;
+    if usage.is_null() {
+        return None;
+    }
+    let num = |v: &Value, keys: &[&str]| -> u32 {
+        for key in keys {
+            if let Some(n) = v.get(*key).and_then(Value::as_u64) {
+                return n as u32;
+            }
+        }
+        0
+    };
+    let details = usage.get("prompt_tokens_details");
+    let cache_read = details
+        .and_then(|d| d.get("cached_tokens").and_then(Value::as_u64))
+        .unwrap_or_else(|| u64::from(num(usage, &["cache_read_tokens", "cached_tokens"])))
+        as u32;
+    let cache_write = details
+        .and_then(|d| d.get("cache_creation_tokens").and_then(Value::as_u64))
+        .unwrap_or_else(|| u64::from(num(usage, &["cache_write_tokens", "cache_creation_tokens"])))
+        as u32;
+    Some(Usage {
+        input: num(usage, &["prompt_tokens", "input_tokens"]),
+        output: num(usage, &["completion_tokens", "output_tokens"]),
+        cache_read,
+        cache_write,
+    })
 }
 
 fn nonempty(key: &str) -> Option<String> {
