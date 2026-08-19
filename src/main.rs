@@ -497,15 +497,31 @@ fn api_history(messages: &[Message]) -> Vec<ChatMessage> {
         .collect()
 }
 
+const EDITOR_MAX_LINES: u16 = 8;
+
+fn editor_lines(input: &str, width: u16) -> Vec<String> {
+    let inner = width.max(1) as usize;
+    let mut lines = render::wrap(input, inner);
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
+fn editor_height(input: &str, width: u16) -> u16 {
+    (editor_lines(input, width).len() as u16).min(EDITOR_MAX_LINES) + 2
+}
+
 fn draw(frame: &mut Frame, app: &App) {
     let working = u16::from(app.cancel.is_some());
+    let ed_h = editor_height(app.input.as_str(), frame.area().width);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(2),
             Constraint::Min(0),
             Constraint::Length(working),
-            Constraint::Length(3),
+            Constraint::Length(ed_h),
             Constraint::Length(1),
         ])
         .split(frame.area());
@@ -651,21 +667,30 @@ fn draw_splash(frame: &mut Frame, area: Rect, app: &App) {
 
 fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
     let block = Block::default()
-        .borders(Borders::TOP)
+        .borders(Borders::TOP | Borders::BOTTOM)
         .border_style(Style::default().fg(splash::DUST));
     let inner = block.inner(area);
     frame.render_widget(block, area);
-
-    let prompt = Paragraph::new(Line::from(Span::styled(
-        app.input.as_str(),
-        Style::default().fg(splash::BONE),
-    )));
-    frame.render_widget(prompt, inner);
-
-    let cursor_x = inner.x + app.input.chars().count() as u16;
-    if cursor_x < inner.x + inner.width && inner.height > 0 {
-        frame.set_cursor_position((cursor_x, inner.y));
+    if inner.height == 0 {
+        return;
     }
+
+    let mut lines = editor_lines(app.input.as_str(), inner.width);
+    if lines.len() > inner.height as usize {
+        let skip = lines.len() - inner.height as usize;
+        lines = lines[skip..].to_vec();
+    }
+    let last_w = lines.last().map(|s| s.chars().count() as u16).unwrap_or(0);
+    let last_row = lines.len().saturating_sub(1) as u16;
+    let styled: Vec<Line> = lines
+        .into_iter()
+        .map(|s| Line::from(Span::styled(s, Style::default().fg(splash::BONE))))
+        .collect();
+    frame.render_widget(Paragraph::new(styled), inner);
+
+    let cursor_x = inner.x + last_w.min(inner.width.saturating_sub(1));
+    let cursor_y = inner.y + last_row.min(inner.height.saturating_sub(1));
+    frame.set_cursor_position((cursor_x, cursor_y));
 }
 
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {

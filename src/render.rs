@@ -8,10 +8,16 @@ use crate::splash;
 const TOOL_PREVIEW: usize = 8;
 
 pub fn user_bar(text: &str, width: usize) -> Vec<Line<'static>> {
-    wrap(text, width)
-        .into_iter()
-        .map(|s| fill(&s, width, splash::BONE, splash::BAR))
-        .collect()
+    let inner = width.saturating_sub(2);
+    let mut lines = vec![fill("", width, splash::USER, splash::BAR)];
+    for s in wrap(text, inner) {
+        lines.push(fill(&format!(" {s}"), width, splash::USER, splash::BAR));
+    }
+    if lines.len() == 1 {
+        lines.push(fill(" ", width, splash::USER, splash::BAR));
+    }
+    lines.push(fill("", width, splash::USER, splash::BAR));
+    lines
 }
 
 const THINK_LINES: usize = 3;

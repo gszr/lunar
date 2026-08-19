@@ -13,8 +13,9 @@ pub const BONE: Color = Color::Rgb(0xE8, 0xE2, 0xD2);
 pub const ASH: Color = Color::Rgb(0x8A, 0x86, 0x80);
 /// Quiet labels.
 pub const DUST: Color = Color::Rgb(0x5C, 0x58, 0x52);
-/// User-turn strip, Pi-style.
-pub const BAR: Color = Color::Rgb(0x3A, 0x38, 0x36);
+/// User-turn strip (Pi dark theme).
+pub const BAR: Color = Color::Rgb(0x34, 0x35, 0x41);
+pub const USER: Color = Color::Rgb(0xD4, 0xD4, 0xD4);
 /// Tool card, Pi green.
 pub const TOOL_BG: Color = Color::Rgb(0x1C, 0x28, 0x20);
 pub const TOOL_FG: Color = Color::Rgb(0x9A, 0xB8, 0xA0);
