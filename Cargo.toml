@@ -7,3 +7,5 @@ license = "MIT"
 
 [dependencies]
 ratatui = "0.30"
+serde_json = "1.0.151"
+ureq = "3"

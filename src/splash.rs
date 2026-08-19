@@ -13,6 +13,8 @@ pub const BONE: Color = Color::Rgb(0xE8, 0xE2, 0xD2);
 pub const ASH: Color = Color::Rgb(0x8A, 0x86, 0x80);
 /// Quiet labels.
 pub const DUST: Color = Color::Rgb(0x5C, 0x58, 0x52);
+/// User-turn strip, Pi-style.
+pub const BAR: Color = Color::Rgb(0x3A, 0x38, 0x36);
 
 const RAW: &str = r#"
            +                  +
