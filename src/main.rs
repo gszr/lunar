@@ -1,4 +1,5 @@
 mod complete;
+mod mission;
 mod render;
 mod splash;
 mod tools;
@@ -29,7 +30,17 @@ struct App {
     stream_rx: Option<Receiver<StreamEvent>>,
     cancel: Option<Arc<AtomicBool>>,
     rounds: u32,
+    mission: Option<mission::Mission>,
+    mode: Mode,
     quit: bool,
+}
+
+enum Mode {
+    Chat,
+    Resume {
+        items: Vec<mission::Meta>,
+        cursor: usize,
+    },
 }
 
 struct Message {
@@ -79,6 +90,9 @@ impl Message {
 }
 
 fn main() -> io::Result<()> {
+    let resume_last = std::env::args()
+        .skip(1)
+        .any(|a| a == "-c" || a == "--continue");
     let mut terminal = ratatui::init();
     let mut app = App {
         input: String::new(),
@@ -88,8 +102,16 @@ fn main() -> io::Result<()> {
         stream_rx: None,
         cancel: None,
         rounds: 0,
+        mission: None,
+        mode: Mode::Chat,
         quit: false,
     };
+    if resume_last {
+        match mission::list()?.into_iter().next() {
+            Some(meta) => load_mission(&mut app, &meta.path),
+            None => app.notice = Some("no missions in this directory".into()),
+        }
+    }
     let result = run(&mut terminal, &mut app);
     ratatui::restore();
     result
@@ -146,11 +168,13 @@ fn finish_stream(app: &mut App, end: StreamEvent) {
         StreamEvent::Tools(calls) => begin_tools(app, calls),
         StreamEvent::ToolResults(results) => apply_tool_results(app, results),
         StreamEvent::Done => {
+            persist_last_assistant(app);
             app.stream_rx = None;
             app.cancel = None;
             pop_empty_assistant(app);
         }
         StreamEvent::Failed(err) => {
+            persist_last_assistant(app);
             app.stream_rx = None;
             app.cancel = None;
             pop_empty_assistant(app);
@@ -180,6 +204,7 @@ fn begin_tools(app: &mut App, calls: Vec<ToolCall>) {
     {
         last.tool_calls = calls.clone();
     }
+    persist_last_assistant(app);
     let Some(cancel) = app.cancel.clone() else {
         return;
     };
@@ -214,6 +239,10 @@ fn apply_tool_results(app: &mut App, results: Vec<ToolResult>) {
         return;
     }
     for result in results {
+        persist_value(
+            app,
+            &mission::tool_line(&result.id, &result.title, &result.content),
+        );
         app.messages
             .push(Message::tool(result.id, result.title, result.content));
     }
@@ -228,6 +257,31 @@ fn apply_tool_results(app: &mut App, results: Vec<ToolResult>) {
 }
 
 fn on_key(app: &mut App, key: KeyEvent) {
+    if let Mode::Resume { items, cursor } = &app.mode {
+        let len = items.len();
+        let cursor = *cursor;
+        match key.code {
+            KeyCode::Esc => app.mode = Mode::Chat,
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let Mode::Resume { cursor, .. } = &mut app.mode {
+                    *cursor = cursor.saturating_sub(1);
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let Mode::Resume { cursor, .. } = &mut app.mode {
+                    *cursor = (*cursor + 1).min(len.saturating_sub(1));
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(meta) = items.get(cursor).cloned() {
+                    app.mode = Mode::Chat;
+                    load_mission(app, &meta.path);
+                }
+            }
+            _ => {}
+        }
+        return;
+    }
     match (key.modifiers, key.code) {
         (KeyModifiers::CONTROL, KeyCode::Char('c')) => app.quit = true,
         (_, KeyCode::Esc) => {
@@ -258,12 +312,130 @@ fn submit(app: &mut App) {
     match line.as_str() {
         "/quit" | "/q" => app.quit = true,
         "/help" => {
-            app.notice = Some("/quit  /help    esc abort/clear    ctrl+c quits".into());
+            app.notice =
+                Some("/quit /new /resume /name /session /help    esc abort    ctrl+c quits".into());
         }
+        "/new" => new_mission(app),
+        "/resume" => open_resume(app),
+        "/session" => show_session(app),
+        cmd if let Some(name) = cmd.strip_prefix("/name ") => name_mission(app, name),
+        cmd if let Some(prefix) = cmd.strip_prefix("/resume ") => resume_prefix(app, prefix),
         cmd if cmd.starts_with('/') => {
             app.notice = Some(format!("unknown command: {cmd}"));
         }
         _ => send_prompt(app, line),
+    }
+}
+
+fn persist_value(app: &mut App, value: &serde_json::Value) {
+    if app.mission.is_none() {
+        match mission::create() {
+            Ok(m) => app.mission = Some(m),
+            Err(err) => {
+                app.notice = Some(format!("mission: {err}"));
+                return;
+            }
+        }
+    }
+    if let Some(m) = &app.mission
+        && let Err(err) = mission::append(m, value)
+    {
+        app.notice = Some(format!("mission: {err}"));
+    }
+}
+
+fn persist_last_assistant(app: &mut App) {
+    let Some(last) = app.messages.last() else {
+        return;
+    };
+    if !matches!(last.role, Role::Assistant) {
+        return;
+    }
+    if last.text.is_empty() && last.tool_calls.is_empty() {
+        return;
+    }
+    persist_value(app, &mission::assistant_line(&last.text, &last.tool_calls));
+}
+
+fn new_mission(app: &mut App) {
+    if app.cancel.is_some() {
+        return;
+    }
+    app.messages.clear();
+    app.mission = None;
+    app.notice = Some("new mission".into());
+}
+
+fn name_mission(app: &mut App, name: &str) {
+    let name = name.trim();
+    if name.is_empty() {
+        app.notice = Some("usage: /name <text>".into());
+        return;
+    }
+    persist_value(app, &serde_json::json!({ "type": "name", "name": name }));
+    if let Some(m) = &mut app.mission {
+        m.name = Some(name.to_string());
+    }
+}
+
+fn show_session(app: &mut App) {
+    match &app.mission {
+        Some(m) => {
+            let label = m.name.as_deref().unwrap_or(&m.id);
+            app.notice = Some(format!("{label}  {}", m.path.display()));
+        }
+        None => app.notice = Some("no mission yet".into()),
+    }
+}
+
+fn open_resume(app: &mut App) {
+    match mission::list() {
+        Ok(items) if items.is_empty() => app.notice = Some("no missions in this directory".into()),
+        Ok(items) => {
+            app.mode = Mode::Resume { items, cursor: 0 };
+        }
+        Err(err) => app.notice = Some(format!("resume: {err}")),
+    }
+}
+
+fn resume_prefix(app: &mut App, prefix: &str) {
+    let prefix = prefix.trim();
+    match mission::list() {
+        Ok(items) => {
+            if let Some(meta) = items.into_iter().find(|m| {
+                m.id.starts_with(prefix) || m.name.as_deref().is_some_and(|n| n.starts_with(prefix))
+            }) {
+                load_mission(app, &meta.path);
+            } else {
+                app.notice = Some(format!("no mission matching {prefix}"));
+            }
+        }
+        Err(err) => app.notice = Some(format!("resume: {err}")),
+    }
+}
+
+fn load_mission(app: &mut App, path: &std::path::Path) {
+    match mission::load(path) {
+        Ok((loaded, saved)) => {
+            app.messages = saved
+                .into_iter()
+                .map(|s| match s {
+                    mission::Saved::User(text) => Message::user(text),
+                    mission::Saved::Assistant { text, tool_calls } => {
+                        let mut msg = Message::assistant();
+                        msg.text = text;
+                        msg.tool_calls = tool_calls;
+                        msg
+                    }
+                    mission::Saved::Tool { id, title, content } => {
+                        Message::tool(id, title, content)
+                    }
+                })
+                .collect();
+            app.mission = Some(loaded);
+            app.notice = None;
+        }
+        Err(err) => app.notice = Some(format!("resume: {err}")),
     }
 }
 
@@ -274,6 +446,7 @@ fn send_prompt(app: &mut App, line: String) {
     }
     app.notice = None;
     app.rounds = 0;
+    persist_value(app, &mission::user_line(&line));
     app.messages.push(Message::user(line));
     let cancel = Arc::new(AtomicBool::new(false));
     app.cancel = Some(cancel);
@@ -352,9 +525,10 @@ fn draw_working(frame: &mut Frame, area: Rect) {
 
 fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
     let version = env!("CARGO_PKG_VERSION");
-    let status = match &app.config {
-        Some(cfg) => cfg.model.as_str(),
-        None => "no model configured",
+    let status = match (&app.mission, &app.config) {
+        (Some(m), _) => m.name.as_deref().unwrap_or(m.id.as_str()),
+        (None, Some(cfg)) => cfg.model.as_str(),
+        (None, None) => "no model configured",
     };
     let header = Paragraph::new(vec![
         Line::from(vec![
@@ -367,6 +541,10 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_messages(frame: &mut Frame, area: Rect, app: &App) {
+    if let Mode::Resume { items, cursor } = &app.mode {
+        draw_resume(frame, area, items, *cursor);
+        return;
+    }
     if app.messages.is_empty() {
         draw_splash(frame, area, app);
         return;
@@ -398,6 +576,23 @@ fn draw_messages(frame: &mut Frame, area: Rect, app: &App) {
     }
     let skip = lines.len().saturating_sub(area.height as usize);
     frame.render_widget(Paragraph::new(lines[skip..].to_vec()), area);
+}
+
+fn draw_resume(frame: &mut Frame, area: Rect, items: &[mission::Meta], cursor: usize) {
+    let mut lines = vec![Line::from(Span::styled(
+        "resume  j/k  enter  esc",
+        Style::default().fg(splash::ASH),
+    ))];
+    for (i, item) in items.iter().enumerate() {
+        let label = item.name.as_deref().unwrap_or(&item.id);
+        let style = if i == cursor {
+            Style::default().fg(splash::GOLD)
+        } else {
+            Style::default().fg(splash::BONE)
+        };
+        lines.push(Line::from(Span::styled(format!("  {label}"), style)));
+    }
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 fn draw_splash(frame: &mut Frame, area: Rect, app: &App) {
@@ -453,7 +648,13 @@ fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
 
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
     let cwd = cwd_label();
-    let left = Span::styled(cwd, Style::default().fg(splash::ASH));
+    let left = match &app.mission {
+        Some(m) if m.name.is_some() => Span::styled(
+            format!("{cwd}  {}", m.name.as_deref().unwrap()),
+            Style::default().fg(splash::ASH),
+        ),
+        _ => Span::styled(cwd, Style::default().fg(splash::ASH)),
+    };
     let right = match &app.config {
         Some(cfg) => Span::styled(cfg.model.as_str(), Style::default().fg(splash::DUST)),
         None => Span::styled("no model", Style::default().fg(splash::DUST)),

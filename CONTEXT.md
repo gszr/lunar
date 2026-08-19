@@ -41,9 +41,8 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 ~/.lunar/
   init.lua          -- optional user config
   lua/              -- package.path, require()d not auto-loaded
-  missions/         -- linear jsonl, grouped by cwd
-    --Users-gs-Code-lunar/
-      <timestamp>_<id>.jsonl
+  missions/         -- linear jsonl; cwd is in the file header
+    <timestamp>_<id>.jsonl
   trust.json
   auth.json
 

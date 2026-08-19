@@ -31,6 +31,12 @@ The model has `read`, `write`, `edit`, and `bash`. Esc aborts a turn and kills b
 | Esc | abort / clear |
 | Ctrl+C | quit |
 | `/quit` | quit |
+| `/new` | start a new mission |
+| `/resume` | pick a mission in this directory |
+| `/name` | name the current mission |
+| `/session` | show mission path |
 | `/help` | commands |
 
-Missions, `/login`, and Lua config are not in yet.
+Missions are linear jsonl under `~/.lunar/missions/` (or `$LUNAR_HOME`). `lunar -c` continues the last one for this directory.
+
+`/login` and Lua config are not in yet.
