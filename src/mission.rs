@@ -1,9 +1,8 @@
-//! Linear jsonl missions under $LUNAR_HOME/missions/<cwd-slug>/.
+//! Linear jsonl missions under $LUNAR_HOME/missions/ as YYYY-MM-DD-N.jsonl.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
@@ -52,7 +51,7 @@ pub fn create() -> io::Result<Mission> {
     let cwd = std::env::current_dir()?;
     let dir = home().join("missions");
     fs::create_dir_all(&dir)?;
-    let id = new_id();
+    let id = next_id(&dir)?;
     let path = dir.join(format!("{id}.jsonl"));
     let mission = Mission {
         path,
@@ -97,7 +96,10 @@ pub fn list() -> io::Result<Vec<Meta>> {
             items.push(meta);
         }
     }
-    items.sort_by(|a, b| b.id.cmp(&a.id));
+    items.sort_by(|a, b| match (parse_id(&a.id), parse_id(&b.id)) {
+        (Some(x), Some(y)) => y.cmp(&x),
+        _ => b.id.cmp(&a.id),
+    });
     Ok(items)
 }
 
@@ -261,9 +263,60 @@ fn parse_tool_calls(value: &Value) -> Vec<ToolCall> {
         .collect()
 }
 
-fn new_id() -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    format!("{}_{:04x}", now.as_secs(), now.subsec_nanos() % 0xffff)
+impl Mission {
+    pub fn label(&self) -> String {
+        self.name
+            .clone()
+            .unwrap_or_else(|| format!("{}.jsonl", self.id))
+    }
+}
+
+impl Meta {
+    pub fn label(&self) -> String {
+        self.name
+            .clone()
+            .unwrap_or_else(|| format!("{}.jsonl", self.id))
+    }
+}
+
+fn next_id(dir: &Path) -> io::Result<String> {
+    let today = today();
+    let mut max = 0u32;
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if let Some((date, n)) = parse_id(stem)
+                && date == today
+            {
+                max = max.max(n);
+            }
+        }
+    }
+    Ok(format!("{today}-{}", max + 1))
+}
+
+fn parse_id(id: &str) -> Option<(&str, u32)> {
+    let (date, n) = id.rsplit_once('-')?;
+    if date.len() != 10 {
+        return None;
+    }
+    Some((date, n.parse().ok()?))
+}
+
+fn today() -> String {
+    let output = std::process::Command::new("date").arg("+%Y-%m-%d").output();
+    match output {
+        Ok(out) => {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if s.len() == 10 {
+                s
+            } else {
+                "1970-01-01".into()
+            }
+        }
+        Err(_) => "1970-01-01".into(),
+    }
 }

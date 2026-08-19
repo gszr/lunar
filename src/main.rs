@@ -500,8 +500,7 @@ fn name_mission(app: &mut App, name: &str) {
 fn show_session(app: &mut App) {
     match &app.mission {
         Some(m) => {
-            let label = m.name.as_deref().unwrap_or(&m.id);
-            app.notice = Some(format!("{label}  {}", m.path.display()));
+            app.notice = Some(format!("{}  {}", m.label(), m.path.display()));
         }
         None => app.notice = Some("no mission yet".into()),
     }
@@ -687,10 +686,9 @@ fn draw_working(frame: &mut Frame, area: Rect) {
 
 fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
     let version = env!("CARGO_PKG_VERSION");
-    let status = match (&app.mission, &app.config) {
-        (Some(m), _) => m.name.as_deref().unwrap_or(m.id.as_str()),
-        (None, Some(cfg)) => cfg.model.as_str(),
-        (None, None) => "no model configured",
+    let status = match &app.config {
+        Some(cfg) => cfg.model.as_str(),
+        None => "no model configured",
     };
     let header = Paragraph::new(vec![
         Line::from(vec![
@@ -756,7 +754,7 @@ fn draw_resume(frame: &mut Frame, area: Rect, items: &[mission::Meta], cursor: u
         Style::default().fg(splash::ASH),
     ))];
     for (i, item) in items.iter().enumerate() {
-        let label = item.name.as_deref().unwrap_or(&item.id);
+        let label = item.label();
         let style = if i == cursor {
             Style::default().fg(splash::GOLD)
         } else {
@@ -829,16 +827,13 @@ fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
 
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
     let cwd = cwd_label();
-    let left = match &app.mission {
-        Some(m) if m.name.is_some() => Span::styled(
-            format!("{cwd}  {}", m.name.as_deref().unwrap()),
-            Style::default().fg(splash::ASH),
-        ),
-        _ => Span::styled(cwd, Style::default().fg(splash::ASH)),
-    };
-    let right = match &app.config {
-        Some(cfg) => Span::styled(cfg.model.as_str(), Style::default().fg(splash::DUST)),
-        None => Span::styled("no model", Style::default().fg(splash::DUST)),
+    let left = Span::styled(cwd, Style::default().fg(splash::ASH));
+    let right = match &app.mission {
+        Some(m) => Span::styled(m.label(), Style::default().fg(splash::DUST)),
+        None => match &app.config {
+            Some(cfg) => Span::styled(cfg.model.as_str(), Style::default().fg(splash::DUST)),
+            None => Span::styled("no model", Style::default().fg(splash::DUST)),
+        },
     };
     let gap = area
         .width

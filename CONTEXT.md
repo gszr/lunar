@@ -42,7 +42,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
   init.lua          -- optional user config
   lua/              -- package.path, require()d not auto-loaded
   missions/         -- linear jsonl; cwd is in the file header
-    <timestamp>_<id>.jsonl
+    2026-08-19-1.jsonl
   trust.json
   auth.json
 
