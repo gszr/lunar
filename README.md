@@ -73,6 +73,7 @@ Lunar includes `AGENTS.md`, `CONTEXT.md`, and summaries from `.agents/skills/*/S
 Lua extensions are planned. For example, you will be able to replace local `bash` with execution in a [Runta](https://runta.ai) runtime:
 
 ```lua
+-- Planned API; not implemented yet.
 lunar.tools.bash = function(cmd)
   local runtime = os.getenv("LUNAR_RUNTIME") or "demo"
   return lunar.sh { "runta", "exec", runtime, "--", "sh", "-lc", cmd }
@@ -81,7 +82,7 @@ end
 
 ## Status
 
-Lunar is early software. It currently supports OpenAI Chat Completions endpoints; extensions, the Responses API, and built-in login are not implemented yet.
+Lunar is early software for macOS and Linux. It currently supports OpenAI Chat Completions endpoints; extensions, the Responses API, and built-in login are not implemented yet.
 
 ## License
 

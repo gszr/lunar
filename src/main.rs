@@ -1680,6 +1680,26 @@ fn spread(mut left: Vec<Span<'static>>, right: Span<'static>, width: u16) -> Par
     Paragraph::new(Line::from(left))
 }
 
+fn cwd_label() -> String {
+    std::env::current_dir()
+        .ok()
+        .map(shorten_home)
+        .unwrap_or_else(|| ".".into())
+}
+
+fn shorten_home(path: PathBuf) -> String {
+    match std::env::var_os("HOME") {
+        Some(home) => {
+            let home = PathBuf::from(home);
+            match path.strip_prefix(&home) {
+                Ok(rest) => format!("~/{}", rest.display()),
+                Err(_) => path.display().to_string(),
+            }
+        }
+        None => path.display().to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1972,25 +1992,5 @@ mod tests {
         app.scroll = 0;
         jump_to_tail(&mut app);
         assert!(app.follow);
-    }
-}
-
-fn cwd_label() -> String {
-    std::env::current_dir()
-        .ok()
-        .map(shorten_home)
-        .unwrap_or_else(|| ".".into())
-}
-
-fn shorten_home(path: PathBuf) -> String {
-    match std::env::var_os("HOME") {
-        Some(home) => {
-            let home = PathBuf::from(home);
-            match path.strip_prefix(&home) {
-                Ok(rest) => format!("~/{}", rest.display()),
-                Err(_) => path.display().to_string(),
-            }
-        }
-        None => path.display().to_string(),
     }
 }

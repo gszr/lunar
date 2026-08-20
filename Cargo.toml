@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 description = "A terminal coding harness"
 license = "MIT"
+repository = "https://github.com/gszr/lunar"
+readme = "README.md"
 
 [dependencies]
 mlua = { version = "0.12", features = ["lua55", "vendored"] }
