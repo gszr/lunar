@@ -33,6 +33,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | First brand | xAI. Config is env, not a compiled-in brand |
 | Auth | Env for now. A provider names a secret (`key_name` = env var, `key_in = "env"`). It does not hold the token. On the Lua path `key_name` is required; missing or empty lookup = notice, cannot send. `LUNAR_API_KEY` / `LUNAR_BASE_URL` / `LUNAR_MODEL` remain the no-Lua path. `/login xai` (device-code + key → `~/.lunar/auth.json`) is still todo. Own OAuth client; do not steal Pi’s |
 | TUI | `ratatui` + `crossterm` |
+| Transcript | The current mission. Scrollable: every message in that mission is reachable as painted (tool cards stay 8 lines, thinking stays a 3-line preview). Not a tail-only view. `/resume` switches missions; there is no Session history object |
 | Tools | `read` / `write` / `edit` (`old_string`/`new_string`) / `bash`. Gate = allow. Bash timeout 60s, Esc kills |
 | Missions | Linear append-only jsonl. Not a tree. Not Pi-compatible |
 | Full context | Warn and refuse submit. No auto-compact. `/compact` only after this hurts |
@@ -139,9 +140,11 @@ Top to bottom:
 
 Readline: Ctrl+W / Alt+Backspace word-kill, Ctrl+U/K, Ctrl+A/E, arrows, Alt+B/F, Delete. Enter sends. Shift+Enter / Ctrl+J insert a newline. **Ctrl+C quits** (not clear). Esc aborts a turn or clears the editor.
 
+Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top / bottom. Arrows, j/k, and Home/End stay with the editor (and `/resume`). No scroll mode. The wheel always moves the transcript; pointer position is ignored. PageUp / PageDown move one transcript pane minus one line. Wheel moves 3 painted lines per notch. Clamp at both ends. Follow the tail only when the viewport already shows the last line. Scrolled-up view stays put while the stream grows. Submit, `/new`, and `/resume` jump to the tail. A notice that arrives while scrolled up does not snap; it is another transcript line. Mouse capture is on so the wheel works; Shift-drag copies. No click-to-focus and no click-to-place the caret this slice.
+
 `/` opens command completion under the editor. Tab / ↑↓ cycle; Enter accepts (runs, except `/name` which stays in the editor). `/q` is a hidden quit alias.
 
-`/resume` is j/k + enter. `lunar -c` / `--continue` loads the latest mission for this cwd.
+`/resume` is j/k + enter. PageUp / PageDown / wheel do nothing in the picker. `lunar -c` / `--continue` loads the latest mission for this cwd.
 
 ## Shipped vs not
 
