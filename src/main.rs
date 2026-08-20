@@ -15,7 +15,8 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
 use ratatui::crossterm::event::{
-    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers, KeyboardEnhancementFlags, MouseEvent, MouseEventKind,
     PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use ratatui::crossterm::execute;
@@ -44,6 +45,10 @@ struct App {
     mode: Mode,
     complete_sel: usize,
     quit: bool,
+    scroll: usize,
+    follow: bool,
+    transcript_w: u16,
+    transcript_h: u16,
 }
 
 enum Mode {
@@ -126,6 +131,10 @@ fn main() -> io::Result<()> {
         mode: Mode::Chat,
         complete_sel: 0,
         quit: false,
+        scroll: 0,
+        follow: true,
+        transcript_w: 0,
+        transcript_h: 0,
     };
     if resume_last {
         match mission::list()?.into_iter().next() {
@@ -145,11 +154,13 @@ fn main() -> io::Result<()> {
 fn enable_enhanced_keys() {
     let _ = execute!(
         io::stdout(),
-        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
+        EnableMouseCapture,
     );
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         pop_enhanced_keys();
+        let _ = execute!(io::stdout(), DisableMouseCapture);
         hook(info);
     }));
 }
@@ -160,6 +171,7 @@ fn pop_enhanced_keys() {
 
 fn restore_terminal() {
     pop_enhanced_keys();
+    let _ = execute!(io::stdout(), DisableMouseCapture);
     ratatui::restore();
 }
 
@@ -173,11 +185,10 @@ fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
             Duration::from_secs(3600)
         };
         if event::poll(wait)? {
-            let Event::Key(key) = event::read()? else {
-                continue;
-            };
-            if key.kind == KeyEventKind::Press {
-                on_key(app, key);
+            match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => on_key(app, key),
+                Event::Mouse(mouse) => on_mouse(app, mouse),
+                _ => {}
             }
         }
     }
@@ -388,6 +399,10 @@ fn on_key(app: &mut App, key: KeyEvent) {
     }
     match (key.modifiers, key.code) {
         (KeyModifiers::CONTROL, KeyCode::Char('c')) => app.quit = true,
+        (_, KeyCode::PageUp) => scroll_by(app, -page_delta(app)),
+        (_, KeyCode::PageDown) => scroll_by(app, page_delta(app)),
+        (KeyModifiers::CONTROL, KeyCode::Home) => scroll_home(app),
+        (KeyModifiers::CONTROL, KeyCode::End) => jump_to_tail(app),
         (_, KeyCode::Esc) => {
             if app.cancel.is_some() {
                 abort_turn(app);
@@ -638,6 +653,7 @@ fn new_mission(app: &mut App) {
     app.usage = Usage::default();
     app.last_prompt = 0;
     app.notice = Some("new mission".into());
+    jump_to_tail(app);
 }
 
 fn name_mission(app: &mut App, name: &str) {
@@ -709,6 +725,7 @@ fn load_mission(app: &mut App, path: &std::path::Path) {
             app.usage = Usage::default();
             app.last_prompt = 0;
             app.notice = None;
+            jump_to_tail(app);
         }
         Err(err) => app.notice = Some(format!("resume: {err}")),
     }
@@ -730,6 +747,7 @@ fn send_prompt(app: &mut App, line: String) {
     app.rounds = 0;
     persist_value(app, &mission::user_line(&line));
     app.messages.push(Message::user(line));
+    jump_to_tail(app);
     let cancel = Arc::new(AtomicBool::new(false));
     app.cancel = Some(cancel);
     continue_turn(app);
@@ -830,7 +848,7 @@ fn editor_height(input: &str, cursor: usize, width: u16) -> u16 {
     lines.max(row + 1).min(EDITOR_MAX_LINES) + 2
 }
 
-fn draw(frame: &mut Frame, app: &App) {
+fn draw(frame: &mut Frame, app: &mut App) {
     let working = u16::from(app.cancel.is_some());
     let ed_h = editor_height(app.input.as_str(), app.cursor, frame.area().width);
     let found = commands::matches(&app.input);
@@ -852,6 +870,8 @@ fn draw(frame: &mut Frame, app: &App) {
         ])
         .split(frame.area());
 
+    app.transcript_w = chunks[1].width;
+    app.transcript_h = chunks[1].height;
     draw_header(frame, chunks[0], app);
     draw_messages(frame, chunks[1], app);
     if working == 1 {
@@ -890,7 +910,7 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(spread(left, right, area.width), area);
 }
 
-fn draw_messages(frame: &mut Frame, area: Rect, app: &App) {
+fn draw_messages(frame: &mut Frame, area: Rect, app: &mut App) {
     if let Mode::Resume { items, cursor } = &app.mode {
         draw_resume(frame, area, items, *cursor);
         return;
@@ -904,6 +924,20 @@ fn draw_messages(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
     let width = area.width.max(1) as usize;
+    let lines = painted_lines(app, width);
+    let height = area.height as usize;
+    let max = lines.len().saturating_sub(height);
+    if app.follow {
+        app.scroll = max;
+    } else {
+        app.scroll = app.scroll.min(max);
+    }
+    let start = app.scroll;
+    let end = (start + height).min(lines.len());
+    frame.render_widget(Paragraph::new(lines[start..end].to_vec()), area);
+}
+
+fn painted_lines(app: &App, width: usize) -> Vec<Line<'static>> {
     let mut lines: Vec<Line> = Vec::new();
     let mut prev_tool = false;
     for msg in &app.messages {
@@ -935,8 +969,57 @@ fn draw_messages(frame: &mut Frame, area: Rect, app: &App) {
         lines.push(Line::from(""));
         lines.extend(notice_lines(notice));
     }
-    let skip = lines.len().saturating_sub(area.height as usize);
-    frame.render_widget(Paragraph::new(lines[skip..].to_vec()), area);
+    lines
+}
+
+const WHEEL_LINES: usize = 3;
+
+fn page_delta(app: &App) -> isize {
+    app.transcript_h.saturating_sub(1).max(1) as isize
+}
+
+fn jump_to_tail(app: &mut App) {
+    app.follow = true;
+}
+
+fn scroll_home(app: &mut App) {
+    if !matches!(app.mode, Mode::Chat) || app.messages.is_empty() {
+        return;
+    }
+    app.scroll = 0;
+    app.follow = false;
+}
+
+fn scroll_by(app: &mut App, delta: isize) {
+    if !matches!(app.mode, Mode::Chat) || app.messages.is_empty() {
+        return;
+    }
+    let height = app.transcript_h as usize;
+    if height == 0 {
+        return;
+    }
+    let width = app.transcript_w.max(1) as usize;
+    let max = painted_lines(app, width).len().saturating_sub(height);
+    let next = if delta < 0 {
+        app.scroll.saturating_sub(delta.unsigned_abs())
+    } else {
+        app.scroll.saturating_add(delta as usize)
+    };
+    if next >= max {
+        app.scroll = max;
+        app.follow = true;
+    } else {
+        app.scroll = next;
+        app.follow = false;
+    }
+}
+
+fn on_mouse(app: &mut App, mouse: MouseEvent) {
+    match mouse.kind {
+        MouseEventKind::ScrollUp => scroll_by(app, -(WHEEL_LINES as isize)),
+        MouseEventKind::ScrollDown => scroll_by(app, WHEEL_LINES as isize),
+        _ => {}
+    }
 }
 
 fn notice_lines(notice: &str) -> Vec<Line<'static>> {
@@ -1178,6 +1261,10 @@ mod tests {
             mode: Mode::Chat,
             complete_sel: 0,
             quit: false,
+            scroll: 0,
+            follow: true,
+            transcript_w: 0,
+            transcript_h: 0,
         }
     }
 
@@ -1275,6 +1362,74 @@ mod tests {
         assert!(app.stream_rx.is_none());
         assert!(app.messages.is_empty());
         assert_eq!(app.notice.as_deref(), Some("aborted"));
+    }
+
+    fn tall_app() -> App {
+        let mut app = test_app();
+        app.transcript_w = 40;
+        app.transcript_h = 8;
+        for i in 0..12 {
+            app.messages.push(Message::user(format!("line {i}")));
+        }
+        let max = painted_lines(&app, 40).len().saturating_sub(8);
+        app.scroll = max;
+        app.follow = true;
+        app
+    }
+
+    #[test]
+    fn page_up_leaves_follow() {
+        let mut app = tall_app();
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::PageUp));
+        assert!(!app.follow);
+        assert!(app.scroll < painted_lines(&app, 40).len().saturating_sub(8));
+    }
+
+    #[test]
+    fn page_down_to_end_follows_again() {
+        let mut app = tall_app();
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::PageUp));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::PageDown));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::PageDown));
+        assert!(app.follow);
+    }
+
+    #[test]
+    fn ctrl_home_goes_to_top() {
+        let mut app = tall_app();
+        on_key(&mut app, key(KeyModifiers::CONTROL, KeyCode::Home));
+        assert_eq!(app.scroll, 0);
+        assert!(!app.follow);
+    }
+
+    #[test]
+    fn wheel_does_nothing_in_resume() {
+        let mut app = tall_app();
+        app.mode = Mode::Resume {
+            items: Vec::new(),
+            cursor: 0,
+        };
+        let before = app.scroll;
+        on_mouse(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::ScrollUp,
+                column: 0,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            },
+        );
+        assert_eq!(app.scroll, before);
+        assert!(app.follow);
+    }
+
+    #[test]
+    fn submit_jumps_to_tail() {
+        let mut app = tall_app();
+        app.follow = false;
+        app.scroll = 0;
+        jump_to_tail(&mut app);
+        assert!(app.follow);
     }
 }
 
