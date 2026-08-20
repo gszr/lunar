@@ -803,14 +803,14 @@ fn submit(app: &mut App) {
         "/quit" | "/q" => app.quit = true,
         "/help" => {
             app.notice = Some(
-                "/quit /new /resume /model /name /session /context /help    tab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits"
+                "/quit /new /resume /model /name /mission /context /help    tab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits"
                     .into(),
             );
         }
         "/new" => new_mission(app),
         "/resume" => open_resume(app),
         "/model" => open_model(app),
-        "/session" => show_session(app),
+        "/mission" => show_mission(app),
         "/context" => app.notice = Some(prompt::summary()),
         cmd if let Some(name) = cmd.strip_prefix("/name ") => name_mission(app, name),
         cmd if let Some(prefix) = cmd.strip_prefix("/resume ") => resume_prefix(app, prefix),
@@ -877,7 +877,7 @@ fn name_mission(app: &mut App, name: &str) {
     }
 }
 
-fn show_session(app: &mut App) {
+fn show_mission(app: &mut App) {
     match &app.mission {
         Some(m) => {
             app.notice = Some(format!("{}  {}", m.label(), m.path.display()));

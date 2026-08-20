@@ -36,7 +36,7 @@ pub const COMMANDS: &[Command] = &[
         description: "pick a mission in this directory",
     },
     Command {
-        name: "session",
+        name: "mission",
         description: "show mission path",
     },
 ];

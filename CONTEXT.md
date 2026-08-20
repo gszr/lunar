@@ -152,10 +152,10 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 
 - Glass, Completions stream, reused HTTP agent, no global timeout. `max_tokens` 32768 (reasoning + answer). POST retries 429/5xx/reset (3 times, 0.5s…8s, Esc cancels the wait). `finish_reason` ends the turn; leftover SSE is drained for usage (1s cap) and `[DONE]` in the background so the socket can return to the pool. Transcript scroll: PageUp / PageDown, wheel, Ctrl+Home / Ctrl+End; follow only at the tail. History paint is cached; only the streaming tail is re-wrapped
 - Four tools + continue-after-tools (50-round cap; submit `continue` to proceed). Tools in one round run in parallel. Results cap 50KB. Truncated completions do not run tool calls
-- Missions: `/new` `/resume` `/name` `/session`, `-c`
+- Missions: `/new` `/resume` `/name` `/mission`, `-c`
 - Token stats + refuse submit when last prompt ≥ window
 - CWD `AGENTS.md` / `CONTEXT.md` + `.agents/skills` summaries as a leading user message, snapshotted per user turn
-- Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/name` `/session` `/context`
+- Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/name` `/mission` `/context`
 - Lua 5.5 embed; user `~/.lunar/init.lua` (`lunar.models` / `lunar.providers` / `lunar.defaults`)
 
 **Not shipped (still v0 intent)**
