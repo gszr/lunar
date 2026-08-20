@@ -283,8 +283,16 @@ fn stream_inner(
         }
     }
 
+    if cancel.load(Ordering::Relaxed) {
+        let _ = tx.send(StreamEvent::Failed("aborted".into()));
+        return Ok(());
+    }
     if !saw_done {
         collect_tail(reader, &mut usage, &mut saw_done, &cancel);
+    }
+    if cancel.load(Ordering::Relaxed) {
+        let _ = tx.send(StreamEvent::Failed("aborted".into()));
+        return Ok(());
     }
     if let Some(usage) = usage {
         let _ = tx.send(StreamEvent::Usage(usage));

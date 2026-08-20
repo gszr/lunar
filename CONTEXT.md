@@ -34,7 +34,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Auth | Env for now. A provider names a secret (`key_name` = env var, `key_in = "env"`). It does not hold the token. On the Lua path `key_name` is required; missing or empty lookup = notice, cannot send. `LUNAR_API_KEY` / `LUNAR_BASE_URL` / `LUNAR_MODEL` remain the no-Lua path. `/login xai` (device-code + key → `~/.lunar/auth.json`) is still todo. Own OAuth client; do not steal Pi’s |
 | TUI | `ratatui` + `crossterm` |
 | Transcript | The current mission. Scrollable: every message in that mission is reachable as painted (tool cards stay 8 lines, thinking stays a 3-line preview). Not a tail-only view. `/resume` switches missions; there is no Session history object |
-| Tools | `read` / `write` / `edit` (`old_string`/`new_string`) / `bash`. Gate = allow. Bash timeout 60s, Esc kills. Calls in one assistant turn run in parallel |
+| Tools | `read` / `write` / `edit` (`old_string`/`new_string`) / `bash`. Gate = allow. Bash timeout 60s, Esc kills the process group. Calls in one assistant turn run in parallel |
 | Missions | Linear append-only jsonl. Not a tree. Not Pi-compatible |
 | Full context | Warn and refuse submit. No auto-compact. `/compact` only after this hurts |
 | Entry | `lunar` always opens the TUI. No print mode in v0 |

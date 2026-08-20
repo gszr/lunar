@@ -3,7 +3,7 @@
 use std::fmt::Write as FmtWrite;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -281,13 +281,17 @@ fn bash(args: &Value, cancel: &AtomicBool) -> ToolOut {
         .map(Duration::from_secs)
         .unwrap_or(DEFAULT_BASH_TIMEOUT);
 
-    let mut child = match Command::new("bash")
-        .arg("-lc")
+    let mut cmd = Command::new("bash");
+    cmd.arg("-lc")
         .arg(command)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
     {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(err) => {
             return ToolOut {
@@ -313,8 +317,7 @@ fn bash(args: &Value, cancel: &AtomicBool) -> ToolOut {
     let start = Instant::now();
     let status = loop {
         if cancel.load(Ordering::Relaxed) {
-            let _ = child.kill();
-            let _ = child.wait();
+            stop_child(&mut child);
             let _ = out_h.join();
             let _ = err_h.join();
             return ToolOut {
@@ -323,8 +326,7 @@ fn bash(args: &Value, cancel: &AtomicBool) -> ToolOut {
             };
         }
         if start.elapsed() >= timeout {
-            let _ = child.kill();
-            let _ = child.wait();
+            stop_child(&mut child);
             let _ = out_h.join();
             let _ = err_h.join();
             return ToolOut {
@@ -371,6 +373,20 @@ fn bash(args: &Value, cancel: &AtomicBool) -> ToolOut {
     ToolOut { title, content }
 }
 
+fn stop_child(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill")
+            .arg("-KILL")
+            .arg(format!("-{}", child.id()))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 fn resolve(path: &str) -> PathBuf {
     let p = Path::new(path);
     if p.is_absolute() {
@@ -404,4 +420,27 @@ fn truncate(text: &str) -> String {
         .map(|(i, _)| i)
         .unwrap_or(start);
     format!("…(truncated)\n{}", &text[start..])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::thread;
+
+    #[cfg(unix)]
+    #[test]
+    fn bash_abort_kills_sleep() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let flag = cancel.clone();
+        let start = Instant::now();
+        let handle = thread::spawn(move || {
+            run("bash", r#"{"command":"sleep 30"}"#, flag.as_ref())
+        });
+        thread::sleep(Duration::from_millis(80));
+        cancel.store(true, Ordering::Relaxed);
+        let out = handle.join().unwrap();
+        assert!(start.elapsed() < Duration::from_secs(3), "{:?}", start.elapsed());
+        assert_eq!(out.content, "aborted");
+    }
 }
