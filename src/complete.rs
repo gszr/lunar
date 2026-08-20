@@ -3,9 +3,9 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use ureq::Agent;
@@ -194,7 +194,7 @@ fn stream_inner(
     let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
     let body = request_body(&cfg, &messages);
 
-    let mut response = agent()
+    let response = agent()
         .post(&url)
         .header("Authorization", &format!("Bearer {}", cfg.api_key))
         .header("Content-Type", "application/json")
@@ -204,7 +204,7 @@ fn stream_inner(
     let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();
     let mut usage = None;
     let mut saw_done = false;
-    let mut reader = BufReader::new(response.body_mut().as_reader());
+    let mut reader = BufReader::new(response.into_parts().1.into_reader());
     for line in reader.by_ref().lines() {
         if cancel.load(Ordering::Relaxed) {
             let _ = tx.send(StreamEvent::Failed("aborted".into()));
@@ -283,6 +283,9 @@ fn stream_inner(
         }
     }
 
+    if !saw_done {
+        collect_tail(reader, &mut usage, &mut saw_done, &cancel);
+    }
     if let Some(usage) = usage {
         let _ = tx.send(StreamEvent::Usage(usage));
     }
@@ -300,19 +303,80 @@ fn stream_inner(
     } else {
         let _ = tx.send(StreamEvent::Tools(calls));
     }
-    if !saw_done {
-        // finish_reason already ended the turn. Drain [DONE]/usage so ureq
-        // can put the socket back in the pool instead of opening TLS again.
-        for line in reader.lines() {
+    Ok(())
+}
+
+/// Usage often arrives after finish_reason. Wait briefly for it, then keep
+/// reading in the background so the socket can return to the pool.
+fn collect_tail(
+    reader: impl BufRead + Send + 'static,
+    usage: &mut Option<Usage>,
+    saw_done: &mut bool,
+    cancel: &AtomicBool,
+) {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut lines = reader.lines();
+        while let Some(line) = lines.next() {
             let Ok(line) = line else {
-                break;
+                return;
             };
-            if line.strip_prefix("data:").is_some_and(|d| d.trim() == "[DONE]") {
-                break;
+            let done = is_done_line(&line);
+            if tx.send(line).is_err() {
+                if done {
+                    return;
+                }
+                for line in lines {
+                    let Ok(line) = line else {
+                        return;
+                    };
+                    if is_done_line(&line) {
+                        return;
+                    }
+                }
+                return;
             }
         }
+    });
+    if usage.is_some() {
+        return;
     }
-    Ok(())
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < deadline {
+        if cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(line) => {
+                if is_done_line(&line) {
+                    *saw_done = true;
+                    break;
+                }
+                if let Some(data) = sse_payload(&line)
+                    && let Ok(value) = serde_json::from_str::<Value>(data)
+                    && let Some(parsed) = parse_usage(&value)
+                {
+                    *usage = Some(parsed);
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+}
+
+fn is_done_line(line: &str) -> bool {
+    line.strip_prefix("data:")
+        .is_some_and(|d| d.trim() == "[DONE]")
+}
+
+fn sse_payload(line: &str) -> Option<&str> {
+    let data = line.strip_prefix("data:")?.trim();
+    if data.is_empty() || data == "[DONE]" {
+        None
+    } else {
+        Some(data)
+    }
 }
 
 fn agent() -> Agent {
@@ -350,8 +414,9 @@ fn parse_usage(value: &Value) -> Option<Usage> {
         .and_then(|d| d.get("cache_creation_tokens").and_then(Value::as_u64))
         .unwrap_or_else(|| u64::from(num(usage, &["cache_write_tokens", "cache_creation_tokens"])))
         as u32;
+    let prompt = num(usage, &["prompt_tokens", "input_tokens"]);
     Some(Usage {
-        input: num(usage, &["prompt_tokens", "input_tokens"]),
+        input: prompt.saturating_sub(cache_read.saturating_add(cache_write)),
         output: num(usage, &["completion_tokens", "output_tokens"]),
         cache_read,
         cache_write,
@@ -379,5 +444,21 @@ mod tests {
         assert_eq!(body["max_tokens"], MAX_TOKENS);
         assert_eq!(body["stream"], true);
         assert_eq!(body["model"], "grok-4.6");
+    }
+
+    #[test]
+    fn parse_usage_splits_cache_out_of_prompt() {
+        let value = json!({
+            "usage": {
+                "prompt_tokens": 1000,
+                "completion_tokens": 20,
+                "prompt_tokens_details": { "cached_tokens": 800 }
+            }
+        });
+        let u = parse_usage(&value).unwrap();
+        assert_eq!(u.input, 200);
+        assert_eq!(u.cache_read, 800);
+        assert_eq!(u.output, 20);
+        assert_eq!(u.prompt(), 1000);
     }
 }

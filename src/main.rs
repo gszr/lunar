@@ -1260,6 +1260,7 @@ mod tests {
             rounds: 0,
             usage: Usage::default(),
             last_prompt: 0,
+            preamble: None,
             mission: None,
             mode: Mode::Chat,
             complete_sel: 0,
