@@ -17,38 +17,43 @@ pub struct Config {
     pub api_key: String,
     pub base_url: String,
     pub model: String,
+    pub provider: String,
+    pub window: Option<u32>,
 }
 
 impl Config {
     pub fn from_env() -> Option<Self> {
+        let model = nonempty("LUNAR_MODEL")?;
+        let base_url = nonempty("LUNAR_BASE_URL")?;
         Some(Self {
             api_key: nonempty("LUNAR_API_KEY")?,
-            base_url: nonempty("LUNAR_BASE_URL")?,
-            model: nonempty("LUNAR_MODEL")?,
+            provider: nonempty("LUNAR_PROVIDER").unwrap_or_else(|| provider_from_url(&base_url)),
+            window: nonempty("LUNAR_CONTEXT_WINDOW")
+                .and_then(|s| s.parse().ok())
+                .or_else(|| guess_window(&model)),
+            base_url,
+            model,
         })
     }
 
     pub fn context_window(&self) -> Option<u32> {
-        if let Some(n) = nonempty("LUNAR_CONTEXT_WINDOW").and_then(|s| s.parse().ok()) {
-            return Some(n);
-        }
-        let id = self.model.as_str();
-        if id.contains("grok-4.6") || id.contains("grok-4.5") {
-            Some(500_000)
-        } else if id.contains("grok-4.3") {
-            Some(1_000_000)
-        } else if id.contains("grok-build") {
-            Some(256_000)
-        } else {
-            None
-        }
+        self.window
     }
 
-    pub fn provider(&self) -> String {
-        if let Some(name) = nonempty("LUNAR_PROVIDER") {
-            return name;
-        }
-        provider_from_url(&self.base_url)
+    pub fn provider(&self) -> &str {
+        &self.provider
+    }
+}
+
+pub fn guess_window(id: &str) -> Option<u32> {
+    if id.contains("grok-4.6") || id.contains("grok-4.5") {
+        Some(500_000)
+    } else if id.contains("grok-4.3") {
+        Some(1_000_000)
+    } else if id.contains("grok-build") {
+        Some(256_000)
+    } else {
+        None
     }
 }
 

@@ -6,6 +6,7 @@ description = "A terminal coding harness"
 license = "MIT"
 
 [dependencies]
+mlua = { version = "0.12", features = ["lua55", "vendored"] }
 ratatui = "0.30"
 serde_json = "1.0.151"
 ureq = "3"

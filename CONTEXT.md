@@ -153,13 +153,13 @@ Readline: Ctrl+W / Alt+Backspace word-kill, Ctrl+U/K, Ctrl+A/E, arrows, Alt+B/F,
 - Token stats + refuse submit when last prompt ≥ window
 - CWD `AGENTS.md` / `CONTEXT.md` + `.agents/skills` summaries as a leading user message
 - Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/name` `/session` `/context`
+- Lua 5.5 embed; user `~/.lunar/init.lua` (`lunar.models` / `lunar.providers` / `lunar.defaults`)
 
 **Not shipped (still v0 intent)**
 
 - Walk-up discovery, `~/.agents/skills`, skill bodies (only summaries ship)
 - `/login` `/logout` `/model` `/reload` `/trust`
 - Responses API
-- Lua 5.5 embed / `init.lua`
 - Thinking level (footer says `off` and it is not wired)
 - Cost in the footer, git branch, `$` prices
 - `/compact`
@@ -176,15 +176,12 @@ Package manager, print/RPC/SDK, Pi session compatibility, provider zoo, themes, 
 
 ## Next slices (recommended order)
 
-1. Lua loader for user `init.lua` setup only (in progress)
-2. `/login xai` (device-code + API key)
-3. Responses, if you actually use a Responses-only id
-4. Trusted project `.lunar/init.lua`
-5. Dumb `/compact` after the window hurts
-6. Walk-up context + `~/.agents/skills`
+1. `/login xai` (device-code + API key)
+2. Responses, if you actually use a Responses-only id
+3. Trusted project `.lunar/init.lua`
+4. Dumb `/compact` after the window hurts
+5. Walk-up context + `~/.agents/skills`
 
 ## Layout in the repo
 
-`src/main.rs` app/TUI · `complete.rs` HTTP · `tools.rs` four tools · `mission.rs` jsonl · `prompt.rs` CWD context + skill summaries · `render.rs` transcript paint · `splash.rs` art + colors
-
-Lua loader is not in the tree yet. Next session: embed `mlua`, load user `init.lua`, resolve Config as above. Keep it simple — dump tables, last call wins — so the registrar shape can still change.
+`src/main.rs` app/TUI · `complete.rs` HTTP · `lua.rs` user `init.lua` · `tools.rs` four tools · `mission.rs` jsonl · `prompt.rs` CWD context + skill summaries · `render.rs` transcript paint · `splash.rs` art + colors

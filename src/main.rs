@@ -1,5 +1,6 @@
 mod commands;
 mod complete;
+mod lua;
 mod mission;
 mod prompt;
 mod render;
@@ -107,14 +108,15 @@ fn main() -> io::Result<()> {
     let resume_last = std::env::args()
         .skip(1)
         .any(|a| a == "-c" || a == "--continue");
+    let loaded = lua::load();
     let mut terminal = ratatui::init();
     enable_enhanced_keys();
     let mut app = App {
         input: String::new(),
         cursor: 0,
-        notice: None,
+        notice: loaded.notice,
         messages: Vec::new(),
-        config: Config::from_env(),
+        config: loaded.config,
         stream_rx: None,
         cancel: None,
         rounds: 0,
