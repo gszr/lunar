@@ -1,5 +1,6 @@
 mod commands;
 mod complete;
+mod history;
 mod lua;
 mod mission;
 mod prompt;
@@ -54,6 +55,17 @@ struct App {
     paint_frozen: Vec<Line<'static>>,
     paint_upto: usize,
     paint_prev_tool: bool,
+    history: Vec<String>,
+    history_cursor: Option<usize>,
+    history_draft: String,
+    search: Option<HistorySearch>,
+}
+
+struct HistorySearch {
+    draft: String,
+    draft_cursor: usize,
+    query: String,
+    matched: Option<usize>,
 }
 
 enum Mode {
@@ -145,6 +157,10 @@ fn main() -> io::Result<()> {
         paint_frozen: Vec::new(),
         paint_upto: 0,
         paint_prev_tool: false,
+        history: history::load().unwrap_or_default(),
+        history_cursor: None,
+        history_draft: String::new(),
+        search: None,
     };
     if resume_last {
         match mission::list()?.into_iter().next() {
@@ -419,6 +435,14 @@ fn on_key(app: &mut App, key: KeyEvent) {
         }
         return;
     }
+    if app.search.is_some() {
+        on_search_key(app, key);
+        return;
+    }
+    if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('r') {
+        start_search(app);
+        return;
+    }
     if on_complete_key(app, key) {
         return;
     }
@@ -488,6 +512,8 @@ fn on_key(app: &mut App, key: KeyEvent) {
         }
         (_, KeyCode::Home) => app.cursor = 0,
         (_, KeyCode::End) => app.cursor = app.input.len(),
+        (_, KeyCode::Up) => history_up(app),
+        (_, KeyCode::Down) => history_down(app),
         (_, KeyCode::Backspace) => {
             let from = prev_char(&app.input, app.cursor);
             app.input.replace_range(from..app.cursor, "");
@@ -508,6 +534,98 @@ fn on_key(app: &mut App, key: KeyEvent) {
         }
         _ => {}
     }
+}
+
+fn start_search(app: &mut App) {
+    app.search = Some(HistorySearch {
+        draft: app.input.clone(),
+        draft_cursor: app.cursor,
+        query: String::new(),
+        matched: None,
+    });
+    update_search(app, false);
+}
+
+fn update_search(app: &mut App, older: bool) {
+    let Some(search) = &app.search else { return };
+    let end = if older {
+        search.matched.unwrap_or(app.history.len())
+    } else {
+        app.history.len()
+    };
+    let query = search.query.clone();
+    let found = (0..end).rev().find(|&i| app.history[i].contains(&query));
+    if let Some(search) = &mut app.search {
+        search.matched = found;
+    }
+}
+
+fn on_search_key(app: &mut App, key: KeyEvent) {
+    match (key.modifiers, key.code) {
+        (_, KeyCode::Esc) => {
+            let search = app.search.take().unwrap();
+            app.input = search.draft;
+            app.cursor = search.draft_cursor;
+        }
+        (_, KeyCode::Enter) => {
+            let search = app.search.take().unwrap();
+            if let Some(i) = search.matched {
+                app.input = app.history[i].clone();
+                app.cursor = app.input.len();
+            } else {
+                app.input = search.draft;
+                app.cursor = search.draft_cursor;
+            }
+            app.history_cursor = None;
+        }
+        (KeyModifiers::CONTROL, KeyCode::Char('r')) => update_search(app, true),
+        (_, KeyCode::Backspace) => {
+            if let Some(search) = &mut app.search {
+                search.query.pop();
+            }
+            update_search(app, false);
+        }
+        (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
+            if let Some(search) = &mut app.search {
+                search.query.push(c);
+            }
+            update_search(app, false);
+        }
+        _ => {}
+    }
+}
+
+fn history_up(app: &mut App) {
+    if app.history.is_empty() {
+        return;
+    }
+    let next = match app.history_cursor {
+        None => {
+            app.history_draft = app.input.clone();
+            app.history.len() - 1
+        }
+        Some(i) => i.saturating_sub(1),
+    };
+    app.history_cursor = Some(next);
+    app.input = app.history[next].clone();
+    app.cursor = app.input.len();
+}
+
+fn history_down(app: &mut App) {
+    let Some(i) = app.history_cursor else { return };
+    if i + 1 < app.history.len() {
+        app.history_cursor = Some(i + 1);
+        app.input = app.history[i + 1].clone();
+    } else {
+        app.history_cursor = None;
+        app.input = std::mem::take(&mut app.history_draft);
+    }
+    app.cursor = app.input.len();
+}
+
+fn reset_history_navigation(app: &mut App) {
+    app.history_cursor = None;
+    app.history_draft.clear();
 }
 
 fn on_complete_key(app: &mut App, key: KeyEvent) -> bool {
@@ -533,6 +651,7 @@ fn on_complete_key(app: &mut App, key: KeyEvent) -> bool {
 }
 
 fn insert_input(app: &mut App, c: char) {
+    reset_history_navigation(app);
     app.input.insert(app.cursor, c);
     app.cursor += c.len_utf8();
     app.complete_sel = 0;
@@ -618,6 +737,11 @@ fn submit(app: &mut App) {
     if line.is_empty() {
         return;
     }
+    app.history.push(line.clone());
+    if let Err(err) = history::append(&line) {
+        app.notice = Some(format!("history: {err}"));
+    }
+    reset_history_navigation(app);
     match line.as_str() {
         "/quit" | "/q" => app.quit = true,
         "/help" => {
@@ -879,7 +1003,11 @@ fn editor_height(input: &str, cursor: usize, width: u16) -> u16 {
 fn draw(frame: &mut Frame, app: &mut App) {
     let working = u16::from(app.cancel.is_some());
     let ed_h = editor_height(app.input.as_str(), app.cursor, frame.area().width);
-    let found = commands::matches(&app.input);
+    let found = if app.search.is_none() {
+        commands::matches(&app.input)
+    } else {
+        Vec::new()
+    };
     let selected = commands::clamp_selected(app.complete_sel, found.len());
     let complete_h = if found.is_empty() {
         0
@@ -1249,6 +1377,33 @@ fn draw_complete(
 }
 
 fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
+    if let Some(search) = &app.search {
+        let result = search
+            .matched
+            .and_then(|i| app.history.get(i))
+            .map(String::as_str)
+            .unwrap_or("failing reverse-i-search");
+        let line = format!("(reverse-i-search)`{}': {}", search.query, result);
+        let block = Block::default()
+            .borders(Borders::TOP | Borders::BOTTOM)
+            .border_style(Style::default().fg(splash::GOLD));
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                line,
+                Style::default().fg(splash::BONE),
+            ))),
+            inner,
+        );
+        let x = inner.x
+            + inner
+                .width
+                .saturating_sub(1)
+                .min((20 + search.query.chars().count()) as u16);
+        frame.set_cursor_position((x, inner.y));
+        return;
+    }
     let block = Block::default()
         .borders(Borders::TOP | Borders::BOTTOM)
         .border_style(Style::default().fg(splash::DUST));
@@ -1372,6 +1527,10 @@ mod tests {
             paint_frozen: Vec::new(),
             paint_upto: 0,
             paint_prev_tool: false,
+            history: Vec::new(),
+            history_cursor: None,
+            history_draft: String::new(),
+            search: None,
         }
     }
 
@@ -1418,6 +1577,47 @@ mod tests {
         on_key(&mut app, key(KeyModifiers::SHIFT, KeyCode::Enter));
         assert_eq!(app.input, "/he\n");
         assert_eq!(app.notice, None);
+    }
+
+    #[test]
+    fn arrows_walk_history_and_restore_draft() {
+        let mut app = test_app();
+        app.history = vec!["one".into(), "two".into()];
+        app.input = "draft".into();
+        app.cursor = 5;
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Up));
+        assert_eq!(app.input, "two");
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Up));
+        assert_eq!(app.input, "one");
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Down));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Down));
+        assert_eq!(app.input, "draft");
+    }
+
+    #[test]
+    fn reverse_search_cycles_and_escape_restores_draft() {
+        let mut app = test_app();
+        app.history = vec!["cargo test".into(), "git status".into(), "cargo fmt".into()];
+        app.input = "draft".into();
+        app.cursor = 5;
+        on_key(&mut app, key(KeyModifiers::CONTROL, KeyCode::Char('r')));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Char('c')));
+        assert_eq!(app.search.as_ref().unwrap().matched, Some(2));
+        on_key(&mut app, key(KeyModifiers::CONTROL, KeyCode::Char('r')));
+        assert_eq!(app.search.as_ref().unwrap().matched, Some(0));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Esc));
+        assert_eq!(app.input, "draft");
+    }
+
+    #[test]
+    fn reverse_search_enter_accepts_without_submitting() {
+        let mut app = test_app();
+        app.history = vec!["cargo test".into()];
+        on_key(&mut app, key(KeyModifiers::CONTROL, KeyCode::Char('r')));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Char('t')));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Enter));
+        assert_eq!(app.input, "cargo test");
+        assert!(app.messages.is_empty());
     }
 
     #[test]
