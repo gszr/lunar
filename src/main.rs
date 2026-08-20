@@ -50,6 +50,10 @@ struct App {
     follow: bool,
     transcript_w: u16,
     transcript_h: u16,
+    paint_width: usize,
+    paint_frozen: Vec<Line<'static>>,
+    paint_upto: usize,
+    paint_prev_tool: bool,
 }
 
 enum Mode {
@@ -137,6 +141,10 @@ fn main() -> io::Result<()> {
         follow: true,
         transcript_w: 0,
         transcript_h: 0,
+        paint_width: 0,
+        paint_frozen: Vec::new(),
+        paint_upto: 0,
+        paint_prev_tool: false,
     };
     if resume_last {
         match mission::list()?.into_iter().next() {
@@ -666,6 +674,7 @@ fn new_mission(app: &mut App) {
         return;
     }
     app.messages.clear();
+    invalidate_paint(app);
     app.mission = None;
     app.usage = Usage::default();
     app.last_prompt = 0;
@@ -739,6 +748,7 @@ fn load_mission(app: &mut App, path: &std::path::Path) {
                 })
                 .collect();
             app.mission = Some(loaded);
+            invalidate_paint(app);
             app.usage = Usage::default();
             app.last_prompt = 0;
             app.notice = None;
@@ -955,15 +965,77 @@ fn draw_messages(frame: &mut Frame, area: Rect, app: &mut App) {
     frame.render_widget(Paragraph::new(lines[start..end].to_vec()), area);
 }
 
-fn painted_lines(app: &App, width: usize) -> Vec<Line<'static>> {
-    let mut lines: Vec<Line> = Vec::new();
-    let mut prev_tool = false;
-    for msg in &app.messages {
+fn invalidate_paint(app: &mut App) {
+    app.paint_frozen.clear();
+    app.paint_upto = 0;
+    app.paint_prev_tool = false;
+}
+
+fn freeze_end(app: &App) -> usize {
+    let n = app.messages.len();
+    if n == 0 {
+        return 0;
+    }
+    if app.cancel.is_some() && matches!(app.messages[n - 1].role, Role::Assistant) {
+        n - 1
+    } else {
+        n
+    }
+}
+
+fn painted_lines(app: &mut App, width: usize) -> Vec<Line<'static>> {
+    if width != app.paint_width {
+        app.paint_width = width;
+        invalidate_paint(app);
+    }
+    let end = freeze_end(app);
+    if end < app.paint_upto {
+        invalidate_paint(app);
+    }
+    if end > app.paint_upto {
+        let (chunk, prev_tool) = paint_slice(
+            &app.messages[app.paint_upto..end],
+            width,
+            !app.paint_frozen.is_empty(),
+            app.paint_prev_tool,
+        );
+        app.paint_frozen.extend(chunk);
+        app.paint_prev_tool = prev_tool;
+        app.paint_upto = end;
+    }
+    let mut lines = app.paint_frozen.clone();
+    if end < app.messages.len() {
+        let (tail, _) = paint_slice(
+            &app.messages[end..],
+            width,
+            !lines.is_empty(),
+            app.paint_prev_tool,
+        );
+        lines.extend(tail);
+    }
+    if let Some(notice) = &app.notice {
+        if !lines.is_empty() {
+            lines.push(Line::from(""));
+        }
+        lines.extend(notice_lines(notice));
+    }
+    lines
+}
+
+fn paint_slice(
+    messages: &[Message],
+    width: usize,
+    need_gap: bool,
+    mut prev_tool: bool,
+) -> (Vec<Line<'static>>, bool) {
+    let mut lines = Vec::new();
+    let mut gap = need_gap;
+    for msg in messages {
         if matches!(msg.role, Role::Assistant) && msg.text.is_empty() && msg.thinking.is_empty() {
             continue;
         }
         let is_tool = matches!(msg.role, Role::Tool);
-        if !(lines.is_empty() || (is_tool && prev_tool)) {
+        if gap && !(is_tool && prev_tool) {
             lines.push(Line::from(""));
         }
         match msg.role {
@@ -982,12 +1054,9 @@ fn painted_lines(app: &App, width: usize) -> Vec<Line<'static>> {
             Role::Tool => lines.extend(render::tool_card(&msg.tool_title, &msg.text, width)),
         }
         prev_tool = is_tool;
+        gap = true;
     }
-    if let Some(notice) = &app.notice {
-        lines.push(Line::from(""));
-        lines.extend(notice_lines(notice));
-    }
-    lines
+    (lines, prev_tool)
 }
 
 const WHEEL_LINES: usize = 3;
@@ -1284,6 +1353,10 @@ mod tests {
             follow: true,
             transcript_w: 0,
             transcript_h: 0,
+            paint_width: 0,
+            paint_frozen: Vec::new(),
+            paint_upto: 0,
+            paint_prev_tool: false,
         }
     }
 
@@ -1370,6 +1443,19 @@ mod tests {
     }
 
     #[test]
+    fn paint_cache_freezes_finished_messages() {
+        let mut app = test_app();
+        app.messages.push(Message::user("hello".into()));
+        let first = painted_lines(&mut app, 40).len();
+        assert_eq!(app.paint_upto, 1);
+        let frozen = app.paint_frozen.len();
+        app.messages.push(Message::user("again".into()));
+        let second = painted_lines(&mut app, 40).len();
+        assert_eq!(app.paint_upto, 2);
+        assert_eq!(app.paint_frozen.len(), frozen + second - first);
+    }
+
+    #[test]
     fn truncated_calls_are_not_executed() {
         let calls = vec![ToolCall {
             id: "1".into(),
@@ -1403,7 +1489,7 @@ mod tests {
         for i in 0..12 {
             app.messages.push(Message::user(format!("line {i}")));
         }
-        let max = painted_lines(&app, 40).len().saturating_sub(8);
+        let max = painted_lines(&mut app, 40).len().saturating_sub(8);
         app.scroll = max;
         app.follow = true;
         app
@@ -1414,7 +1500,7 @@ mod tests {
         let mut app = tall_app();
         on_key(&mut app, key(KeyModifiers::NONE, KeyCode::PageUp));
         assert!(!app.follow);
-        assert!(app.scroll < painted_lines(&app, 40).len().saturating_sub(8));
+        assert!(app.scroll < painted_lines(&mut app, 40).len().saturating_sub(8));
     }
 
     #[test]

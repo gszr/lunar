@@ -150,7 +150,7 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 
 **Shipped**
 
-- Glass, Completions stream, reused HTTP agent, no global timeout. `max_tokens` 32768 (reasoning + answer). POST retries 429/5xx/reset (3 times, 0.5s…8s, Esc cancels the wait). `finish_reason` ends the turn; leftover SSE is drained for usage (1s cap) and `[DONE]` in the background so the socket can return to the pool. Transcript scroll: PageUp / PageDown, wheel, Ctrl+Home / Ctrl+End; follow only at the tail
+- Glass, Completions stream, reused HTTP agent, no global timeout. `max_tokens` 32768 (reasoning + answer). POST retries 429/5xx/reset (3 times, 0.5s…8s, Esc cancels the wait). `finish_reason` ends the turn; leftover SSE is drained for usage (1s cap) and `[DONE]` in the background so the socket can return to the pool. Transcript scroll: PageUp / PageDown, wheel, Ctrl+Home / Ctrl+End; follow only at the tail. History paint is cached; only the streaming tail is re-wrapped
 - Four tools + continue-after-tools (20-round cap). Tools in one round run in parallel. Results cap 50KB. Truncated completions do not run tool calls
 - Missions: `/new` `/resume` `/name` `/session`, `-c`
 - Token stats + refuse submit when last prompt ≥ window
