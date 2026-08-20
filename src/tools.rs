@@ -298,12 +298,24 @@ fn bash(args: &Value, cancel: &AtomicBool) -> ToolOut {
     let mut cmd = Command::new("bash");
     cmd.arg("-lc")
         .arg(command)
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(unix)]
     {
+        // New session, not just a new group: group leaders still have the
+        // glass as controlling tty, so a nested TUI can take raw mode.
         use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
+        // Safety: setsid is async-signal-safe; this runs between fork and exec.
+        unsafe {
+            cmd.pre_exec(|| {
+                if setsid() == -1 {
+                    Err(std::io::Error::last_os_error())
+                } else {
+                    Ok(())
+                }
+            });
+        }
     }
     let mut child = match cmd.spawn() {
         Ok(c) => c,
@@ -387,6 +399,14 @@ fn bash(args: &Value, cancel: &AtomicBool) -> ToolOut {
     ToolOut { title, content }
 }
 
+#[cfg(unix)]
+fn setsid() -> i32 {
+    unsafe extern "C" {
+        fn setsid() -> i32;
+    }
+    unsafe { setsid() }
+}
+
 fn stop_child(child: &mut Child) {
     #[cfg(unix)]
     {
@@ -453,28 +473,48 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
 
+    #[test]
+    fn bash_stdin_is_not_a_tty() {
+        let out = run(
+            "bash",
+            r#"{"command":"if [ -t 0 ]; then echo stdin_tty; else echo stdin_notty; fi"}"#,
+            &AtomicBool::new(false),
+        );
+        assert!(out.content.contains("stdin_notty"), "{}", out.content);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bash_has_no_controlling_tty() {
+        let out = run(
+            "bash",
+            r#"{"command":"if (exec 3>/dev/tty) 2>/dev/null; then echo has_ctty; else echo no_ctty; fi"}"#,
+            &AtomicBool::new(false),
+        );
+        assert!(out.content.contains("no_ctty"), "{}", out.content);
+    }
+
     #[cfg(unix)]
     #[test]
     fn bash_abort_kills_sleep() {
         let cancel = Arc::new(AtomicBool::new(false));
         let flag = cancel.clone();
         let start = Instant::now();
-        let handle = thread::spawn(move || {
-            run("bash", r#"{"command":"sleep 30"}"#, flag.as_ref())
-        });
+        let handle = thread::spawn(move || run("bash", r#"{"command":"sleep 30"}"#, flag.as_ref()));
         thread::sleep(Duration::from_millis(80));
         cancel.store(true, Ordering::Relaxed);
         let out = handle.join().unwrap();
-        assert!(start.elapsed() < Duration::from_secs(3), "{:?}", start.elapsed());
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            start.elapsed()
+        );
         assert_eq!(out.content, "aborted");
     }
 
     #[test]
     fn read_caps_a_long_line() {
-        let path = std::env::temp_dir().join(format!(
-            "lunar-read-cap-{}",
-            std::process::id()
-        ));
+        let path = std::env::temp_dir().join(format!("lunar-read-cap-{}", std::process::id()));
         std::fs::write(&path, "x".repeat(80_000)).unwrap();
         let out = run(
             "read",
@@ -482,7 +522,11 @@ mod tests {
             &AtomicBool::new(false),
         );
         let _ = std::fs::remove_file(&path);
-        assert!(out.content.len() < MAX_TOOL_BYTES + 80, "{}", out.content.len());
+        assert!(
+            out.content.len() < MAX_TOOL_BYTES + 80,
+            "{}",
+            out.content.len()
+        );
         assert!(out.content.contains("truncated") || out.content.contains("more lines"));
     }
 }
