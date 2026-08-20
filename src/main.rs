@@ -16,9 +16,9 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
 use ratatui::crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
-    KeyModifiers, KeyboardEnhancementFlags, MouseEvent, MouseEventKind,
-    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags, MouseEvent,
+    MouseEventKind, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use ratatui::crossterm::execute;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
@@ -190,12 +190,13 @@ fn enable_enhanced_keys() {
     let _ = execute!(
         io::stdout(),
         PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
+        EnableBracketedPaste,
         EnableMouseCapture,
     );
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         pop_enhanced_keys();
-        let _ = execute!(io::stdout(), DisableMouseCapture);
+        let _ = execute!(io::stdout(), DisableBracketedPaste, DisableMouseCapture);
         hook(info);
     }));
 }
@@ -206,7 +207,7 @@ fn pop_enhanced_keys() {
 
 fn restore_terminal() {
     pop_enhanced_keys();
-    let _ = execute!(io::stdout(), DisableMouseCapture);
+    let _ = execute!(io::stdout(), DisableBracketedPaste, DisableMouseCapture);
     ratatui::restore();
 }
 
@@ -222,6 +223,7 @@ fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
         if event::poll(wait)? {
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => on_key(app, key),
+                Event::Paste(text) => on_paste(app, &text),
                 Event::Mouse(mouse) => on_mouse(app, mouse),
                 _ => {}
             }
@@ -418,6 +420,16 @@ fn apply_tool_results(app: &mut App, results: Vec<ToolResult>) {
         return;
     }
     continue_turn(app);
+}
+
+fn on_paste(app: &mut App, text: &str) {
+    if !matches!(app.mode, Mode::Chat) || app.search.is_some() {
+        return;
+    }
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    app.input.insert_str(app.cursor, &text);
+    app.cursor += text.len();
+    app.complete_sel = 0;
 }
 
 fn on_key(app: &mut App, key: KeyEvent) {
@@ -1699,6 +1711,18 @@ mod tests {
 
     fn key(modifiers: KeyModifiers, code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, modifiers)
+    }
+
+    #[test]
+    fn multiline_paste_inserts_without_sending() {
+        let mut app = test_app();
+        app.input = "ab".into();
+        app.cursor = 1;
+        on_paste(&mut app, "one\r\ntwo\rthree");
+        assert_eq!(app.input, "aone\ntwo\nthreeb");
+        assert_eq!(app.cursor, 14);
+        assert!(app.messages.is_empty());
+        assert_eq!(app.notice, None);
     }
 
     #[test]
