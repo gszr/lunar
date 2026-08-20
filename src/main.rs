@@ -41,6 +41,7 @@ struct App {
     rounds: u32,
     usage: Usage,
     last_prompt: u32,
+    preamble: Option<String>,
     mission: Option<mission::Mission>,
     mode: Mode,
     complete_sel: usize,
@@ -127,6 +128,7 @@ fn main() -> io::Result<()> {
         rounds: 0,
         usage: Usage::default(),
         last_prompt: 0,
+        preamble: None,
         mission: None,
         mode: Mode::Chat,
         complete_sel: 0,
@@ -745,6 +747,7 @@ fn send_prompt(app: &mut App, line: String) {
     }
     app.notice = None;
     app.rounds = 0;
+    app.preamble = prompt::preamble();
     persist_value(app, &mission::user_line(&line));
     app.messages.push(Message::user(line));
     jump_to_tail(app);
@@ -761,16 +764,16 @@ fn continue_turn(app: &mut App) {
         return;
     };
     app.messages.push(Message::assistant());
-    let history = api_history(&app.messages);
+    let history = api_history(app.preamble.as_deref(), &app.messages);
     let (tx, rx) = mpsc::channel();
     app.stream_rx = Some(rx);
     std::thread::spawn(move || complete::stream(cfg, history, cancel, tx));
 }
 
-fn api_history(messages: &[Message]) -> Vec<ChatMessage> {
+fn api_history(preamble: Option<&str>, messages: &[Message]) -> Vec<ChatMessage> {
     let mut out = Vec::new();
-    if let Some(text) = prompt::preamble() {
-        out.push(ChatMessage::User(text));
+    if let Some(text) = preamble {
+        out.push(ChatMessage::User(text.to_string()));
     }
     out.extend(
         messages

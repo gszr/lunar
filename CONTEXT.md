@@ -27,7 +27,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Model catalog | Global `lunar.models`: alias → `{ id, window? }`. `id` is the wire string; alias is a Lua name. Provider `models` is an ordered list: string = ref to a global alias, table = local `{ id, window? }`. Missing alias = notice, skip that entry. This slice reads **id** and optional **window** only |
 | Live model | `lunar.defaults { provider, model }`. `provider` is a providers key; `model` matches that list as alias then wire `id`. Unknown provider or model is an error: notice, glass opens, cannot send. Omitted defaults = today’s env Config. Partial defaults (only one field) = present and invalid, no env fallback. On the Lua path the selected provider must have `base_url` and `key_name`; missing either = notice, cannot send. Model `window` if set, else the Grok-id guess; `LUNAR_CONTEXT_WINDOW` is env-path only. Footer provider is the providers key |
 | Prompt conventions | CWD `AGENTS.md` + `CONTEXT.md` in full. Skill *summaries* from `.agents/skills/*/SKILL.md`. `~/.agents/skills` later |
-| System prompt | None. Context is a leading user message, rebuilt every request, not persisted |
+| System prompt | None. Context is a leading user message, snapshotted at each user submit, held for the tool loop, not persisted |
 | v0 goal | Daily driver for one user, not ecosystem parity |
 | Model protocol | Completions **and** Responses. **Only Completions is implemented** |
 | First brand | xAI. Config is env, not a compiled-in brand |
@@ -154,7 +154,7 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 - Four tools + continue-after-tools (20-round cap). Tools in one round run in parallel
 - Missions: `/new` `/resume` `/name` `/session`, `-c`
 - Token stats + refuse submit when last prompt ≥ window
-- CWD `AGENTS.md` / `CONTEXT.md` + `.agents/skills` summaries as a leading user message
+- CWD `AGENTS.md` / `CONTEXT.md` + `.agents/skills` summaries as a leading user message, snapshotted per user turn
 - Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/name` `/session` `/context`
 - Lua 5.5 embed; user `~/.lunar/init.lua` (`lunar.models` / `lunar.providers` / `lunar.defaults`)
 

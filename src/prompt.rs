@@ -1,6 +1,7 @@
 //! CWD context files and skill summaries. Not a system prompt.
 //!
-//! Loaded from disk on every request so edits apply without /reload.
+//! Loaded from disk at the start of each user turn so edits apply without
+//! /reload, then held stable across tool rounds for prefix cache.
 
 use std::fmt::Write as _;
 use std::fs;
