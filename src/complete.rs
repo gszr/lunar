@@ -1,7 +1,7 @@
 //! Chat Completions stream. Generic OpenAI-shaped HTTP. No branded providers.
 
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, OnceLock};
@@ -170,6 +170,21 @@ pub fn stream(
     }
 }
 
+/// Hard cap on reasoning + answer. grok-4.6 ignores thinking level.
+const MAX_TOKENS: u32 = 32_768;
+
+fn request_body(cfg: &Config, messages: &[ChatMessage]) -> String {
+    json!({
+        "model": cfg.model,
+        "stream": true,
+        "stream_options": { "include_usage": true },
+        "max_tokens": MAX_TOKENS,
+        "tools": tools::definitions(),
+        "messages": messages.iter().map(ChatMessage::to_json).collect::<Vec<_>>(),
+    })
+    .to_string()
+}
+
 fn stream_inner(
     cfg: Config,
     messages: Vec<ChatMessage>,
@@ -177,14 +192,7 @@ fn stream_inner(
     tx: &Sender<StreamEvent>,
 ) -> Result<(), String> {
     let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
-    let body = json!({
-        "model": cfg.model,
-        "stream": true,
-        "stream_options": { "include_usage": true },
-        "tools": tools::definitions(),
-        "messages": messages.iter().map(ChatMessage::to_json).collect::<Vec<_>>(),
-    })
-    .to_string();
+    let body = request_body(&cfg, &messages);
 
     let mut response = agent()
         .post(&url)
@@ -195,8 +203,9 @@ fn stream_inner(
 
     let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();
     let mut usage = None;
-    let reader = BufReader::new(response.body_mut().as_reader());
-    for line in reader.lines() {
+    let mut saw_done = false;
+    let mut reader = BufReader::new(response.body_mut().as_reader());
+    for line in reader.by_ref().lines() {
         if cancel.load(Ordering::Relaxed) {
             let _ = tx.send(StreamEvent::Failed("aborted".into()));
             return Ok(());
@@ -210,6 +219,7 @@ fn stream_inner(
             continue;
         }
         if data == "[DONE]" {
+            saw_done = true;
             break;
         }
         let value: Value = serde_json::from_str(data).map_err(|e| e.to_string())?;
@@ -290,6 +300,18 @@ fn stream_inner(
     } else {
         let _ = tx.send(StreamEvent::Tools(calls));
     }
+    if !saw_done {
+        // finish_reason already ended the turn. Drain [DONE]/usage so ureq
+        // can put the socket back in the pool instead of opening TLS again.
+        for line in reader.lines() {
+            let Ok(line) = line else {
+                break;
+            };
+            if line.strip_prefix("data:").is_some_and(|d| d.trim() == "[DONE]") {
+                break;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -338,4 +360,24 @@ fn parse_usage(value: &Value) -> Option<Usage> {
 
 fn nonempty(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|s| !s.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_caps_completion_tokens() {
+        let cfg = Config {
+            api_key: "k".into(),
+            base_url: "https://api.x.ai/v1".into(),
+            model: "grok-4.6".into(),
+            provider: "xai".into(),
+            window: Some(500_000),
+        };
+        let body: Value = serde_json::from_str(&request_body(&cfg, &[])).unwrap();
+        assert_eq!(body["max_tokens"], MAX_TOKENS);
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["model"], "grok-4.6");
+    }
 }

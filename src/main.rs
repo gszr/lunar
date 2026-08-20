@@ -285,21 +285,48 @@ fn begin_tools(app: &mut App, calls: Vec<ToolCall>) {
     let (tx, rx) = mpsc::channel();
     app.stream_rx = Some(rx);
     std::thread::spawn(move || {
-        let mut results = Vec::new();
-        for call in calls {
-            if cancel.load(Ordering::Relaxed) {
-                let _ = tx.send(StreamEvent::Failed("aborted".into()));
-                return;
-            }
-            let out = tools::run(&call.name, &call.arguments, &cancel);
-            results.push(ToolResult {
-                id: call.id,
-                title: out.title,
-                content: out.content,
-            });
+        let results = run_tools_parallel(&calls, &cancel);
+        if cancel.load(Ordering::Relaxed) {
+            let _ = tx.send(StreamEvent::Failed("aborted".into()));
+            return;
         }
         let _ = tx.send(StreamEvent::ToolResults(results));
     });
+}
+
+fn run_tools_parallel(calls: &[ToolCall], cancel: &AtomicBool) -> Vec<ToolResult> {
+    std::thread::scope(|s| {
+        let handles: Vec<_> = calls
+            .iter()
+            .map(|call| {
+                s.spawn(move || {
+                    if cancel.load(Ordering::Relaxed) {
+                        return ToolResult {
+                            id: call.id.clone(),
+                            title: call.name.clone(),
+                            content: "aborted".into(),
+                        };
+                    }
+                    let out = tools::run(&call.name, &call.arguments, cancel);
+                    ToolResult {
+                        id: call.id.clone(),
+                        title: out.title,
+                        content: out.content,
+                    }
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| {
+                h.join().unwrap_or_else(|_| ToolResult {
+                    id: String::new(),
+                    title: "tool".into(),
+                    content: "tool panicked".into(),
+                })
+            })
+            .collect()
+    })
 }
 
 fn apply_tool_results(app: &mut App, results: Vec<ToolResult>) {
@@ -1212,6 +1239,28 @@ mod tests {
         assert_eq!(cursor_xy("ab\ncd", 3, 10), (1, 0));
         assert_eq!(cursor_xy("ab\ncd", 5, 10), (1, 2));
         assert_eq!(cursor_xy("hello", 5, 5), (1, 0));
+    }
+
+    #[test]
+    fn tools_in_a_round_keep_call_order() {
+        let cancel = AtomicBool::new(false);
+        let calls = vec![
+            ToolCall {
+                id: "1".into(),
+                name: "read".into(),
+                arguments: r#"{"path":"Cargo.toml"}"#.into(),
+            },
+            ToolCall {
+                id: "2".into(),
+                name: "read".into(),
+                arguments: r#"{"path":"LICENSE"}"#.into(),
+            },
+        ];
+        let results = run_tools_parallel(&calls, &cancel);
+        assert_eq!(results[0].id, "1");
+        assert_eq!(results[1].id, "2");
+        assert!(results[0].content.contains("lunar"));
+        assert!(results[1].content.contains("MIT"));
     }
 
     #[test]
