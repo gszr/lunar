@@ -1,10 +1,11 @@
 //! Chat Completions stream. Generic OpenAI-shaped HTTP. No branded providers.
 
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{self, BufRead, BufReader, Read};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, OnceLock};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -175,6 +176,7 @@ pub fn stream(
 
 /// Hard cap on reasoning + answer. grok-4.6 ignores thinking level.
 const MAX_TOKENS: u32 = 32_768;
+const MAX_RETRIES: u32 = 3;
 
 fn request_body(cfg: &Config, messages: &[ChatMessage]) -> String {
     json!({
@@ -197,12 +199,7 @@ fn stream_inner(
     let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
     let body = request_body(&cfg, &messages);
 
-    let response = agent()
-        .post(&url)
-        .header("Authorization", &format!("Bearer {}", cfg.api_key))
-        .header("Content-Type", "application/json")
-        .send(&body)
-        .map_err(|e| e.to_string())?;
+    let response = post_retry(&url, &cfg.api_key, &body, &cancel)?;
 
     let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();
     let mut usage = None;
@@ -391,6 +388,69 @@ fn sse_payload(line: &str) -> Option<&str> {
     }
 }
 
+fn post_retry(
+    url: &str,
+    api_key: &str,
+    body: &str,
+    cancel: &AtomicBool,
+) -> Result<ureq::http::Response<ureq::Body>, String> {
+    let mut attempt = 0;
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("aborted".into());
+        }
+        match agent()
+            .post(url)
+            .header("Authorization", &format!("Bearer {api_key}"))
+            .header("Content-Type", "application/json")
+            .send(body)
+        {
+            Ok(response) => return Ok(response),
+            Err(err) => {
+                if attempt >= MAX_RETRIES || !should_retry(&err) {
+                    return Err(err.to_string());
+                }
+                sleep_cancel(retry_delay(attempt), cancel)?;
+                attempt += 1;
+            }
+        }
+    }
+}
+
+fn should_retry(err: &ureq::Error) -> bool {
+    match err {
+        ureq::Error::StatusCode(code) => matches!(code, 408 | 409 | 429) || *code >= 500,
+        ureq::Error::Io(e) => matches!(
+            e.kind(),
+            io::ErrorKind::ConnectionReset
+                | io::ErrorKind::ConnectionAborted
+                | io::ErrorKind::TimedOut
+                | io::ErrorKind::BrokenPipe
+                | io::ErrorKind::UnexpectedEof
+                | io::ErrorKind::Interrupted
+                | io::ErrorKind::NotConnected
+        ),
+        ureq::Error::ConnectionFailed | ureq::Error::Timeout(_) => true,
+        _ => false,
+    }
+}
+
+fn retry_delay(attempt: u32) -> Duration {
+    Duration::from_millis(500 * (1u64 << attempt.min(4)))
+}
+
+fn sleep_cancel(total: Duration, cancel: &AtomicBool) -> Result<(), String> {
+    let start = Instant::now();
+    while start.elapsed() < total {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("aborted".into());
+        }
+        let left = total.saturating_sub(start.elapsed());
+        thread::sleep(left.min(Duration::from_millis(50)));
+    }
+    Ok(())
+}
+
 fn agent() -> Agent {
     static AGENT: OnceLock<Agent> = OnceLock::new();
     AGENT
@@ -472,5 +532,23 @@ mod tests {
         assert_eq!(u.cache_read, 800);
         assert_eq!(u.output, 20);
         assert_eq!(u.prompt(), 1000);
+    }
+
+    #[test]
+    fn retries_transient_status_not_auth() {
+        assert!(should_retry(&ureq::Error::StatusCode(429)));
+        assert!(should_retry(&ureq::Error::StatusCode(503)));
+        assert!(should_retry(&ureq::Error::StatusCode(408)));
+        assert!(!should_retry(&ureq::Error::StatusCode(401)));
+        assert!(!should_retry(&ureq::Error::StatusCode(400)));
+    }
+
+    #[test]
+    fn retry_delay_grows_then_caps() {
+        assert_eq!(retry_delay(0), Duration::from_millis(500));
+        assert_eq!(retry_delay(1), Duration::from_millis(1000));
+        assert_eq!(retry_delay(2), Duration::from_millis(2000));
+        assert_eq!(retry_delay(4), Duration::from_millis(8000));
+        assert_eq!(retry_delay(9), Duration::from_millis(8000));
     }
 }
