@@ -16,6 +16,10 @@ pub const COMMANDS: &[Command] = &[
         description: "commands",
     },
     Command {
+        name: "model",
+        description: "pick a configured model",
+    },
+    Command {
         name: "name",
         description: "name the current mission",
     },

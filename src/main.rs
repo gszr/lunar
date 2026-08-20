@@ -37,6 +37,8 @@ struct App {
     notice: Option<String>,
     messages: Vec<Message>,
     config: Option<Config>,
+    startup_config: Option<Config>,
+    models: Vec<lua::ModelChoice>,
     stream_rx: Option<Receiver<StreamEvent>>,
     cancel: Option<Arc<AtomicBool>>,
     rounds: u32,
@@ -72,6 +74,10 @@ enum Mode {
     Chat,
     Resume {
         items: Vec<mission::Meta>,
+        cursor: usize,
+    },
+    Model {
+        items: Vec<lua::ModelChoice>,
         cursor: usize,
     },
 }
@@ -131,6 +137,7 @@ fn main() -> io::Result<()> {
         .skip(1)
         .any(|a| a == "-c" || a == "--continue");
     let loaded = lua::load();
+    let startup_config = loaded.config.clone();
     let mut terminal = ratatui::init();
     enable_enhanced_keys();
     let mut app = App {
@@ -139,6 +146,8 @@ fn main() -> io::Result<()> {
         notice: loaded.notice,
         messages: Vec::new(),
         config: loaded.config,
+        startup_config,
+        models: loaded.models,
         stream_rx: None,
         cancel: None,
         rounds: 0,
@@ -410,6 +419,31 @@ fn apply_tool_results(app: &mut App, results: Vec<ToolResult>) {
 }
 
 fn on_key(app: &mut App, key: KeyEvent) {
+    if let Mode::Model { items, cursor } = &app.mode {
+        let len = items.len();
+        let cursor = *cursor;
+        match key.code {
+            KeyCode::Esc => app.mode = Mode::Chat,
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let Mode::Model { cursor, .. } = &mut app.mode {
+                    *cursor = cursor.saturating_sub(1);
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let Mode::Model { cursor, .. } = &mut app.mode {
+                    *cursor = (*cursor + 1).min(len.saturating_sub(1));
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(item) = items.get(cursor).cloned() {
+                    app.mode = Mode::Chat;
+                    select_model(app, item, true);
+                }
+            }
+            _ => {}
+        }
+        return;
+    }
     if let Mode::Resume { items, cursor } = &app.mode {
         let len = items.len();
         let cursor = *cursor;
@@ -746,12 +780,13 @@ fn submit(app: &mut App) {
         "/quit" | "/q" => app.quit = true,
         "/help" => {
             app.notice = Some(
-                "/quit /new /resume /name /session /context /help    tab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits"
+                "/quit /new /resume /model /name /session /context /help    tab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits"
                     .into(),
             );
         }
         "/new" => new_mission(app),
         "/resume" => open_resume(app),
+        "/model" => open_model(app),
         "/session" => show_session(app),
         "/context" => app.notice = Some(prompt::summary()),
         cmd if let Some(name) = cmd.strip_prefix("/name ") => name_mission(app, name),
@@ -798,6 +833,7 @@ fn new_mission(app: &mut App) {
         return;
     }
     app.messages.clear();
+    app.config = app.startup_config.clone();
     invalidate_paint(app);
     app.mission = None;
     app.usage = Usage::default();
@@ -824,6 +860,52 @@ fn show_session(app: &mut App) {
             app.notice = Some(format!("{}  {}", m.label(), m.path.display()));
         }
         None => app.notice = Some("no mission yet".into()),
+    }
+}
+
+fn open_model(app: &mut App) {
+    if app.models.is_empty() {
+        app.notice = Some("no configured models".into());
+        return;
+    }
+    let cursor = app
+        .config
+        .as_ref()
+        .and_then(|cfg| {
+            app.models
+                .iter()
+                .position(|m| m.provider == cfg.provider && m.id == cfg.model)
+        })
+        .unwrap_or(0);
+    app.mode = Mode::Model {
+        items: app.models.clone(),
+        cursor,
+    };
+}
+
+fn select_model(app: &mut App, item: lua::ModelChoice, persist: bool) {
+    let Some(config) = item.config else {
+        app.notice = Some(item.error.unwrap_or_else(|| "model is unavailable".into()));
+        return;
+    };
+    app.config = Some(config);
+    app.notice = Some(format!("model: {} / {}", item.provider, item.id));
+    if persist {
+        persist_value(app, &mission::model_line(&item.provider, &item.id));
+    }
+}
+
+fn restore_model(app: &mut App, provider: &str, id: &str) -> bool {
+    let choice = app
+        .models
+        .iter()
+        .find(|m| m.provider == provider && m.id == id)
+        .cloned();
+    if let Some(item) = choice.filter(|m| m.config.is_some()) {
+        select_model(app, item, false);
+        true
+    } else {
+        false
     }
 }
 
@@ -856,18 +938,24 @@ fn resume_prefix(app: &mut App, prefix: &str) {
 fn load_mission(app: &mut App, path: &std::path::Path) {
     match mission::load(path) {
         Ok((loaded, saved)) => {
+            app.config = app.startup_config.clone();
+            let persisted_model = saved.iter().rev().find_map(|s| match s {
+                mission::Saved::Model { provider, id } => Some((provider.clone(), id.clone())),
+                _ => None,
+            });
             app.messages = saved
                 .into_iter()
-                .map(|s| match s {
-                    mission::Saved::User(text) => Message::user(text),
+                .filter_map(|s| match s {
+                    mission::Saved::Model { .. } => None,
+                    mission::Saved::User(text) => Some(Message::user(text)),
                     mission::Saved::Assistant { text, tool_calls } => {
                         let mut msg = Message::assistant();
                         msg.text = text;
                         msg.tool_calls = tool_calls;
-                        msg
+                        Some(msg)
                     }
                     mission::Saved::Tool { id, title, content } => {
-                        Message::tool(id, title, content)
+                        Some(Message::tool(id, title, content))
                     }
                 })
                 .collect();
@@ -876,6 +964,13 @@ fn load_mission(app: &mut App, path: &std::path::Path) {
             app.usage = Usage::default();
             app.last_prompt = 0;
             app.notice = None;
+            if let Some((provider, id)) = persisted_model
+                && !restore_model(app, &provider, &id)
+            {
+                app.notice = Some(format!(
+                    "saved model {provider} / {id} is no longer configured; using startup default"
+                ));
+            }
             jump_to_tail(app);
         }
         Err(err) => app.notice = Some(format!("resume: {err}")),
@@ -1000,9 +1095,17 @@ fn editor_height(input: &str, cursor: usize, width: u16) -> u16 {
     lines.max(row + 1).min(EDITOR_MAX_LINES) + 2
 }
 
+fn model_picker_height(app: &App) -> u16 {
+    match &app.mode {
+        Mode::Model { items, .. } => items.len().saturating_add(1).min(u16::MAX as usize) as u16,
+        _ => 0,
+    }
+}
+
 fn draw(frame: &mut Frame, app: &mut App) {
     let working = u16::from(app.cancel.is_some());
-    let ed_h = editor_height(app.input.as_str(), app.cursor, frame.area().width);
+    let ed_h = editor_height(app.input.as_str(), app.cursor, frame.area().width)
+        .saturating_add(model_picker_height(app));
     let found = if app.search.is_none() {
         commands::matches(&app.input)
     } else {
@@ -1270,6 +1373,37 @@ fn draw_notice(frame: &mut Frame, area: Rect, notice: &str) {
     frame.render_widget(Paragraph::new(lines[skip..].to_vec()), area);
 }
 
+fn draw_model(frame: &mut Frame, area: Rect, items: &[lua::ModelChoice], cursor: usize) {
+    let mut lines = vec![Line::from(Span::styled(
+        "model  j/k  enter  esc",
+        Style::default().fg(splash::ASH),
+    ))];
+    for (i, item) in items.iter().enumerate() {
+        let alias = item
+            .alias
+            .as_deref()
+            .map(|a| format!("{a}  "))
+            .unwrap_or_default();
+        let unavailable = item
+            .error
+            .as_deref()
+            .map(|e| format!("  unavailable: {e}"))
+            .unwrap_or_default();
+        let style = if i == cursor {
+            Style::default().fg(splash::GOLD)
+        } else if item.config.is_none() {
+            Style::default().fg(splash::DUST)
+        } else {
+            Style::default().fg(splash::BONE)
+        };
+        lines.push(Line::from(Span::styled(
+            format!("  {} / {}{}{}", item.provider, alias, item.id, unavailable),
+            style,
+        )));
+    }
+    frame.render_widget(Paragraph::new(lines), area);
+}
+
 fn draw_resume(frame: &mut Frame, area: Rect, items: &[mission::Meta], cursor: usize) {
     let mut lines = vec![Line::from(Span::styled(
         "resume  j/k  enter  esc",
@@ -1377,6 +1511,24 @@ fn draw_complete(
 }
 
 fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
+    if let Mode::Model { items, cursor } = &app.mode {
+        let block = Block::default()
+            .borders(Borders::TOP | Borders::BOTTOM)
+            .border_style(Style::default().fg(splash::DUST));
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        if inner.height == 0 {
+            return;
+        }
+        let picker_h = (items.len().saturating_add(1) as u16).min(inner.height);
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(picker_h)])
+            .split(inner);
+        draw_editor_input(frame, chunks[0], app);
+        draw_model(frame, chunks[1], items, *cursor);
+        return;
+    }
     if let Some(search) = &app.search {
         let result = search
             .matched
@@ -1413,10 +1565,17 @@ fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
-    let mut lines = editor_lines(app.input.as_str(), inner.width);
-    let (mut row, col) = cursor_xy(&app.input, app.cursor, inner.width as usize);
-    if lines.len() > inner.height as usize {
-        let skip = lines.len() - inner.height as usize;
+    draw_editor_input(frame, inner, app);
+}
+
+fn draw_editor_input(frame: &mut Frame, area: Rect, app: &App) {
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
+    let mut lines = editor_lines(app.input.as_str(), area.width);
+    let (mut row, col) = cursor_xy(&app.input, app.cursor, area.width as usize);
+    if lines.len() > area.height as usize {
+        let skip = lines.len() - area.height as usize;
         lines = lines[skip..].to_vec();
         row = row.saturating_sub(skip as u16);
     }
@@ -1424,10 +1583,10 @@ fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
         .into_iter()
         .map(|s| Line::from(Span::styled(s, Style::default().fg(splash::BONE))))
         .collect();
-    frame.render_widget(Paragraph::new(styled), inner);
+    frame.render_widget(Paragraph::new(styled), area);
 
-    let cursor_x = inner.x + col.min(inner.width.saturating_sub(1));
-    let cursor_y = inner.y + row.min(inner.height.saturating_sub(1));
+    let cursor_x = area.x + col.min(area.width.saturating_sub(1));
+    let cursor_y = area.y + row.min(area.height.saturating_sub(1));
     frame.set_cursor_position((cursor_x, cursor_y));
 }
 
@@ -1509,6 +1668,8 @@ mod tests {
             notice: None,
             messages: Vec::new(),
             config: None,
+            startup_config: None,
+            models: Vec::new(),
             stream_rx: None,
             cancel: None,
             rounds: 0,

@@ -11,7 +11,17 @@ use crate::complete::{self, Config};
 
 pub struct Loaded {
     pub config: Option<Config>,
+    pub models: Vec<ModelChoice>,
     pub notice: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct ModelChoice {
+    pub provider: String,
+    pub alias: Option<String>,
+    pub id: String,
+    pub config: Option<Config>,
+    pub error: Option<String>,
 }
 
 pub fn load() -> Loaded {
@@ -22,6 +32,7 @@ fn load_path(path: &Path) -> Loaded {
     if !path.is_file() {
         return Loaded {
             config: Config::from_env(),
+            models: env_choices(),
             notice: None,
         };
     }
@@ -29,6 +40,7 @@ fn load_path(path: &Path) -> Loaded {
         Ok(src) => run(path, &src),
         Err(err) => Loaded {
             config: None,
+            models: Vec::new(),
             notice: Some(format!("init.lua: {err}")),
         },
     }
@@ -44,6 +56,7 @@ fn run(path: &Path, src: &str) -> Loaded {
     }) {
         return Loaded {
             config: None,
+            models: Vec::new(),
             notice: Some(format!("init.lua: {err}")),
         };
     }
@@ -98,6 +111,7 @@ fn resolve(guest: &Guest) -> Loaded {
     let Some(defaults) = &guest.defaults else {
         return Loaded {
             config: Config::from_env(),
+            models: env_choices(),
             notice: None,
         };
     };
@@ -112,14 +126,79 @@ fn resolve(guest: &Guest) -> Loaded {
             );
             Loaded {
                 config: Some(config),
+                models: choices(guest),
                 notice,
             }
         }
         Err(notice) => Loaded {
             config: None,
+            models: Vec::new(),
             notice: Some(notice),
         },
     }
+}
+
+fn env_choices() -> Vec<ModelChoice> {
+    Config::from_env()
+        .map(|config| ModelChoice {
+            provider: config.provider.clone(),
+            alias: None,
+            id: config.model.clone(),
+            config: Some(config),
+            error: None,
+        })
+        .into_iter()
+        .collect()
+}
+
+fn choices(guest: &Guest) -> Vec<ModelChoice> {
+    let mut out = Vec::new();
+    for (provider_key, provider) in &guest.providers {
+        let (models, _) = resolve_listed(&guest.models, &provider.models);
+        for model in models {
+            let result = provider_config(provider_key, provider, &model);
+            let (config, error) = match result {
+                Ok(config) => (Some(config), None),
+                Err(error) => (None, Some(error)),
+            };
+            out.push(ModelChoice {
+                provider: provider_key.clone(),
+                alias: model.alias,
+                id: model.id,
+                config,
+                error,
+            });
+        }
+    }
+    out
+}
+
+fn provider_config(
+    provider_key: &str,
+    provider: &ProviderDef,
+    model: &ResolvedModel,
+) -> Result<Config, String> {
+    let base_url = provider
+        .base_url
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| format!("{provider_key} has no base_url"))?;
+    let key_name = provider
+        .key_name
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| format!("{provider_key} has no key_name"))?;
+    if provider.key_in != "env" {
+        return Err(format!("{provider_key} key_in is not env"));
+    }
+    let api_key = nonempty(key_name).ok_or_else(|| format!("missing {key_name}"))?;
+    Ok(Config {
+        api_key,
+        base_url: base_url.to_string(),
+        model: model.id.clone(),
+        provider: provider_key.to_string(),
+        window: model.window.or_else(|| complete::guess_window(&model.id)),
+    })
 }
 
 fn config_from_lua(guest: &Guest, defaults: &RawDefaults) -> Result<(Config, Vec<String>), String> {
@@ -137,33 +216,10 @@ fn config_from_lua(guest: &Guest, defaults: &RawDefaults) -> Result<(Config, Vec
         .providers
         .get(provider_key)
         .ok_or_else(|| format!("unknown provider: {provider_key}"))?;
-    let base_url = provider
-        .base_url
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| format!("{provider_key} has no base_url"))?;
-    let key_name = provider
-        .key_name
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| format!("{provider_key} has no key_name"))?;
-    if provider.key_in != "env" {
-        return Err(format!("{provider_key} key_in is not env"));
-    }
-    let api_key = nonempty(key_name).ok_or_else(|| format!("missing {key_name}"))?;
     let (listed, skips) = resolve_listed(&guest.models, &provider.models);
     let chosen =
         pick_model(&listed, model_key).ok_or_else(|| format!("unknown model: {model_key}"))?;
-    Ok((
-        Config {
-            api_key,
-            base_url: base_url.to_string(),
-            model: chosen.id.clone(),
-            provider: provider_key.to_string(),
-            window: chosen.window.or_else(|| complete::guess_window(&chosen.id)),
-        },
-        skips,
-    ))
+    Ok((provider_config(provider_key, provider, chosen)?, skips))
 }
 
 fn resolve_listed(

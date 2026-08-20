@@ -23,6 +23,10 @@ pub struct Meta {
 }
 
 pub enum Saved {
+    Model {
+        provider: String,
+        id: String,
+    },
     User(String),
     Assistant {
         text: String,
@@ -131,6 +135,17 @@ pub fn load(path: &Path) -> io::Result<(Mission, Vec<Saved>)> {
                     .and_then(Value::as_str)
                     .map(str::to_string);
             }
+            Some("model") => {
+                if let (Some(provider), Some(id)) = (
+                    value.get("provider").and_then(Value::as_str),
+                    value.get("id").and_then(Value::as_str),
+                ) {
+                    saved.push(Saved::Model {
+                        provider: provider.to_string(),
+                        id: id.to_string(),
+                    });
+                }
+            }
             Some("user") => {
                 if let Some(text) = value.get("text").and_then(Value::as_str) {
                     saved.push(Saved::User(text.to_string()));
@@ -176,6 +191,10 @@ pub fn load(path: &Path) -> io::Result<(Mission, Vec<Saved>)> {
         },
         saved,
     ))
+}
+
+pub fn model_line(provider: &str, id: &str) -> Value {
+    json!({ "type": "model", "provider": provider, "id": id })
 }
 
 pub fn user_line(text: &str) -> Value {
@@ -225,7 +244,7 @@ fn read_meta(path: &Path) -> io::Result<Meta> {
                     .and_then(Value::as_str)
                     .map(str::to_string);
             }
-            Some("user" | "assistant" | "tool") => break,
+            Some("user" | "assistant" | "tool" | "model") => break,
             _ => {}
         }
     }
