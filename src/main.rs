@@ -935,12 +935,16 @@ fn draw_splash(frame: &mut Frame, area: Rect, app: &App) {
     let art = splash::lines();
     let art_h = art.len() as u16;
     let title = Line::from(Span::styled("lunar", Style::default().fg(splash::GOLD)));
-    let hint = Line::from(Span::styled(
-        "a coding harness",
+    let tag = Line::from(Span::styled(
+        "lua-scriptable",
+        Style::default().fg(splash::ASH),
+    ));
+    let tag2 = Line::from(Span::styled(
+        "extensible coding harness",
         Style::default().fg(splash::ASH),
     ));
     let notice = app.notice.as_deref().unwrap_or("");
-    let extra = 3 + u16::from(!notice.is_empty());
+    let extra = 4 + u16::from(!notice.is_empty());
     let block_h = art_h.saturating_add(extra);
     let art_w = splash::width();
     let splash_area = Rect {
@@ -953,7 +957,8 @@ fn draw_splash(frame: &mut Frame, area: Rect, app: &App) {
     let mut lines = art;
     lines.push(Line::from(""));
     lines.push(title.centered());
-    lines.push(hint.centered());
+    lines.push(tag.centered());
+    lines.push(tag2.centered());
     if !notice.is_empty() {
         lines.push(Line::from(Span::styled(notice, Style::default().fg(splash::GOLD))).centered());
     }
