@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 const DEFAULT_READ_LIMIT: usize = 2000;
 const DEFAULT_BASH_TIMEOUT: Duration = Duration::from_secs(60);
-const MAX_BASH_BYTES: usize = 64 * 1024;
+const MAX_TOOL_BYTES: usize = 50 * 1024;
 
 pub fn definitions() -> Value {
     json!([
@@ -152,14 +152,28 @@ fn read(args: &Value) -> ToolOut {
     let start = offset.saturating_sub(1).min(lines.len());
     let end = (start + limit).min(lines.len());
     let mut out = String::new();
+    let mut used = start;
     for (i, line) in lines[start..end].iter().enumerate() {
-        let _ = writeln!(&mut out, "{:>6}|{line}", start + i + 1);
+        let numbered = format!("{:>6}|{line}\n", start + i + 1);
+        if !out.is_empty() && out.len() + numbered.len() > MAX_TOOL_BYTES {
+            break;
+        }
+        if numbered.len() > MAX_TOOL_BYTES && out.is_empty() {
+            let take = char_prefix(&numbered, MAX_TOOL_BYTES);
+            out.push_str(take);
+            out.push('\n');
+            used = start + i + 1;
+            let _ = writeln!(&mut out, "… truncated at {MAX_TOOL_BYTES} bytes");
+            break;
+        }
+        out.push_str(&numbered);
+        used = start + i + 1;
     }
-    if end < lines.len() {
+    if used < lines.len() {
         let _ = writeln!(
             &mut out,
             "… {} more lines (use offset/limit to continue)",
-            lines.len() - end
+            lines.len() - used
         );
     }
     if out.is_empty() {
@@ -408,12 +422,23 @@ fn display(path: &Path) -> String {
     }
 }
 
+fn char_prefix(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 fn truncate(text: &str) -> String {
     let bytes = text.as_bytes();
-    if bytes.len() <= MAX_BASH_BYTES {
+    if bytes.len() <= MAX_TOOL_BYTES {
         return text.to_string();
     }
-    let start = bytes.len() - MAX_BASH_BYTES;
+    let start = bytes.len() - MAX_TOOL_BYTES;
     let start = text
         .char_indices()
         .find(|(i, _)| *i >= start)
@@ -442,5 +467,22 @@ mod tests {
         let out = handle.join().unwrap();
         assert!(start.elapsed() < Duration::from_secs(3), "{:?}", start.elapsed());
         assert_eq!(out.content, "aborted");
+    }
+
+    #[test]
+    fn read_caps_a_long_line() {
+        let path = std::env::temp_dir().join(format!(
+            "lunar-read-cap-{}",
+            std::process::id()
+        ));
+        std::fs::write(&path, "x".repeat(80_000)).unwrap();
+        let out = run(
+            "read",
+            &format!(r#"{{"path":"{}"}}"#, path.display()),
+            &AtomicBool::new(false),
+        );
+        let _ = std::fs::remove_file(&path);
+        assert!(out.content.len() < MAX_TOOL_BYTES + 80, "{}", out.content.len());
+        assert!(out.content.contains("truncated") || out.content.contains("more lines"));
     }
 }

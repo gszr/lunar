@@ -240,7 +240,7 @@ fn drain_stream(app: &mut App) {
 
 fn finish_stream(app: &mut App, end: StreamEvent) {
     match end {
-        StreamEvent::Tools(calls) => begin_tools(app, calls),
+        StreamEvent::Tools { calls, truncated } => begin_tools(app, calls, truncated),
         StreamEvent::ToolResults(results) => apply_tool_results(app, results),
         StreamEvent::Done => {
             persist_last_assistant(app);
@@ -285,13 +285,17 @@ fn pop_empty_assistant(app: &mut App) {
     }
 }
 
-fn begin_tools(app: &mut App, calls: Vec<ToolCall>) {
+fn begin_tools(app: &mut App, calls: Vec<ToolCall>, truncated: bool) {
     if let Some(last) = app.messages.last_mut()
         && matches!(last.role, Role::Assistant)
     {
         last.tool_calls = calls.clone();
     }
     persist_last_assistant(app);
+    if truncated {
+        apply_tool_results(app, skipped_truncated(&calls));
+        return;
+    }
     let Some(cancel) = app.cancel.clone() else {
         return;
     };
@@ -305,6 +309,17 @@ fn begin_tools(app: &mut App, calls: Vec<ToolCall>) {
         }
         let _ = tx.send(StreamEvent::ToolResults(results));
     });
+}
+
+fn skipped_truncated(calls: &[ToolCall]) -> Vec<ToolResult> {
+    calls
+        .iter()
+        .map(|call| ToolResult {
+            id: call.id.clone(),
+            title: call.name.clone(),
+            content: "not executed: hit the output token limit; arguments may be truncated. Re-issue the call.".into(),
+        })
+        .collect()
 }
 
 fn run_tools_parallel(calls: &[ToolCall], cancel: &AtomicBool) -> Vec<ToolResult> {
@@ -1352,6 +1367,19 @@ mod tests {
         assert_eq!(results[1].id, "2");
         assert!(results[0].content.contains("lunar"));
         assert!(results[1].content.contains("MIT"));
+    }
+
+    #[test]
+    fn truncated_calls_are_not_executed() {
+        let calls = vec![ToolCall {
+            id: "1".into(),
+            name: "bash".into(),
+            arguments: r#"{"command":"echo should-not-run"}"#.into(),
+        }];
+        let results = skipped_truncated(&calls);
+        assert_eq!(results[0].id, "1");
+        assert!(results[0].content.contains("token limit"));
+        assert!(!results[0].content.contains("should-not-run"));
     }
 
     #[test]

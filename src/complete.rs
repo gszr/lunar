@@ -153,7 +153,10 @@ pub enum StreamEvent {
     Delta(String),
     Think(String),
     Usage(Usage),
-    Tools(Vec<ToolCall>),
+    Tools {
+        calls: Vec<ToolCall>,
+        truncated: bool,
+    },
     ToolResults(Vec<ToolResult>),
     Done,
     Failed(String),
@@ -204,6 +207,7 @@ fn stream_inner(
     let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();
     let mut usage = None;
     let mut saw_done = false;
+    let mut truncated = false;
     let mut reader = BufReader::new(response.into_parts().1.into_reader());
     for line in reader.by_ref().lines() {
         if cancel.load(Ordering::Relaxed) {
@@ -274,11 +278,11 @@ fn stream_inner(
         }
         // xAI (and some proxies) may keep the socket open after the last
         // choice, or skip [DONE]. finish_reason is the real end of the turn.
-        if value
+        if let Some(reason) = value
             .pointer("/choices/0/finish_reason")
             .and_then(Value::as_str)
-            .is_some()
         {
+            truncated = reason == "length" || reason == "max_tokens";
             break;
         }
     }
@@ -309,7 +313,7 @@ fn stream_inner(
     if calls.is_empty() {
         let _ = tx.send(StreamEvent::Done);
     } else {
-        let _ = tx.send(StreamEvent::Tools(calls));
+        let _ = tx.send(StreamEvent::Tools { calls, truncated });
     }
     Ok(())
 }
