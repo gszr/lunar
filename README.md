@@ -30,6 +30,12 @@ Continue the last mission for this directory:
 lunar -c
 ```
 
+See all supported command-line options:
+
+```bash
+lunar --help
+```
+
 ## Configure
 
 Two ways. Pick one — they are not mixed.

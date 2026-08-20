@@ -1,3 +1,4 @@
+mod cli;
 mod commands;
 mod complete;
 mod history;
@@ -133,9 +134,17 @@ impl Message {
 }
 
 fn main() -> io::Result<()> {
-    let resume_last = std::env::args()
-        .skip(1)
-        .any(|a| a == "-c" || a == "--continue");
+    let resume_last = match cli::parse(std::env::args_os().skip(1)) {
+        Ok(cli::Action::Open { continue_last }) => continue_last,
+        Ok(cli::Action::Help) => {
+            print!("{}", cli::HELP);
+            return Ok(());
+        }
+        Err(message) => {
+            eprintln!("lunar: {message}\n\nTry 'lunar --help' for more information.");
+            std::process::exit(2);
+        }
+    };
     let loaded = lua::load();
     let startup_config = loaded.config.clone();
     let mut terminal = ratatui::init();
