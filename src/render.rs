@@ -24,20 +24,23 @@ const THINK_LINES: usize = 3;
 
 pub fn thinking_preview(text: &str, width: usize) -> Vec<Line<'static>> {
     let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut wrapped = wrap(&flat, width);
-    if wrapped.len() > THINK_LINES {
-        wrapped.truncate(THINK_LINES);
-        if let Some(last) = wrapped.last_mut() {
-            const ELLIP: &str = "...";
-            let max = width.saturating_sub(ELLIP.len());
-            let cut: String = last.chars().take(max).collect();
-            *last = format!("{cut}{ELLIP}");
-        }
+    let wrapped = wrap(&flat, width);
+    let truncated = wrapped.len() > THINK_LINES;
+    let mut visible = if truncated {
+        wrapped[wrapped.len() - THINK_LINES..].to_vec()
+    } else {
+        wrapped
+    };
+    if truncated && let Some(first) = visible.first_mut() {
+        const ELLIP: &str = "...";
+        let max = width.saturating_sub(ELLIP.len());
+        let cut: String = first.chars().take(max).collect();
+        *first = format!("{ELLIP}{cut}");
     }
     let style = Style::default()
         .fg(splash::ASH)
         .add_modifier(Modifier::ITALIC);
-    wrapped
+    visible
         .into_iter()
         .map(|s| Line::from(Span::styled(s, style)))
         .collect()
@@ -170,4 +173,28 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line_text(line: &Line) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn thinking_preview_keeps_short_text() {
+        let lines = thinking_preview("hello world", 20);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(line_text(&lines[0]), "hello world");
+    }
+
+    #[test]
+    fn thinking_preview_shows_the_tail() {
+        let text = "alpha beta gamma delta epsilon";
+        let lines = thinking_preview(text, 5);
+        let got: Vec<String> = lines.iter().map(line_text).collect();
+        assert_eq!(got, vec!["...ga", "delta", "epsilon"]);
+    }
 }

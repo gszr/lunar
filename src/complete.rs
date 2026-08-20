@@ -262,6 +262,15 @@ fn stream_inner(
                 }
             }
         }
+        // xAI (and some proxies) may keep the socket open after the last
+        // choice, or skip [DONE]. finish_reason is the real end of the turn.
+        if value
+            .pointer("/choices/0/finish_reason")
+            .and_then(Value::as_str)
+            .is_some()
+        {
+            break;
+        }
     }
 
     if let Some(usage) = usage {

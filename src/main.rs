@@ -11,7 +11,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
 use ratatui::crossterm::event::{
@@ -189,28 +189,33 @@ fn drain_stream(app: &mut App) {
         return;
     };
     let mut end: Option<StreamEvent> = None;
-    while let Ok(ev) = rx.try_recv() {
-        match ev {
-            StreamEvent::Delta(text) => {
+    loop {
+        match rx.try_recv() {
+            Ok(StreamEvent::Delta(text)) => {
                 if let Some(last) = app.messages.last_mut()
                     && matches!(last.role, Role::Assistant)
                 {
                     last.text.push_str(&text);
                 }
             }
-            StreamEvent::Think(text) => {
+            Ok(StreamEvent::Think(text)) => {
                 if let Some(last) = app.messages.last_mut()
                     && matches!(last.role, Role::Assistant)
                 {
                     last.thinking.push_str(&text);
                 }
             }
-            StreamEvent::Usage(usage) => {
+            Ok(StreamEvent::Usage(usage)) => {
                 app.usage.add(usage);
                 app.last_prompt = usage.prompt();
             }
-            other => {
+            Ok(other) => {
                 end = Some(other);
+                break;
+            }
+            Err(TryRecvError::Empty) => break,
+            Err(TryRecvError::Disconnected) => {
+                end = Some(StreamEvent::Failed("stream ended".into()));
                 break;
             }
         }
@@ -239,6 +244,17 @@ fn finish_stream(app: &mut App, end: StreamEvent) {
         }
         StreamEvent::Delta(_) | StreamEvent::Think(_) | StreamEvent::Usage(_) => {}
     }
+}
+
+fn abort_turn(app: &mut App) {
+    if let Some(flag) = &app.cancel {
+        flag.store(true, Ordering::Relaxed);
+    }
+    persist_last_assistant(app);
+    app.stream_rx = None;
+    app.cancel = None;
+    pop_empty_assistant(app);
+    app.notice = Some("aborted".into());
 }
 
 fn pop_empty_assistant(app: &mut App) {
@@ -346,8 +362,8 @@ fn on_key(app: &mut App, key: KeyEvent) {
     match (key.modifiers, key.code) {
         (KeyModifiers::CONTROL, KeyCode::Char('c')) => app.quit = true,
         (_, KeyCode::Esc) => {
-            if let Some(flag) = &app.cancel {
-                flag.store(true, Ordering::Relaxed);
+            if app.cancel.is_some() {
+                abort_turn(app);
             } else {
                 app.input.clear();
                 app.cursor = 0;
@@ -1196,6 +1212,20 @@ mod tests {
         assert_eq!(cursor_xy("ab\ncd", 3, 10), (1, 0));
         assert_eq!(cursor_xy("ab\ncd", 5, 10), (1, 2));
         assert_eq!(cursor_xy("hello", 5, 5), (1, 0));
+    }
+
+    #[test]
+    fn esc_aborts_a_turn_immediately() {
+        let mut app = test_app();
+        app.cancel = Some(Arc::new(AtomicBool::new(false)));
+        let (_tx, rx) = mpsc::channel();
+        app.stream_rx = Some(rx);
+        app.messages.push(Message::assistant());
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Esc));
+        assert!(app.cancel.is_none());
+        assert!(app.stream_rx.is_none());
+        assert!(app.messages.is_empty());
+        assert_eq!(app.notice.as_deref(), Some("aborted"));
     }
 }
 
