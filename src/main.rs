@@ -903,7 +903,7 @@ fn draw(frame: &mut Frame, app: &mut App) {
     draw_header(frame, chunks[0], app);
     draw_messages(frame, chunks[1], app);
     if working == 1 {
-        draw_working(frame, chunks[2]);
+        draw_working(frame, chunks[2], working_text(app));
     }
     draw_editor(frame, chunks[3], app);
     if complete_h > 0 {
@@ -914,13 +914,28 @@ fn draw(frame: &mut Frame, app: &mut App) {
 
 const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-fn draw_working(frame: &mut Frame, area: Rect) {
+fn working_text(app: &App) -> &'static str {
+    if matches!(
+        app.messages.last(),
+        Some(Message {
+            role: Role::Assistant,
+            tool_calls,
+            ..
+        }) if !tool_calls.is_empty()
+    ) {
+        " Running tools..."
+    } else {
+        " Thinking..."
+    }
+}
+
+fn draw_working(frame: &mut Frame, area: Rect, text: &'static str) {
     static ORIGIN: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
     let origin = ORIGIN.get_or_init(Instant::now);
     let frame_i = (origin.elapsed().as_millis() / 80) as usize % SPINNER.len();
     let line = Line::from(vec![
         Span::styled(SPINNER[frame_i], Style::default().fg(splash::GOLD)),
-        Span::styled(" Thinking...", Style::default().fg(splash::ASH)),
+        Span::styled(text, Style::default().fg(splash::ASH)),
     ]);
     frame.render_widget(Paragraph::new(line), area);
 }
@@ -1466,6 +1481,19 @@ mod tests {
         assert_eq!(results[0].id, "1");
         assert!(results[0].content.contains("token limit"));
         assert!(!results[0].content.contains("should-not-run"));
+    }
+
+    #[test]
+    fn working_text_is_thinking_until_tools() {
+        let mut app = test_app();
+        app.messages.push(Message::assistant());
+        assert_eq!(working_text(&app), " Thinking...");
+        app.messages.last_mut().unwrap().tool_calls.push(ToolCall {
+            id: "1".into(),
+            name: "bash".into(),
+            arguments: "{}".into(),
+        });
+        assert_eq!(working_text(&app), " Running tools...");
     }
 
     #[test]

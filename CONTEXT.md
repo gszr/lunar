@@ -134,7 +134,7 @@ Top to bottom:
    - Thinking: 3-line italic ash preview + `...` (from `reasoning_content` / `reasoning` / `reasoning_text`). Not persisted
    - Tools: green card, title + 8 lines of result
    - Assistant: bone prose, gold headings, fenced code as a dim block
-3. **Working** — `⠋ Thinking...` while a turn is in flight
+3. **Working** — `⠋ Thinking...` while the model streams; `⠋ Running tools...` while tools run
 4. **Editor** — top **and** bottom rules, char-wrap, grows/shrinks (max 8 lines), real cursor
 5. **Footer (2 lines)** — cwd; then `↑in ↓out R W pct/window` left and `(provider) model • off` right
 
