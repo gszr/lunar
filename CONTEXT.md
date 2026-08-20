@@ -34,7 +34,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Auth | Env for now. A provider names a secret (`key_name` = env var, `key_in = "env"`). It does not hold the token. On the Lua path `key_name` is required; missing or empty lookup = notice, cannot send. `LUNAR_API_KEY` / `LUNAR_BASE_URL` / `LUNAR_MODEL` remain the no-Lua path. `/login xai` (device-code + key → `~/.lunar/auth.json`) is still todo. Own OAuth client; do not steal Pi’s |
 | TUI | `ratatui` + `crossterm` |
 | Transcript | The current mission. Scrollable: every message in that mission is reachable as painted (tool cards stay 8 lines, thinking stays a 3-line preview). Not a tail-only view. `/resume` switches missions; there is no Session history object |
-| Tools | `read` / `write` / `edit` (`old_string`/`new_string`) / `bash`. Gate = allow. Bash timeout 60s, Esc kills the process group. Bash stdin is null; on Unix the child is a new session so a nested TUI cannot take the glass. Tool results cap 50KB. `finish_reason=length` does not execute tool calls. Calls in one assistant turn run in parallel |
+| Tools | `read` / `write` / `edit` (`old_string`/`new_string`) / `bash`. Gate = allow. Bash timeout 60s, Esc kills the process group. Bash stdin is null; on Unix the child is a new session so a nested TUI cannot take the glass. Tool results cap 50KB. `finish_reason=length` does not execute tool calls. Calls in one assistant turn run in parallel. Tool loops pause after 50 rounds; submitting `continue` starts a fresh turn |
 | Missions | Linear append-only jsonl. Not a tree. Not Pi-compatible |
 | Full context | Warn and refuse submit. No auto-compact. `/compact` only after this hurts |
 | Entry | `lunar` always opens the TUI. No print mode in v0 |
@@ -151,7 +151,7 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 **Shipped**
 
 - Glass, Completions stream, reused HTTP agent, no global timeout. `max_tokens` 32768 (reasoning + answer). POST retries 429/5xx/reset (3 times, 0.5s…8s, Esc cancels the wait). `finish_reason` ends the turn; leftover SSE is drained for usage (1s cap) and `[DONE]` in the background so the socket can return to the pool. Transcript scroll: PageUp / PageDown, wheel, Ctrl+Home / Ctrl+End; follow only at the tail. History paint is cached; only the streaming tail is re-wrapped
-- Four tools + continue-after-tools (20-round cap). Tools in one round run in parallel. Results cap 50KB. Truncated completions do not run tool calls
+- Four tools + continue-after-tools (50-round cap; submit `continue` to proceed). Tools in one round run in parallel. Results cap 50KB. Truncated completions do not run tool calls
 - Missions: `/new` `/resume` `/name` `/session`, `-c`
 - Token stats + refuse submit when last prompt ≥ window
 - CWD `AGENTS.md` / `CONTEXT.md` + `.agents/skills` summaries as a leading user message, snapshotted per user turn

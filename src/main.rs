@@ -29,7 +29,7 @@ use ratatui::{DefaultTerminal, Frame};
 
 use complete::{ChatMessage, Config, StreamEvent, ToolCall, ToolResult, Usage};
 
-const MAX_ROUNDS: u32 = 20;
+const MAX_ROUNDS: u32 = 50;
 
 struct App {
     input: String,
@@ -412,7 +412,9 @@ fn apply_tool_results(app: &mut App, results: Vec<ToolResult>) {
     if app.rounds >= MAX_ROUNDS {
         app.stream_rx = None;
         app.cancel = None;
-        app.notice = Some("stopped after too many tool rounds".into());
+        app.notice = Some(format!(
+            "tool-round limit reached ({MAX_ROUNDS}); submit \"continue\" to proceed"
+        ));
         return;
     }
     continue_turn(app);
