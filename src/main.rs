@@ -8,6 +8,7 @@ mod mission;
 mod prompt;
 mod render;
 mod splash;
+mod terminal;
 mod tools;
 
 use std::io;
@@ -18,11 +19,8 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
 use ratatui::crossterm::event::{
-    self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
-    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags, MouseEvent,
-    MouseEventKind, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
 };
-use ratatui::crossterm::execute;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -174,13 +172,7 @@ fn main() -> io::Result<()> {
     };
     let loaded = lua::load();
     let startup_config = loaded.config.clone();
-    let mut terminal = ratatui::init();
-    enable_enhanced_keys();
-    let hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        restore_terminal();
-        hook(info);
-    }));
+    let mut terminal = terminal::Terminal::init();
     let mut app = App {
         input: String::new(),
         cursor: 0,
@@ -224,29 +216,7 @@ fn main() -> io::Result<()> {
     if app.notice.is_none() {
         app.notice = prompt::budget_warning();
     }
-    let result = run(&mut terminal, &mut app);
-    restore_terminal();
-    result
-}
-
-/// Shift+Enter is `\r` unless the terminal reports modifiers (kitty keyboard protocol).
-fn enable_enhanced_keys() {
-    let _ = execute!(
-        io::stdout(),
-        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
-        EnableBracketedPaste,
-        EnableMouseCapture,
-    );
-}
-
-fn pop_enhanced_keys() {
-    let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
-}
-
-fn restore_terminal() {
-    pop_enhanced_keys();
-    let _ = execute!(io::stdout(), DisableBracketedPaste, DisableMouseCapture);
-    ratatui::restore();
+    run(terminal.get_mut(), &mut app)
 }
 
 fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
@@ -1078,15 +1048,14 @@ fn edit_config(app: &mut App) {
         return;
     }
 
-    restore_terminal();
+    terminal::suspend();
     let status = std::process::Command::new("sh")
         .arg("-c")
         .arg("exec $0 \"$@\"")
         .arg(editor)
         .arg(&path)
         .status();
-    let mut terminal = ratatui::init();
-    enable_enhanced_keys();
+    let mut terminal = terminal::resume();
 
     match status {
         Ok(_) => {
