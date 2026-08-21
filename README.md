@@ -4,7 +4,9 @@
 
 <p align="center">A terminal coding harness. You open <code>lunar</code> and talk.</p>
 
-Rust host, Lua guest. Lunar gives the model four tools—`read`, `write`, `edit`, and `bash`—without imposing a workflow.
+Simple and fast like [Pi <3](https://github.com/earendil-works/pi), but using Lua for extensions.
+
+Lunar gives the model four tools—`read`, `write`, `edit`, and `bash`—without imposing a workflow.
 
 ## Install
 
