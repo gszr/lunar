@@ -101,6 +101,46 @@ pub(crate) enum Role {
     Tool,
 }
 
+impl App {
+    pub(crate) fn new(loaded: crate::lua::Loaded) -> Self {
+        let startup_config = loaded.config.clone();
+        Self {
+            input: String::new(),
+            cursor: 0,
+            notice: loaded.notice,
+            messages: Vec::new(),
+            config: loaded.config,
+            startup_config,
+            models: loaded.models,
+            stream_rx: None,
+            cancel: None,
+            rounds: 0,
+            usage: Usage::default(),
+            last_prompt: 0,
+            preamble: None,
+            mission: None,
+            mode: Mode::Chat,
+            complete_sel: 0,
+            quit: false,
+            scroll: 0,
+            follow: true,
+            transcript_w: 0,
+            transcript_h: 0,
+            paint_width: 0,
+            paint_frozen: Vec::new(),
+            paint_upto: 0,
+            paint_prev_tool: false,
+            history: crate::history::load().unwrap_or_default(),
+            history_cursor: None,
+            history_draft: String::new(),
+            search: None,
+            auth_rx: None,
+            auth_cancel: None,
+            auth_prompt: None,
+        }
+    }
+}
+
 impl Message {
     pub(crate) fn user(text: String) -> Self {
         Self {

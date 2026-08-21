@@ -21,8 +21,7 @@ mod view;
 use std::io;
 
 use actions::load_mission;
-use app::{App, Mode};
-use complete::Usage;
+use app::App;
 
 fn main() -> io::Result<()> {
     let resume_last = match cli::parse(std::env::args_os().skip(1)) {
@@ -36,43 +35,8 @@ fn main() -> io::Result<()> {
             std::process::exit(2);
         }
     };
-    let loaded = lua::load();
-    let startup_config = loaded.config.clone();
     let mut terminal = terminal::Terminal::init();
-    let mut app = App {
-        input: String::new(),
-        cursor: 0,
-        notice: loaded.notice,
-        messages: Vec::new(),
-        config: loaded.config,
-        startup_config,
-        models: loaded.models,
-        stream_rx: None,
-        cancel: None,
-        rounds: 0,
-        usage: Usage::default(),
-        last_prompt: 0,
-        preamble: None,
-        mission: None,
-        mode: Mode::Chat,
-        complete_sel: 0,
-        quit: false,
-        scroll: 0,
-        follow: true,
-        transcript_w: 0,
-        transcript_h: 0,
-        paint_width: 0,
-        paint_frozen: Vec::new(),
-        paint_upto: 0,
-        paint_prev_tool: false,
-        history: history::load().unwrap_or_default(),
-        history_cursor: None,
-        history_draft: String::new(),
-        search: None,
-        auth_rx: None,
-        auth_cancel: None,
-        auth_prompt: None,
-    };
+    let mut app = App::new(lua::load());
     if resume_last {
         match mission::list()?.into_iter().next() {
             Some(meta) => load_mission(&mut app, &meta.path),
@@ -88,8 +52,8 @@ fn main() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::Message;
-    use crate::complete::ToolCall;
+    use crate::app::{Message, Mode};
+    use crate::complete::{ToolCall, Usage};
     use crate::event::{on_key, on_paste};
     use crate::transcript::painted_lines;
     use crate::transcript::{jump_to_tail, on_mouse};
