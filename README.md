@@ -115,6 +115,10 @@ end
 
 Lunar is early software for macOS and Linux. It currently supports OpenAI Chat Completions endpoints. Lua extensions and the Responses API are not implemented yet.
 
+## Design notes
+
+- [Issue #25: investigating Lunar's "Thinking..." stalls](docs/issue-25-thinking-loop-investigation.md)
+
 ## License
 
 [MIT](LICENSE)
