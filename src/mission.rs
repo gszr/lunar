@@ -469,6 +469,48 @@ impl Meta {
     }
 }
 
+fn next_id(dir: &Path) -> io::Result<String> {
+    let today = today();
+    let mut max = 0u32;
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if let Some((date, n)) = parse_id(stem)
+                && date == today
+            {
+                max = max.max(n);
+            }
+        }
+    }
+    Ok(format!("{today}-{}", max + 1))
+}
+
+fn parse_id(id: &str) -> Option<(&str, u32)> {
+    let (date, n) = id.rsplit_once('-')?;
+    if date.len() != 10 {
+        return None;
+    }
+    Some((date, n.parse().ok()?))
+}
+
+fn today() -> String {
+    let output = std::process::Command::new("date").arg("+%Y-%m-%d").output();
+    match output {
+        Ok(out) => {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if s.len() == 10 {
+                s
+            } else {
+                "1970-01-01".into()
+            }
+        }
+        Err(_) => "1970-01-01".into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -539,47 +581,5 @@ mod tests {
             Selection::Log(log) => assert_eq!(log.len(), items.len()),
             Selection::Mission(_) => panic!("unknown should open log"),
         }
-    }
-}
-
-fn next_id(dir: &Path) -> io::Result<String> {
-    let today = today();
-    let mut max = 0u32;
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
-                continue;
-            };
-            if let Some((date, n)) = parse_id(stem)
-                && date == today
-            {
-                max = max.max(n);
-            }
-        }
-    }
-    Ok(format!("{today}-{}", max + 1))
-}
-
-fn parse_id(id: &str) -> Option<(&str, u32)> {
-    let (date, n) = id.rsplit_once('-')?;
-    if date.len() != 10 {
-        return None;
-    }
-    Some((date, n.parse().ok()?))
-}
-
-fn today() -> String {
-    let output = std::process::Command::new("date").arg("+%Y-%m-%d").output();
-    match output {
-        Ok(out) => {
-            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if s.len() == 10 {
-                s
-            } else {
-                "1970-01-01".into()
-            }
-        }
-        Err(_) => "1970-01-01".into(),
     }
 }
