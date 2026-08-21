@@ -1318,9 +1318,7 @@ fn editor_height(input: &str, cursor: usize, width: u16) -> u16 {
 }
 
 fn auth_editor_height(app: &App, width: u16) -> Option<u16> {
-    if app.auth_rx.is_none() {
-        return None;
-    }
+    app.auth_rx.as_ref()?;
     let text = auth_prompt_text(app);
     Some((char_wrap(&text, width.max(1) as usize).len() as u16).min(EDITOR_MAX_LINES) + 2)
 }
