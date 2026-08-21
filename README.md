@@ -120,3 +120,4 @@ Lunar is early software for macOS and Linux. It currently supports OpenAI Chat C
 [MIT](LICENSE)
 
 <!-- Runta leftover cleanup verified. -->
+<!-- Runta leftover cleanup verified. -->
