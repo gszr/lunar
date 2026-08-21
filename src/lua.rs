@@ -9,7 +9,7 @@ use mlua::{Lua, Table, Value};
 
 use crate::complete::{self, Config};
 
-pub struct Loaded {
+pub(crate) struct Loaded {
     pub config: Option<Config>,
     pub models: Vec<ModelChoice>,
     pub notice: Option<String>,
