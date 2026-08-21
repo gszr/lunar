@@ -11,6 +11,7 @@ mod render;
 mod splash;
 mod terminal;
 mod tools;
+mod transcript;
 mod view;
 
 use std::io;
@@ -24,7 +25,8 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, Ke
 
 use app::{App, AuthEvent, AuthPrompt, HistorySearch, Message, Mode, Role};
 use complete::{ChatMessage, Config, StreamEvent, ToolCall, ToolResult, Usage};
-use view::{draw, invalidate_paint, jump_to_tail, on_mouse, page_delta, scroll_by, scroll_home};
+use transcript::{invalidate_paint, jump_to_tail, on_mouse, page_delta, scroll_by, scroll_home};
+use view::draw;
 
 const MAX_ROUNDS: u32 = 50;
 
@@ -1153,7 +1155,8 @@ fn api_history(preamble: Option<&str>, messages: &[Message]) -> Vec<ChatMessage>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::view::{char_wrap, cursor_xy, painted_lines, working_text};
+    use crate::transcript::painted_lines;
+    use crate::view::{char_wrap, cursor_xy, working_text};
     use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
 
     fn test_app() -> App {
