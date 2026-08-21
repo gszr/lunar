@@ -8,7 +8,11 @@ Rust host, Lua guest. Lunar gives the model four tools—`read`, `write`, `edit`
 
 ## Install
 
-Requires Rust.
+```bash
+brew install --HEAD gszr/taps/lunar
+```
+
+Or with Cargo:
 
 ```bash
 cargo install --git https://github.com/gszr/lunar
