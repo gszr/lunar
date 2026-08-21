@@ -179,15 +179,33 @@ const MAX_TOKENS: u32 = 32_768;
 const MAX_RETRIES: u32 = 3;
 
 fn request_body(cfg: &Config, messages: &[ChatMessage]) -> String {
-    json!({
+    let mut body = json!({
         "model": cfg.model,
         "stream": true,
         "stream_options": { "include_usage": true },
-        "max_tokens": MAX_TOKENS,
         "tools": tools::definitions(),
         "messages": messages.iter().map(ChatMessage::to_json).collect::<Vec<_>>(),
-    })
-    .to_string()
+    });
+    if is_openai_url(&cfg.base_url) {
+        body["max_completion_tokens"] = json!(MAX_TOKENS);
+        body["reasoning_effort"] = json!("none");
+    } else {
+        body["max_tokens"] = json!(MAX_TOKENS);
+    }
+    body.to_string()
+}
+
+fn is_openai_url(base_url: &str) -> bool {
+    base_url
+        .split("://")
+        .nth(1)
+        .unwrap_or(base_url)
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .is_some_and(|host| host.eq_ignore_ascii_case("api.openai.com"))
 }
 
 fn stream_inner(
@@ -516,6 +534,21 @@ mod tests {
         assert_eq!(body["max_tokens"], MAX_TOKENS);
         assert_eq!(body["stream"], true);
         assert_eq!(body["model"], "grok-4.6");
+    }
+
+    #[test]
+    fn openai_uses_max_completion_tokens() {
+        let cfg = Config {
+            api_key: "k".into(),
+            base_url: "https://API.OPENAI.COM:443/v1/".into(),
+            model: "gpt-5.6-sol".into(),
+            provider: "anything".into(),
+            window: None,
+        };
+        let body: Value = serde_json::from_str(&request_body(&cfg, &[])).unwrap();
+        assert_eq!(body["max_completion_tokens"], MAX_TOKENS);
+        assert_eq!(body["reasoning_effort"], "none");
+        assert!(body.get("max_tokens").is_none());
     }
 
     #[test]
