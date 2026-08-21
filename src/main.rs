@@ -1,3 +1,4 @@
+mod app;
 mod auth;
 mod cli;
 mod commands;
@@ -15,7 +16,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::mpsc::{self, TryRecvError};
 use std::time::{Duration, Instant};
 
 use ratatui::crossterm::event::{
@@ -27,136 +28,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 
+use app::{App, AuthEvent, AuthPrompt, HistorySearch, Message, Mode, Role};
 use complete::{ChatMessage, Config, StreamEvent, ToolCall, ToolResult, Usage};
 
 const MAX_ROUNDS: u32 = 50;
-
-struct App {
-    input: String,
-    cursor: usize,
-    notice: Option<String>,
-    messages: Vec<Message>,
-    config: Option<Config>,
-    startup_config: Option<Config>,
-    models: Vec<lua::ModelChoice>,
-    stream_rx: Option<Receiver<StreamEvent>>,
-    cancel: Option<Arc<AtomicBool>>,
-    rounds: u32,
-    usage: Usage,
-    last_prompt: u32,
-    preamble: Option<String>,
-    mission: Option<mission::Mission>,
-    mode: Mode,
-    complete_sel: usize,
-    quit: bool,
-    scroll: usize,
-    follow: bool,
-    transcript_w: u16,
-    transcript_h: u16,
-    paint_width: usize,
-    paint_frozen: Vec<Line<'static>>,
-    paint_upto: usize,
-    paint_prev_tool: bool,
-    history: Vec<String>,
-    history_cursor: Option<usize>,
-    history_draft: String,
-    search: Option<HistorySearch>,
-    auth_rx: Option<Receiver<AuthEvent>>,
-    auth_cancel: Option<Arc<AtomicBool>>,
-    auth_prompt: Option<AuthPrompt>,
-}
-
-struct HistorySearch {
-    draft: String,
-    draft_cursor: usize,
-    query: String,
-    matched: Option<usize>,
-}
-
-enum AuthEvent {
-    DeviceCode {
-        url: String,
-        code: String,
-        browser_opened: bool,
-    },
-    Done,
-    Failed(String),
-}
-
-struct AuthPrompt {
-    url: String,
-    code: String,
-    browser_opened: bool,
-}
-
-enum Mode {
-    Chat,
-    LoginProvider {
-        cursor: usize,
-    },
-    LoginMethod {
-        cursor: usize,
-    },
-    ApiKey,
-    Resume {
-        items: Vec<mission::Meta>,
-        cursor: usize,
-    },
-    Model {
-        items: Vec<lua::ModelChoice>,
-        cursor: usize,
-    },
-}
-
-struct Message {
-    role: Role,
-    text: String,
-    thinking: String,
-    tool_calls: Vec<ToolCall>,
-    tool_id: String,
-    tool_title: String,
-}
-
-enum Role {
-    User,
-    Assistant,
-    Tool,
-}
-
-impl Message {
-    fn user(text: String) -> Self {
-        Self {
-            role: Role::User,
-            text,
-            thinking: String::new(),
-            tool_calls: Vec::new(),
-            tool_id: String::new(),
-            tool_title: String::new(),
-        }
-    }
-
-    fn assistant() -> Self {
-        Self {
-            role: Role::Assistant,
-            text: String::new(),
-            thinking: String::new(),
-            tool_calls: Vec::new(),
-            tool_id: String::new(),
-            tool_title: String::new(),
-        }
-    }
-
-    fn tool(id: String, title: String, content: String) -> Self {
-        Self {
-            role: Role::Tool,
-            text: content,
-            thinking: String::new(),
-            tool_calls: Vec::new(),
-            tool_id: id,
-            tool_title: title,
-        }
-    }
-}
 
 fn main() -> io::Result<()> {
     let resume_last = match cli::parse(std::env::args_os().skip(1)) {
