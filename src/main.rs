@@ -24,8 +24,8 @@ use actions::load_mission;
 use app::App;
 
 fn main() -> io::Result<()> {
-    let resume_last = match cli::parse(std::env::args_os().skip(1)) {
-        Ok(cli::Action::Open { continue_last }) => continue_last,
+    let open = match cli::parse(std::env::args_os().skip(1)) {
+        Ok(cli::Action::Open(open)) => open,
         Ok(cli::Action::Help) => {
             print!("{}", cli::HELP);
             return Ok(());
@@ -37,10 +37,35 @@ fn main() -> io::Result<()> {
     };
     let mut terminal = terminal::Terminal::init();
     let mut app = App::new(lua::load());
-    if resume_last {
-        match mission::list()?.into_iter().next() {
+    match open {
+        cli::Open::New => {}
+        cli::Open::Continue => match mission::list()?.into_iter().next() {
             Some(meta) => load_mission(&mut app, &meta.path),
             None => app.notice = Some("no missions in this directory".into()),
+        },
+        cli::Open::Mission(selector) => {
+            let all = mission::list()?;
+            let selection = selector
+                .as_deref()
+                .map(|selector| mission::select(&all, selector))
+                .unwrap_or_else(|| mission::Selection::Log(all));
+            match selection {
+                mission::Selection::Mission(meta) => load_mission(&mut app, &meta.path),
+                mission::Selection::Log(items) => {
+                    app.mode = app::Mode::Resume {
+                        items,
+                        cursor: 0,
+                        title: selector
+                            .filter(|selector| {
+                                selector.len() == 10
+                                    && selector.as_bytes().get(4) == Some(&b'-')
+                                    && selector.as_bytes().get(7) == Some(&b'-')
+                            })
+                            .map(|selector| format!("missions · {selector}"))
+                            .unwrap_or_else(|| "missions".into()),
+                    };
+                }
+            }
         }
     }
     if app.notice.is_none() {
@@ -333,6 +358,7 @@ mod tests {
         app.mode = Mode::Resume {
             items: Vec::new(),
             cursor: 0,
+            title: "resume".into(),
         };
         let before = app.scroll;
         on_mouse(

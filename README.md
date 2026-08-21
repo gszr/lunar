@@ -95,7 +95,7 @@ lunar.defaults {
 lunar
 ```
 
-Type a prompt and press Enter. Run `/help` to see the available commands. Use `/config` to edit and reload `init.lua`, or `lunar -c` to continue the latest mission for the current directory.
+Type a prompt and press Enter. Run `/help` to see the available commands. Use `/config` to edit and reload `init.lua`, `lunar -c` to continue the latest mission for the current directory, or `lunar -m` to open the mission log (`lunar -m <mission>` resumes a filename or label). Passing a date such as `lunar -m 2026-08-19` opens that day's mission log.
 
 Lunar includes `AGENTS.md`, `CONTEXT.md`, and summaries from `.agents/skills/*/SKILL.md` in its context.
 

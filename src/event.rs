@@ -143,7 +143,7 @@ pub(crate) fn on_key(app: &mut App, key: KeyEvent) {
         }
         return;
     }
-    if let Mode::Resume { items, cursor } = &app.mode {
+    if let Mode::Resume { items, cursor, .. } = &app.mode {
         let len = items.len();
         let cursor = *cursor;
         match key.code {

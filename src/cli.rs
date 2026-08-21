@@ -1,23 +1,50 @@
 use std::ffi::OsString;
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum Open {
+    New,
+    Continue,
+    Mission(Option<String>),
+}
+
 pub enum Action {
-    Open { continue_last: bool },
+    Open(Open),
     Help,
 }
 
 pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Action, String> {
-    let mut continue_last = false;
+    let mut args = args.into_iter();
+    let mut open = Open::New;
 
-    for arg in args {
+    while let Some(arg) = args.next() {
         match arg.to_str() {
-            Some("-c" | "--continue") => continue_last = true,
+            Some("-c" | "--continue") => {
+                if open != Open::New {
+                    return Err("--continue and --mission are mutually exclusive".into());
+                }
+                open = Open::Continue;
+            }
+            Some("-m" | "--mission") => {
+                if open != Open::New {
+                    return Err("--continue and --mission are mutually exclusive".into());
+                }
+                let value = match args.next() {
+                    Some(value) => Some(
+                        value
+                            .into_string()
+                            .map_err(|_| "mission argument is not valid UTF-8".to_string())?,
+                    ),
+                    None => None,
+                };
+                open = Open::Mission(value);
+            }
             Some("-h" | "--help") => return Ok(Action::Help),
             Some(arg) => return Err(format!("unexpected argument '{arg}'")),
             None => return Err("argument is not valid UTF-8".into()),
         }
     }
 
-    Ok(Action::Open { continue_last })
+    Ok(Action::Open(open))
 }
 
 pub const HELP: &str = concat!(
@@ -25,8 +52,9 @@ pub const HELP: &str = concat!(
     "Usage:\n",
     "  lunar [OPTIONS]\n\n",
     "Options:\n",
-    "  -c, --continue  Continue the latest mission for the current directory\n",
-    "  -h, --help      Print help\n\n",
+    "  -c, --continue           Continue the latest mission for the current directory\n",
+    "  -m, --mission [MISSION]  Open the mission log, or resume by filename or label\n",
+    "  -h, --help               Print help\n\n",
     "Running lunar without options opens the TUI.\n",
 );
 
@@ -40,12 +68,7 @@ mod tests {
 
     #[test]
     fn no_arguments_opens_tui() {
-        assert!(matches!(
-            parse_strs(&[]).unwrap(),
-            Action::Open {
-                continue_last: false
-            }
-        ));
+        assert!(matches!(parse_strs(&[]).unwrap(), Action::Open(Open::New)));
     }
 
     #[test]
@@ -53,11 +76,30 @@ mod tests {
         for flag in ["-c", "--continue"] {
             assert!(matches!(
                 parse_strs(&[flag]).unwrap(),
-                Action::Open {
-                    continue_last: true
-                }
+                Action::Open(Open::Continue)
             ));
         }
+    }
+
+    #[test]
+    fn mission_flags_optionally_take_a_selector() {
+        for flag in ["-m", "--mission"] {
+            assert!(matches!(
+                parse_strs(&[flag, "named mission"]).unwrap(),
+                Action::Open(Open::Mission(Some(value))) if value == "named mission"
+            ));
+            assert!(matches!(
+                parse_strs(&[flag]).unwrap(),
+                Action::Open(Open::Mission(None))
+            ));
+        }
+    }
+
+    #[test]
+    fn continue_and_mission_are_mutually_exclusive() {
+        assert!(parse_strs(&["-c", "-m", "one"]).is_err());
+        assert!(parse_strs(&["-m", "one", "-c"]).is_err());
+        assert!(parse_strs(&["-m", "one", "-m", "two"]).is_err());
     }
 
     #[test]
@@ -77,6 +119,7 @@ mod tests {
     #[test]
     fn help_documents_every_option() {
         assert!(HELP.contains("-c, --continue"));
+        assert!(HELP.contains("-m, --mission"));
         assert!(HELP.contains("-h, --help"));
     }
 }

@@ -182,8 +182,13 @@ pub(crate) fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 pub(crate) fn draw_messages(frame: &mut Frame, area: Rect, app: &mut App) {
-    if let Mode::Resume { items, cursor } = &app.mode {
-        draw_resume(frame, area, items, *cursor);
+    if let Mode::Resume {
+        items,
+        cursor,
+        title,
+    } = &app.mode
+    {
+        draw_resume(frame, area, items, *cursor, title);
         return;
     }
     if app.messages.is_empty() {
@@ -257,12 +262,25 @@ pub(crate) fn draw_model(frame: &mut Frame, area: Rect, items: &[lua::ModelChoic
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-pub(crate) fn draw_resume(frame: &mut Frame, area: Rect, items: &[mission::Meta], cursor: usize) {
+pub(crate) fn draw_resume(
+    frame: &mut Frame,
+    area: Rect,
+    items: &[mission::Meta],
+    cursor: usize,
+    title: &str,
+) {
     let mut lines = vec![Line::from(Span::styled(
-        "resume  j/k  enter  esc",
+        format!("{title}  j/k  enter  esc"),
         Style::default().fg(splash::ASH),
     ))];
-    for (i, item) in items.iter().enumerate() {
+    let visible = area.height.saturating_sub(1) as usize;
+    let start = if visible == 0 {
+        0
+    } else {
+        cursor.saturating_add(1).saturating_sub(visible)
+    };
+    for (offset, item) in items.iter().skip(start).take(visible).enumerate() {
+        let i = start + offset;
         let label = item.label();
         let style = if i == cursor {
             Style::default().fg(splash::GOLD)

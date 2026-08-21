@@ -183,9 +183,14 @@ pub(crate) fn name_mission(app: &mut App, name: &str) {
         app.notice = Some("usage: /name <text>".into());
         return;
     }
-    persist_value(app, &serde_json::json!({ "type": "name", "name": name }));
-    if let Some(m) = &mut app.mission {
-        m.name = Some(name.to_string());
+    if app.mission.is_none() {
+        app.notice = Some("no mission yet".into());
+        return;
+    }
+    if let Some(mission) = &mut app.mission
+        && let Err(err) = mission::set_name(mission, name)
+    {
+        app.notice = Some(format!("mission: {err}"));
     }
 }
 
@@ -248,7 +253,11 @@ pub(crate) fn open_resume(app: &mut App) {
     match mission::list() {
         Ok(items) if items.is_empty() => app.notice = Some("no missions in this directory".into()),
         Ok(items) => {
-            app.mode = Mode::Resume { items, cursor: 0 };
+            app.mode = Mode::Resume {
+                items,
+                cursor: 0,
+                title: "resume".into(),
+            };
         }
         Err(err) => app.notice = Some(format!("resume: {err}")),
     }

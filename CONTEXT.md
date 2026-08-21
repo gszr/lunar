@@ -55,7 +55,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
   init.lua                   # trusted project Lua; later slice
 ```
 
-Default mission label is the filename. `/name` overrides. UI shows `mission: <name>`.
+Mission headers persist a short semantic `name` derived locally from the first user prompt. The displayed session title is `<id> - <name>`; `/name` rewrites the header name. Existing mission headers may be backfilled in place. UI shows `mission: <id> - <name>`.
 
 ## Env (no-Lua path)
 
@@ -145,7 +145,7 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 
 `/` opens command completion under the editor. Tab / ↑↓ cycle; Enter accepts (runs, except `/name` which stays in the editor). `/q` is a hidden quit alias.
 
-`/resume` is j/k + enter. PageUp / PageDown / wheel do nothing in the picker. `lunar -c` / `--continue` loads the latest mission for this cwd.
+`/resume` is j/k + enter. PageUp / PageDown / wheel do nothing in the picker. `lunar -c` / `--continue` loads the latest mission for this cwd. `lunar -m` / `--mission` without an argument opens the mission log; with an argument it resumes an exact filename (with or without `.jsonl`) or the newest exact label for this cwd. If no mission matches, it opens the mission log. A date (`YYYY-MM-DD`) opens that day's filtered log, unless an exact label matches first. `-c` and `-m` are mutually exclusive.
 
 ## Shipped vs not
 
