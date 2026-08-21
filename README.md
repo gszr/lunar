@@ -2,9 +2,9 @@
   <img src="docs/logos/lunar-logo-with-wordmark-transparent.png" alt="Lunar" width="220">
 </p>
 
-<p align="center">A terminal coding harness. You open <code>lunar</code> and talk.</p>
+<p align="center">A terminal coding harness. You open <code>lunar</code> and code.</p>
 
-Simple and fast like [Pi <3](https://github.com/earendil-works/pi), but using Lua for extensions.
+<p align="center">Simple and fast like <a href="https://github.com/earendil-works/pi">Pi &lt;3</a>, but using Lua for extensions.</p>
 
 Lunar gives the model four tools—`read`, `write`, `edit`, and `bash`—without imposing a workflow.
 
