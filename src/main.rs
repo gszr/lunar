@@ -4,6 +4,7 @@ mod cli;
 mod commands;
 mod complete;
 mod history;
+mod input;
 mod lua;
 mod mission;
 mod prompt;
@@ -23,8 +24,12 @@ use std::time::Duration;
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use app::{App, AuthEvent, AuthPrompt, HistorySearch, Message, Mode, Role};
+use app::{App, AuthEvent, AuthPrompt, Message, Mode, Role};
 use complete::{ChatMessage, Config, StreamEvent, ToolCall, ToolResult, Usage};
+use input::{
+    history_down, history_up, insert_input, next_char, on_complete_key, on_search_key, prev_char,
+    reset_history_navigation, start_search, word_left, word_right,
+};
 use transcript::{invalidate_paint, jump_to_tail, on_mouse, page_delta, scroll_by, scroll_home};
 use view::draw;
 
@@ -472,7 +477,7 @@ fn on_key(app: &mut App, key: KeyEvent) {
         start_search(app);
         return;
     }
-    if on_complete_key(app, key) {
+    if on_complete_key(app, key, submit) {
         return;
     }
     match (key.modifiers, key.code) {
@@ -563,197 +568,6 @@ fn on_key(app: &mut App, key: KeyEvent) {
         }
         _ => {}
     }
-}
-
-fn start_search(app: &mut App) {
-    app.search = Some(HistorySearch {
-        draft: app.input.clone(),
-        draft_cursor: app.cursor,
-        query: String::new(),
-        matched: None,
-    });
-    update_search(app, false);
-}
-
-fn update_search(app: &mut App, older: bool) {
-    let Some(search) = &app.search else { return };
-    let end = if older {
-        search.matched.unwrap_or(app.history.len())
-    } else {
-        app.history.len()
-    };
-    let query = search.query.clone();
-    let found = (0..end).rev().find(|&i| app.history[i].contains(&query));
-    if let Some(search) = &mut app.search {
-        search.matched = found;
-    }
-}
-
-fn on_search_key(app: &mut App, key: KeyEvent) {
-    match (key.modifiers, key.code) {
-        (_, KeyCode::Esc) => {
-            let search = app.search.take().unwrap();
-            app.input = search.draft;
-            app.cursor = search.draft_cursor;
-        }
-        (_, KeyCode::Enter) => {
-            let search = app.search.take().unwrap();
-            if let Some(i) = search.matched {
-                app.input = app.history[i].clone();
-                app.cursor = app.input.len();
-            } else {
-                app.input = search.draft;
-                app.cursor = search.draft_cursor;
-            }
-            app.history_cursor = None;
-        }
-        (KeyModifiers::CONTROL, KeyCode::Char('r')) => update_search(app, true),
-        (_, KeyCode::Backspace) => {
-            if let Some(search) = &mut app.search {
-                search.query.pop();
-            }
-            update_search(app, false);
-        }
-        (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
-            if let Some(search) = &mut app.search {
-                search.query.push(c);
-            }
-            update_search(app, false);
-        }
-        _ => {}
-    }
-}
-
-fn history_up(app: &mut App) {
-    if app.history.is_empty() {
-        return;
-    }
-    let next = match app.history_cursor {
-        None => {
-            app.history_draft = app.input.clone();
-            app.history.len() - 1
-        }
-        Some(i) => i.saturating_sub(1),
-    };
-    app.history_cursor = Some(next);
-    app.input = app.history[next].clone();
-    app.cursor = app.input.len();
-}
-
-fn history_down(app: &mut App) {
-    let Some(i) = app.history_cursor else { return };
-    if i + 1 < app.history.len() {
-        app.history_cursor = Some(i + 1);
-        app.input = app.history[i + 1].clone();
-    } else {
-        app.history_cursor = None;
-        app.input = std::mem::take(&mut app.history_draft);
-    }
-    app.cursor = app.input.len();
-}
-
-fn reset_history_navigation(app: &mut App) {
-    app.history_cursor = None;
-    app.history_draft.clear();
-}
-
-fn on_complete_key(app: &mut App, key: KeyEvent) -> bool {
-    let n = commands::matches(&app.input).len();
-    if n == 0 {
-        return false;
-    }
-    match (key.modifiers, key.code) {
-        (_, KeyCode::Tab) | (_, KeyCode::Down) | (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
-            app.complete_sel = commands::cycle(app.complete_sel, n, 1);
-            true
-        }
-        (_, KeyCode::BackTab) | (_, KeyCode::Up) | (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
-            app.complete_sel = commands::cycle(app.complete_sel, n, -1);
-            true
-        }
-        (m, KeyCode::Enter) if m.is_empty() => {
-            accept_complete(app);
-            true
-        }
-        _ => false,
-    }
-}
-
-fn insert_input(app: &mut App, c: char) {
-    reset_history_navigation(app);
-    app.input.insert(app.cursor, c);
-    app.cursor += c.len_utf8();
-    app.complete_sel = 0;
-}
-
-fn accept_complete(app: &mut App) {
-    let found = commands::matches(&app.input);
-    let Some(cmd) = found.get(app.complete_sel) else {
-        submit(app);
-        return;
-    };
-    if cmd.name == "name" {
-        app.input = commands::apply(cmd.name);
-        app.cursor = app.input.len();
-        app.complete_sel = 0;
-        return;
-    }
-    app.input = format!("/{}", cmd.name);
-    app.cursor = app.input.len();
-    app.complete_sel = 0;
-    submit(app);
-}
-
-fn prev_char(s: &str, cur: usize) -> usize {
-    s[..cur.min(s.len())]
-        .char_indices()
-        .next_back()
-        .map(|(i, _)| i)
-        .unwrap_or(0)
-}
-
-fn next_char(s: &str, cur: usize) -> usize {
-    if cur >= s.len() {
-        return s.len();
-    }
-    cur + s[cur..].chars().next().map(char::len_utf8).unwrap_or(0)
-}
-
-fn word_left(s: &str, mut cur: usize) -> usize {
-    cur = cur.min(s.len());
-    while let Some((i, c)) = s[..cur].char_indices().next_back() {
-        if !c.is_whitespace() {
-            break;
-        }
-        cur = i;
-    }
-    while let Some((i, c)) = s[..cur].char_indices().next_back() {
-        if c.is_whitespace() {
-            break;
-        }
-        cur = i;
-    }
-    cur
-}
-
-fn word_right(s: &str, cur: usize) -> usize {
-    let cur = cur.min(s.len());
-    let rest = &s[cur..];
-    let mut i = 0;
-    let mut in_word = false;
-    for (off, c) in rest.char_indices() {
-        if !in_word {
-            if !c.is_whitespace() {
-                in_word = true;
-            }
-            i = off + c.len_utf8();
-        } else if c.is_whitespace() {
-            return cur + off;
-        } else {
-            i = off + c.len_utf8();
-        }
-    }
-    cur + i
 }
 
 fn submit(app: &mut App) {
