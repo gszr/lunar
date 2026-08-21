@@ -26,7 +26,7 @@ export LUNAR_MODEL=grok-4.6
 
 Any OpenAI Chat Completions-compatible endpoint should work.
 
-For lasting configuration, create `~/.lunar/init.lua`. Read the key from the environment:
+For lasting configuration, create `~/.lunar/init.lua`. From Lunar, `/config` opens this file with `$VISUAL` or `$EDITOR`, then reloads it when the editor exits. Read the key from the environment:
 
 ```lua
 lunar.models {
@@ -89,7 +89,7 @@ lunar.defaults {
 lunar
 ```
 
-Type a prompt and press Enter. Run `/help` to see the available commands. Use `lunar -c` to continue the latest mission for the current directory.
+Type a prompt and press Enter. Run `/help` to see the available commands. Use `/config` to edit and reload `init.lua`, or `lunar -c` to continue the latest mission for the current directory.
 
 Lunar includes `AGENTS.md`, `CONTEXT.md`, and summaries from `.agents/skills/*/SKILL.md` in its context.
 

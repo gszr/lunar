@@ -8,6 +8,10 @@ pub struct Command {
 /// Shown in `/` completion and `/help`. `/q` stays a hidden alias of quit.
 pub const COMMANDS: &[Command] = &[
     Command {
+        name: "config",
+        description: "edit and reload init.lua",
+    },
+    Command {
         name: "context",
         description: "files and skills sent every prompt",
     },
@@ -111,7 +115,7 @@ mod tests {
     fn slash_lists_all() {
         let found = matches("/");
         assert_eq!(found.len(), COMMANDS.len());
-        assert_eq!(found[0].name, "context");
+        assert_eq!(found[0].name, "config");
     }
 
     #[test]

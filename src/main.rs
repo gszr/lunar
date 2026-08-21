@@ -176,6 +176,11 @@ fn main() -> io::Result<()> {
     let startup_config = loaded.config.clone();
     let mut terminal = ratatui::init();
     enable_enhanced_keys();
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        restore_terminal();
+        hook(info);
+    }));
     let mut app = App {
         input: String::new(),
         cursor: 0,
@@ -232,12 +237,6 @@ fn enable_enhanced_keys() {
         EnableBracketedPaste,
         EnableMouseCapture,
     );
-    let hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        pop_enhanced_keys();
-        let _ = execute!(io::stdout(), DisableBracketedPaste, DisableMouseCapture);
-        hook(info);
-    }));
 }
 
 fn pop_enhanced_keys() {
@@ -934,10 +933,11 @@ fn submit(app: &mut App) {
         "/quit" | "/q" => app.quit = true,
         "/help" => {
             app.notice = Some(
-                "/quit /new /resume /model /login /logout /name /mission /context /help    tab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits"
+                "/quit /new /resume /model /config /login /logout /name /mission /context /help    tab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits"
                     .into(),
             );
         }
+        "/config" => edit_config(app),
         "/new" => new_mission(app),
         "/login" | "/login xai" => open_login(app),
         "/logout" | "/logout xai" => logout_xai(app),
@@ -1048,6 +1048,55 @@ fn reload_config(app: &mut App) {
     if let Some(notice) = loaded.notice {
         app.notice = Some(notice);
     }
+}
+
+fn edit_config(app: &mut App) {
+    let editor = std::env::var("VISUAL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            std::env::var("EDITOR")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        });
+    let Some(editor) = editor else {
+        app.notice = Some("set VISUAL or EDITOR to edit init.lua".into());
+        return;
+    };
+
+    let path = mission::home().join("init.lua");
+    if let Some(parent) = path.parent()
+        && let Err(err) = std::fs::create_dir_all(parent)
+    {
+        app.notice = Some(format!("config: {err}"));
+        return;
+    }
+    if !path.exists()
+        && let Err(err) = std::fs::File::create(&path)
+    {
+        app.notice = Some(format!("config: {err}"));
+        return;
+    }
+
+    restore_terminal();
+    let status = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("exec $0 \"$@\"")
+        .arg(editor)
+        .arg(&path)
+        .status();
+    let mut terminal = ratatui::init();
+    enable_enhanced_keys();
+
+    match status {
+        Ok(_) => {
+            app.notice = Some("config reloaded".into());
+            reload_config(app);
+        }
+        Err(err) => app.notice = Some(format!("editor: {err}")),
+    }
+    let _ = terminal.clear();
+    let _ = terminal.draw(|frame| draw(frame, app));
 }
 
 fn new_mission(app: &mut App) {
