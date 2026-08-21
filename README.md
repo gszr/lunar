@@ -6,7 +6,7 @@
 
 <p align="center">Simple and fast like <a href="https://github.com/earendil-works/pi">Pi &lt;3</a>, but using Lua for extensions.</p>
 
-Lunar gives the model four tools—`read`, `write`, `edit`, and `bash`—without imposing a workflow.
+<p align="center">Lunar gives the model four tools—<code>read</code>, <code>write</code>, <code>edit</code>, and <code>bash</code>—without imposing a workflow.</p>
 
 ## Install
 
