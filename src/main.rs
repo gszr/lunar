@@ -4,6 +4,7 @@ mod auth;
 mod cli;
 mod commands;
 mod complete;
+mod event;
 mod history;
 mod input;
 mod lua;
@@ -18,26 +19,10 @@ mod turn;
 mod view;
 
 use std::io;
-use std::sync::atomic::Ordering;
-use std::time::Duration;
 
-use ratatui::DefaultTerminal;
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-
-use actions::{
-    drain_auth, edit_config, load_mission, logout_xai, name_mission, new_mission, open_login,
-    open_model, open_resume, resume_prefix, save_api_key, select_model, show_mission,
-    start_xai_oauth,
-};
+use actions::load_mission;
 use app::{App, Mode};
 use complete::Usage;
-use input::{
-    history_down, history_up, insert_input, next_char, on_complete_key, on_search_key, prev_char,
-    reset_history_navigation, start_search, word_left, word_right,
-};
-use transcript::{jump_to_tail, on_mouse, page_delta, scroll_by, scroll_home};
-use turn::{abort_turn, drain_stream, send_prompt};
-use view::draw;
 
 fn main() -> io::Result<()> {
     let resume_last = match cli::parse(std::env::args_os().skip(1)) {
@@ -97,293 +82,7 @@ fn main() -> io::Result<()> {
     if app.notice.is_none() {
         app.notice = prompt::budget_warning();
     }
-    run(terminal.get_mut(), &mut app)
-}
-
-fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
-    while !app.quit {
-        drain_stream(app);
-        drain_auth(app);
-        terminal.draw(|frame| draw(frame, app))?;
-        let wait = if app.cancel.is_some() || app.auth_rx.is_some() {
-            Duration::from_millis(16)
-        } else {
-            Duration::from_secs(3600)
-        };
-        if event::poll(wait)? {
-            match event::read()? {
-                Event::Key(key) if key.kind == KeyEventKind::Press => on_key(app, key),
-                Event::Paste(text) => on_paste(app, &text),
-                Event::Mouse(mouse) => on_mouse(app, mouse),
-                _ => {}
-            }
-        }
-    }
-    Ok(())
-}
-
-fn on_paste(app: &mut App, text: &str) {
-    if !matches!(app.mode, Mode::Chat) || app.search.is_some() {
-        return;
-    }
-    let text = text.replace("\r\n", "\n").replace('\r', "\n");
-    app.input.insert_str(app.cursor, &text);
-    app.cursor += text.len();
-    app.complete_sel = 0;
-}
-
-fn on_key(app: &mut App, key: KeyEvent) {
-    if app.auth_rx.is_some() {
-        if key.code == KeyCode::Esc
-            && let Some(cancel) = &app.auth_cancel
-        {
-            cancel.store(true, Ordering::Relaxed);
-        }
-        return;
-    }
-    if let Mode::LoginProvider { cursor } = app.mode {
-        match key.code {
-            KeyCode::Esc => app.mode = Mode::Chat,
-            KeyCode::Enter => app.mode = Mode::LoginMethod { cursor: 0 },
-            KeyCode::Up | KeyCode::Char('k') | KeyCode::Down | KeyCode::Char('j') => {
-                app.mode = Mode::LoginProvider { cursor }
-            }
-            _ => {}
-        }
-        return;
-    }
-    if let Mode::LoginMethod { cursor } = app.mode {
-        match key.code {
-            KeyCode::Esc => app.mode = Mode::Chat,
-            KeyCode::Up | KeyCode::Char('k') => {
-                app.mode = Mode::LoginMethod {
-                    cursor: cursor.saturating_sub(1),
-                }
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                app.mode = Mode::LoginMethod {
-                    cursor: (cursor + 1).min(1),
-                }
-            }
-            KeyCode::Enter if cursor == 0 => start_xai_oauth(app),
-            KeyCode::Enter => {
-                app.mode = Mode::ApiKey;
-                app.input.clear();
-                app.cursor = 0;
-            }
-            _ => {}
-        }
-        return;
-    }
-    if matches!(app.mode, Mode::ApiKey) {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
-                app.mode = Mode::Chat;
-                app.input.clear();
-                app.cursor = 0;
-            }
-            (_, KeyCode::Enter) => save_api_key(app),
-            (_, KeyCode::Backspace) => {
-                let from = prev_char(&app.input, app.cursor);
-                app.input.replace_range(from..app.cursor, "");
-                app.cursor = from;
-            }
-            (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
-                insert_input(app, c)
-            }
-            _ => {}
-        }
-        return;
-    }
-    if let Mode::Model { items, cursor } = &app.mode {
-        let len = items.len();
-        let cursor = *cursor;
-        match key.code {
-            KeyCode::Esc => app.mode = Mode::Chat,
-            KeyCode::Up | KeyCode::Char('k') => {
-                if let Mode::Model { cursor, .. } = &mut app.mode {
-                    *cursor = cursor.saturating_sub(1);
-                }
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if let Mode::Model { cursor, .. } = &mut app.mode {
-                    *cursor = (*cursor + 1).min(len.saturating_sub(1));
-                }
-            }
-            KeyCode::Enter => {
-                if let Some(item) = items.get(cursor).cloned() {
-                    app.mode = Mode::Chat;
-                    select_model(app, item, true);
-                }
-            }
-            _ => {}
-        }
-        return;
-    }
-    if let Mode::Resume { items, cursor } = &app.mode {
-        let len = items.len();
-        let cursor = *cursor;
-        match key.code {
-            KeyCode::Esc => app.mode = Mode::Chat,
-            KeyCode::Up | KeyCode::Char('k') => {
-                if let Mode::Resume { cursor, .. } = &mut app.mode {
-                    *cursor = cursor.saturating_sub(1);
-                }
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if let Mode::Resume { cursor, .. } = &mut app.mode {
-                    *cursor = (*cursor + 1).min(len.saturating_sub(1));
-                }
-            }
-            KeyCode::Enter => {
-                if let Some(meta) = items.get(cursor).cloned() {
-                    app.mode = Mode::Chat;
-                    load_mission(app, &meta.path);
-                }
-            }
-            _ => {}
-        }
-        return;
-    }
-    if app.search.is_some() {
-        on_search_key(app, key);
-        return;
-    }
-    if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('r') {
-        start_search(app);
-        return;
-    }
-    if on_complete_key(app, key, submit) {
-        return;
-    }
-    match (key.modifiers, key.code) {
-        (KeyModifiers::CONTROL, KeyCode::Char('c')) => app.quit = true,
-        (_, KeyCode::PageUp) => scroll_by(app, -page_delta(app)),
-        (_, KeyCode::PageDown) => scroll_by(app, page_delta(app)),
-        (KeyModifiers::CONTROL, KeyCode::Home) => scroll_home(app),
-        (KeyModifiers::CONTROL, KeyCode::End) => jump_to_tail(app),
-        (_, KeyCode::Esc) => {
-            if app.cancel.is_some() {
-                abort_turn(app);
-            } else {
-                app.input.clear();
-                app.cursor = 0;
-                app.complete_sel = 0;
-            }
-        }
-        (KeyModifiers::CONTROL, KeyCode::Char('a')) => app.cursor = 0,
-        (KeyModifiers::CONTROL, KeyCode::Char('e')) => app.cursor = app.input.len(),
-        (m, KeyCode::Left)
-            if m.contains(KeyModifiers::CONTROL) || m.contains(KeyModifiers::ALT) =>
-        {
-            app.cursor = word_left(&app.input, app.cursor);
-        }
-        (m, KeyCode::Right)
-            if m.contains(KeyModifiers::CONTROL) || m.contains(KeyModifiers::ALT) =>
-        {
-            app.cursor = word_right(&app.input, app.cursor);
-        }
-        (KeyModifiers::CONTROL, KeyCode::Char('b')) | (_, KeyCode::Left) => {
-            app.cursor = prev_char(&app.input, app.cursor);
-        }
-        (KeyModifiers::CONTROL, KeyCode::Char('f')) | (_, KeyCode::Right) => {
-            app.cursor = next_char(&app.input, app.cursor);
-        }
-        (KeyModifiers::ALT, KeyCode::Char('b')) => {
-            app.cursor = word_left(&app.input, app.cursor);
-        }
-        (KeyModifiers::ALT, KeyCode::Char('f')) => {
-            app.cursor = word_right(&app.input, app.cursor);
-        }
-        (KeyModifiers::CONTROL, KeyCode::Char('w')) | (KeyModifiers::ALT, KeyCode::Backspace) => {
-            let from = word_left(&app.input, app.cursor);
-            app.input.replace_range(from..app.cursor, "");
-            app.cursor = from;
-            app.complete_sel = 0;
-        }
-        (KeyModifiers::ALT, KeyCode::Char('d')) => {
-            let to = word_right(&app.input, app.cursor);
-            app.input.replace_range(app.cursor..to, "");
-            app.complete_sel = 0;
-        }
-        (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
-            app.input.replace_range(..app.cursor, "");
-            app.cursor = 0;
-            app.complete_sel = 0;
-        }
-        (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
-            app.input.truncate(app.cursor);
-            app.complete_sel = 0;
-        }
-        (KeyModifiers::CONTROL, KeyCode::Char('d')) | (_, KeyCode::Delete) => {
-            let to = next_char(&app.input, app.cursor);
-            app.input.replace_range(app.cursor..to, "");
-            app.complete_sel = 0;
-        }
-        (_, KeyCode::Home) => app.cursor = 0,
-        (_, KeyCode::End) => app.cursor = app.input.len(),
-        (_, KeyCode::Up) => history_up(app),
-        (_, KeyCode::Down) => history_down(app),
-        (_, KeyCode::Backspace) => {
-            let from = prev_char(&app.input, app.cursor);
-            app.input.replace_range(from..app.cursor, "");
-            app.cursor = from;
-            app.complete_sel = 0;
-        }
-        (m, KeyCode::Enter)
-            if m.contains(KeyModifiers::SHIFT) || m.contains(KeyModifiers::CONTROL) =>
-        {
-            insert_input(app, '\n');
-        }
-        (KeyModifiers::CONTROL, KeyCode::Char('j')) | (_, KeyCode::Char('\n')) => {
-            insert_input(app, '\n');
-        }
-        (_, KeyCode::Enter) => submit(app),
-        (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
-            insert_input(app, c);
-        }
-        _ => {}
-    }
-}
-
-fn submit(app: &mut App) {
-    if app.cancel.is_some() {
-        return;
-    }
-    let line = app.input.trim().to_string();
-    app.input.clear();
-    app.cursor = 0;
-    if line.is_empty() {
-        return;
-    }
-    app.history.push(line.clone());
-    if let Err(err) = history::append(&line) {
-        app.notice = Some(format!("history: {err}"));
-    }
-    reset_history_navigation(app);
-    match line.as_str() {
-        "/quit" | "/q" => app.quit = true,
-        "/help" => {
-            app.notice = Some(
-                "/quit /new /resume /model /config /login /logout /name /mission /context /help    tab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits"
-                    .into(),
-            );
-        }
-        "/config" => edit_config(app),
-        "/new" => new_mission(app),
-        "/login" | "/login xai" => open_login(app),
-        "/logout" | "/logout xai" => logout_xai(app),
-        "/resume" => open_resume(app),
-        "/model" => open_model(app),
-        "/mission" => show_mission(app),
-        "/context" => app.notice = Some(prompt::summary()),
-        cmd if let Some(name) = cmd.strip_prefix("/name ") => name_mission(app, name),
-        cmd if let Some(prefix) = cmd.strip_prefix("/resume ") => resume_prefix(app, prefix),
-        cmd if cmd.starts_with('/') => {
-            app.notice = Some(format!("unknown command: {cmd}"));
-        }
-        _ => send_prompt(app, line),
-    }
+    event::run(terminal.get_mut(), &mut app)
 }
 
 #[cfg(test)]
@@ -391,9 +90,12 @@ mod tests {
     use super::*;
     use crate::app::Message;
     use crate::complete::ToolCall;
+    use crate::event::{on_key, on_paste};
     use crate::transcript::painted_lines;
+    use crate::transcript::{jump_to_tail, on_mouse};
     use crate::turn::{run_tools_parallel, skipped_truncated};
     use crate::view::{char_wrap, cursor_xy, working_text};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
     use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, mpsc};
