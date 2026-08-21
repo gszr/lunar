@@ -1,3 +1,4 @@
+mod auth;
 mod cli;
 mod commands;
 mod complete;
@@ -62,6 +63,9 @@ struct App {
     history_cursor: Option<usize>,
     history_draft: String,
     search: Option<HistorySearch>,
+    auth_rx: Option<Receiver<AuthEvent>>,
+    auth_cancel: Option<Arc<AtomicBool>>,
+    auth_prompt: Option<AuthPrompt>,
 }
 
 struct HistorySearch {
@@ -71,8 +75,31 @@ struct HistorySearch {
     matched: Option<usize>,
 }
 
+enum AuthEvent {
+    DeviceCode {
+        url: String,
+        code: String,
+        browser_opened: bool,
+    },
+    Done,
+    Failed(String),
+}
+
+struct AuthPrompt {
+    url: String,
+    code: String,
+    browser_opened: bool,
+}
+
 enum Mode {
     Chat,
+    LoginProvider {
+        cursor: usize,
+    },
+    LoginMethod {
+        cursor: usize,
+    },
+    ApiKey,
     Resume {
         items: Vec<mission::Meta>,
         cursor: usize,
@@ -179,6 +206,9 @@ fn main() -> io::Result<()> {
         history_cursor: None,
         history_draft: String::new(),
         search: None,
+        auth_rx: None,
+        auth_cancel: None,
+        auth_prompt: None,
     };
     if resume_last {
         match mission::list()?.into_iter().next() {
@@ -223,8 +253,9 @@ fn restore_terminal() {
 fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
     while !app.quit {
         drain_stream(app);
+        drain_auth(app);
         terminal.draw(|frame| draw(frame, app))?;
-        let wait = if app.cancel.is_some() {
+        let wait = if app.cancel.is_some() || app.auth_rx.is_some() {
             Duration::from_millis(16)
         } else {
             Duration::from_secs(3600)
@@ -239,6 +270,44 @@ fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+fn drain_auth(app: &mut App) {
+    let Some(rx) = app.auth_rx.as_ref() else {
+        return;
+    };
+    let event = match rx.try_recv() {
+        Ok(event) => Some(event),
+        Err(TryRecvError::Disconnected) => Some(AuthEvent::Failed("login ended".into())),
+        Err(TryRecvError::Empty) => None,
+    };
+    match event {
+        Some(AuthEvent::DeviceCode {
+            url,
+            code,
+            browser_opened,
+        }) => {
+            app.auth_prompt = Some(AuthPrompt {
+                url,
+                code,
+                browser_opened,
+            });
+        }
+        Some(AuthEvent::Done) => {
+            app.auth_rx = None;
+            app.auth_cancel = None;
+            app.auth_prompt = None;
+            app.notice = Some("logged in to xAI".into());
+            reload_config(app);
+        }
+        Some(AuthEvent::Failed(err)) => {
+            app.auth_rx = None;
+            app.auth_cancel = None;
+            app.auth_prompt = None;
+            app.notice = Some(err);
+        }
+        None => {}
+    }
 }
 
 fn drain_stream(app: &mut App) {
@@ -442,6 +511,68 @@ fn on_paste(app: &mut App, text: &str) {
 }
 
 fn on_key(app: &mut App, key: KeyEvent) {
+    if app.auth_rx.is_some() {
+        if key.code == KeyCode::Esc
+            && let Some(cancel) = &app.auth_cancel
+        {
+            cancel.store(true, Ordering::Relaxed);
+        }
+        return;
+    }
+    if let Mode::LoginProvider { cursor } = app.mode {
+        match key.code {
+            KeyCode::Esc => app.mode = Mode::Chat,
+            KeyCode::Enter => app.mode = Mode::LoginMethod { cursor: 0 },
+            KeyCode::Up | KeyCode::Char('k') | KeyCode::Down | KeyCode::Char('j') => {
+                app.mode = Mode::LoginProvider { cursor }
+            }
+            _ => {}
+        }
+        return;
+    }
+    if let Mode::LoginMethod { cursor } = app.mode {
+        match key.code {
+            KeyCode::Esc => app.mode = Mode::Chat,
+            KeyCode::Up | KeyCode::Char('k') => {
+                app.mode = Mode::LoginMethod {
+                    cursor: cursor.saturating_sub(1),
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                app.mode = Mode::LoginMethod {
+                    cursor: (cursor + 1).min(1),
+                }
+            }
+            KeyCode::Enter if cursor == 0 => start_xai_oauth(app),
+            KeyCode::Enter => {
+                app.mode = Mode::ApiKey;
+                app.input.clear();
+                app.cursor = 0;
+            }
+            _ => {}
+        }
+        return;
+    }
+    if matches!(app.mode, Mode::ApiKey) {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.mode = Mode::Chat;
+                app.input.clear();
+                app.cursor = 0;
+            }
+            (_, KeyCode::Enter) => save_api_key(app),
+            (_, KeyCode::Backspace) => {
+                let from = prev_char(&app.input, app.cursor);
+                app.input.replace_range(from..app.cursor, "");
+                app.cursor = from;
+            }
+            (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
+                insert_input(app, c)
+            }
+            _ => {}
+        }
+        return;
+    }
     if let Mode::Model { items, cursor } = &app.mode {
         let len = items.len();
         let cursor = *cursor;
@@ -803,11 +934,13 @@ fn submit(app: &mut App) {
         "/quit" | "/q" => app.quit = true,
         "/help" => {
             app.notice = Some(
-                "/quit /new /resume /model /name /mission /context /help    tab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits"
+                "/quit /new /resume /model /login /logout /name /mission /context /help    tab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits"
                     .into(),
             );
         }
         "/new" => new_mission(app),
+        "/login" | "/login xai" => open_login(app),
+        "/logout" | "/logout xai" => logout_xai(app),
         "/resume" => open_resume(app),
         "/model" => open_model(app),
         "/mission" => show_mission(app),
@@ -849,6 +982,72 @@ fn persist_last_assistant(app: &mut App) {
         return;
     }
     persist_value(app, &mission::assistant_line(&last.text, &last.tool_calls));
+}
+
+fn open_login(app: &mut App) {
+    app.mode = Mode::LoginProvider { cursor: 0 };
+}
+
+fn start_xai_oauth(app: &mut App) {
+    app.mode = Mode::Chat;
+    let cancel = Arc::new(AtomicBool::new(false));
+    let thread_cancel = cancel.clone();
+    let (tx, rx) = mpsc::channel();
+    app.auth_cancel = Some(cancel);
+    app.auth_rx = Some(rx);
+    app.auth_prompt = None;
+    app.notice = None;
+    std::thread::spawn(move || {
+        let result = auth::request_xai_device_code()
+            .and_then(|device| {
+                let browser_opened = webbrowser::open(&device.verification_uri).is_ok();
+                let _ = tx.send(AuthEvent::DeviceCode {
+                    url: device.verification_uri.clone(),
+                    code: device.user_code.clone(),
+                    browser_opened,
+                });
+                auth::poll_xai(&device, &thread_cancel)
+            })
+            .and_then(|credential| auth::save_oauth("xai", credential));
+        let _ = tx.send(match result {
+            Ok(()) => AuthEvent::Done,
+            Err(err) => AuthEvent::Failed(err),
+        });
+    });
+}
+
+fn save_api_key(app: &mut App) {
+    let key = std::mem::take(&mut app.input);
+    app.cursor = 0;
+    app.mode = Mode::Chat;
+    match auth::save_api_key("xai", &key) {
+        Ok(()) => {
+            app.notice = Some("saved xAI API key".into());
+            reload_config(app);
+        }
+        Err(err) => app.notice = Some(err),
+    }
+}
+
+fn logout_xai(app: &mut App) {
+    match auth::logout("xai") {
+        Ok(true) => {
+            app.notice = Some("logged out of xAI".into());
+            reload_config(app);
+        }
+        Ok(false) => app.notice = Some("not logged in to xAI".into()),
+        Err(err) => app.notice = Some(err),
+    }
+}
+
+fn reload_config(app: &mut App) {
+    let loaded = lua::load();
+    app.config = loaded.config.clone();
+    app.startup_config = loaded.config;
+    app.models = loaded.models;
+    if let Some(notice) = loaded.notice {
+        app.notice = Some(notice);
+    }
 }
 
 fn new_mission(app: &mut App) {
@@ -1118,17 +1317,43 @@ fn editor_height(input: &str, cursor: usize, width: u16) -> u16 {
     lines.max(row + 1).min(EDITOR_MAX_LINES) + 2
 }
 
+fn auth_editor_height(app: &App, width: u16) -> Option<u16> {
+    if app.auth_rx.is_none() {
+        return None;
+    }
+    let text = auth_prompt_text(app);
+    Some((char_wrap(&text, width.max(1) as usize).len() as u16).min(EDITOR_MAX_LINES) + 2)
+}
+
+fn auth_prompt_text(app: &App) -> String {
+    match &app.auth_prompt {
+        Some(prompt) if prompt.browser_opened => format!(
+            "Sign in to xAI\nOpen: {}\nCode: {}\nWaiting for authorization…  Esc cancels",
+            prompt.url, prompt.code
+        ),
+        Some(prompt) => format!(
+            "Sign in to xAI\nOpen: {}\nCode: {}\nCouldn’t open your browser. Copy and paste the URL above, then enter the displayed code.\nWaiting for authorization…  Esc cancels",
+            prompt.url, prompt.code
+        ),
+        None => "Sign in to xAI\nRequesting device code…  Esc cancels".into(),
+    }
+}
+
 fn model_picker_height(app: &App) -> u16 {
     match &app.mode {
         Mode::Model { items, .. } => items.len().saturating_add(1).min(u16::MAX as usize) as u16,
+        Mode::LoginProvider { .. } => 2,
+        Mode::LoginMethod { .. } => 3,
         _ => 0,
     }
 }
 
 fn draw(frame: &mut Frame, app: &mut App) {
     let working = u16::from(app.cancel.is_some());
-    let ed_h = editor_height(app.input.as_str(), app.cursor, frame.area().width)
-        .saturating_add(model_picker_height(app));
+    let ed_h = auth_editor_height(app, frame.area().width).unwrap_or_else(|| {
+        editor_height(app.input.as_str(), app.cursor, frame.area().width)
+            .saturating_add(model_picker_height(app))
+    });
     let found = if app.search.is_none() {
         commands::matches(&app.input)
     } else {
@@ -1534,6 +1759,32 @@ fn draw_complete(
 }
 
 fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
+    if app.auth_rx.is_some() {
+        draw_auth_editor(frame, area, app);
+        return;
+    }
+    if let Mode::LoginProvider { cursor } = &app.mode {
+        draw_picker_editor(
+            frame,
+            area,
+            app,
+            "login  j/k  enter  esc",
+            &["xAI"],
+            *cursor,
+        );
+        return;
+    }
+    if let Mode::LoginMethod { cursor } = &app.mode {
+        draw_picker_editor(
+            frame,
+            area,
+            app,
+            "xAI login  j/k  enter  esc",
+            &["Use a subscription", "Use an API key"],
+            *cursor,
+        );
+        return;
+    }
     if let Mode::Model { items, cursor } = &app.mode {
         let block = Block::default()
             .borders(Borders::TOP | Borders::BOTTOM)
@@ -1591,12 +1842,72 @@ fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
     draw_editor_input(frame, inner, app);
 }
 
+fn draw_auth_editor(frame: &mut Frame, area: Rect, app: &App) {
+    let block = Block::default()
+        .borders(Borders::TOP | Borders::BOTTOM)
+        .border_style(Style::default().fg(splash::GOLD));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let lines: Vec<Line> = char_wrap(&auth_prompt_text(app), inner.width.max(1) as usize)
+        .into_iter()
+        .map(|line| Line::from(Span::styled(line, Style::default().fg(splash::BONE))))
+        .collect();
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn draw_picker_editor(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    title: &str,
+    items: &[&str],
+    cursor: usize,
+) {
+    let block = Block::default()
+        .borders(Borders::TOP | Borders::BOTTOM)
+        .border_style(Style::default().fg(splash::DUST));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let picker_h = (items.len() + 1) as u16;
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(picker_h.min(inner.height)),
+        ])
+        .split(inner);
+    draw_editor_input(frame, chunks[0], app);
+    let mut lines = vec![Line::from(Span::styled(
+        title.to_string(),
+        Style::default().fg(splash::ASH),
+    ))];
+    for (i, item) in items.iter().enumerate() {
+        let style = Style::default().fg(if i == cursor {
+            splash::GOLD
+        } else {
+            splash::BONE
+        });
+        lines.push(Line::from(Span::styled(format!("  {item}"), style)));
+    }
+    frame.render_widget(Paragraph::new(lines), chunks[1]);
+}
+
 fn draw_editor_input(frame: &mut Frame, area: Rect, app: &App) {
     if area.height == 0 || area.width == 0 {
         return;
     }
-    let mut lines = editor_lines(app.input.as_str(), area.width);
-    let (mut row, col) = cursor_xy(&app.input, app.cursor, area.width as usize);
+    let shown = if matches!(app.mode, Mode::ApiKey) {
+        "•".repeat(app.input.chars().count())
+    } else {
+        app.input.clone()
+    };
+    let mut lines = editor_lines(&shown, area.width);
+    let shown_cursor = if matches!(app.mode, Mode::ApiKey) {
+        shown.len()
+    } else {
+        app.cursor
+    };
+    let (mut row, col) = cursor_xy(&shown, shown_cursor, area.width as usize);
     if lines.len() > area.height as usize {
         let skip = lines.len() - area.height as usize;
         lines = lines[skip..].to_vec();
@@ -1735,6 +2046,9 @@ mod tests {
             history_cursor: None,
             history_draft: String::new(),
             search: None,
+            auth_rx: None,
+            auth_cancel: None,
+            auth_prompt: None,
         }
     }
 

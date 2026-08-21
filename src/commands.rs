@@ -16,6 +16,14 @@ pub const COMMANDS: &[Command] = &[
         description: "commands",
     },
     Command {
+        name: "login",
+        description: "sign in to a provider",
+    },
+    Command {
+        name: "logout",
+        description: "remove a saved credential",
+    },
+    Command {
         name: "model",
         description: "pick a configured model",
     },

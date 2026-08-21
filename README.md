@@ -16,7 +16,7 @@ cargo install --git https://github.com/gszr/lunar
 
 ## Configure
 
-Set an API key, an OpenAI Chat Completions base URL, and a model:
+With no `~/.lunar/init.lua`, set an API key, an OpenAI Chat Completions base URL, and a model:
 
 ```bash
 export LUNAR_API_KEY=...
@@ -26,7 +26,7 @@ export LUNAR_MODEL=grok-4.6
 
 Any OpenAI Chat Completions-compatible endpoint should work.
 
-For lasting configuration, create `~/.lunar/init.lua`:
+For lasting configuration, create `~/.lunar/init.lua`. Read the key from the environment:
 
 ```lua
 lunar.models {
@@ -52,10 +52,35 @@ lunar.defaults {
 }
 ```
 
-Then provide the named secret:
-
 ```bash
 export XAI_API_KEY=...
+```
+
+Or let Lunar store the credential. Use `/login` in the TUI (xAI subscription via device code, or a masked API key). `/logout` removes it.
+
+```lua
+lunar.models {
+  grok46 = {
+    id = "grok-4.6",
+    window = 500000,
+  },
+}
+
+lunar.providers {
+  xai = {
+    base_url = "https://api.x.ai/v1",
+    key_in = "auth",
+    auth_provider = "xai",
+    models = {
+      "grok46"
+    },
+  },
+}
+
+lunar.defaults {
+  provider = "xai",
+  model = "grok46",
+}
 ```
 
 ## Run
@@ -82,7 +107,7 @@ end
 
 ## Status
 
-Lunar is early software for macOS and Linux. It currently supports OpenAI Chat Completions endpoints; extensions, the Responses API, and built-in login are not implemented yet.
+Lunar is early software for macOS and Linux. It currently supports OpenAI Chat Completions endpoints. Lua extensions and the Responses API are not implemented yet.
 
 ## License
 

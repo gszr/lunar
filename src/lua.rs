@@ -183,15 +183,25 @@ fn provider_config(
         .as_deref()
         .filter(|s| !s.is_empty())
         .ok_or_else(|| format!("{provider_key} has no base_url"))?;
-    let key_name = provider
-        .key_name
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| format!("{provider_key} has no key_name"))?;
-    if provider.key_in != "env" {
-        return Err(format!("{provider_key} key_in is not env"));
-    }
-    let api_key = nonempty(key_name).ok_or_else(|| format!("missing {key_name}"))?;
+    let api_key = match provider.key_in.as_str() {
+        "env" => {
+            let key_name = provider
+                .key_name
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| format!("{provider_key} has no key_name"))?;
+            nonempty(key_name).ok_or_else(|| format!("missing {key_name}"))?
+        }
+        "auth" => {
+            let auth_provider = provider
+                .auth_provider
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| format!("{provider_key} has no auth_provider"))?;
+            crate::auth::resolve(auth_provider)?
+        }
+        _ => return Err(format!("{provider_key} key_in is not env or auth")),
+    };
     Ok(Config {
         api_key,
         base_url: base_url.to_string(),
@@ -309,6 +319,7 @@ fn parse_providers(table: &Table) -> (BTreeMap<String, ProviderDef>, Vec<String>
                 base_url: field_string(&t, "base_url"),
                 key_name: field_string(&t, "key_name"),
                 key_in,
+                auth_provider: field_string(&t, "auth_provider"),
                 models,
             },
         );
@@ -400,6 +411,7 @@ struct ProviderDef {
     base_url: Option<String>,
     key_name: Option<String>,
     key_in: String,
+    auth_provider: Option<String>,
     models: Vec<Listed>,
 }
 
@@ -683,7 +695,10 @@ lunar.defaults { provider = "xai", model = "grok-4.6" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert!(loaded.config.is_none());
-        assert_eq!(loaded.notice.as_deref(), Some("xai key_in is not env"));
+        assert_eq!(
+            loaded.notice.as_deref(),
+            Some("xai key_in is not env or auth")
+        );
     }
 
     #[test]
