@@ -14,6 +14,7 @@ mod protocol;
 mod render;
 mod splash;
 mod terminal;
+mod tool_output;
 mod tools;
 mod transcript;
 mod turn;
@@ -36,6 +37,7 @@ fn main() -> io::Result<()> {
             std::process::exit(2);
         }
     };
+    tool_output::cleanup();
     let mut terminal = terminal::Terminal::init();
     let mut app = App::new(lua::load());
     if open.debug

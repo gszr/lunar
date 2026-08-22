@@ -9,9 +9,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-const DEFAULT_READ_LIMIT: usize = 2000;
+use crate::tool_output::{MAX_BYTES as MAX_TOOL_BYTES, MAX_LINES as MAX_TOOL_LINES};
+
+const DEFAULT_READ_LIMIT: usize = MAX_TOOL_LINES;
 const DEFAULT_BASH_TIMEOUT: Duration = Duration::from_secs(60);
-const MAX_TOOL_BYTES: usize = 50 * 1024;
 
 pub fn responses_definitions() -> Value {
     json!([
@@ -229,9 +230,10 @@ fn read(args: &Value) -> ToolOut {
         used = start + i + 1;
     }
     if used < lines.len() {
+        let next = used + 1;
         let _ = writeln!(
             &mut out,
-            "… {} more lines (use offset/limit to continue)",
+            "… {} more lines (use offset={next} to continue)",
             lines.len() - used
         );
     }
@@ -435,23 +437,39 @@ fn bash(args: &Value, cancel: &AtomicBool) -> ToolOut {
 
     let stdout = String::from_utf8_lossy(&out_h.join().unwrap_or_default()).into_owned();
     let stderr = String::from_utf8_lossy(&err_h.join().unwrap_or_default()).into_owned();
-    let mut content = String::new();
+    let mut full = String::new();
     if !stdout.is_empty() {
-        content.push_str(&truncate(&stdout));
+        full.push_str(&stdout);
     }
     if !stderr.is_empty() {
-        if !content.is_empty() {
-            content.push('\n');
+        if !full.is_empty() {
+            full.push('\n');
         }
-        content.push_str("stderr:\n");
-        content.push_str(&truncate(&stderr));
+        full.push_str("stderr:\n");
+        full.push_str(&stderr);
     }
     if !status.success() {
-        if !content.is_empty() {
-            content.push('\n');
+        if !full.is_empty() {
+            full.push('\n');
         }
-        content.push_str(&format!("exit {status}"));
+        full.push_str(&format!("exit {status}"));
     }
+    let mut content = if full.is_empty() {
+        "(no output)".into()
+    } else {
+        let (bounded, truncated) = truncate_tail(&full);
+        if truncated {
+            match crate::tool_output::save(&full) {
+                Ok(path) => format!(
+                    "… output truncated; full content saved to {} …\n{bounded}",
+                    path.display()
+                ),
+                Err(_) => format!("… output truncated …\n{bounded}"),
+            }
+        } else {
+            bounded
+        }
+    };
     if content.is_empty() {
         content = "(no output)".into();
     }
@@ -512,18 +530,23 @@ fn char_prefix(s: &str, max: usize) -> &str {
     &s[..end]
 }
 
-fn truncate(text: &str) -> String {
-    let bytes = text.as_bytes();
-    if bytes.len() <= MAX_TOOL_BYTES {
-        return text.to_string();
+fn truncate_tail(text: &str) -> (String, bool) {
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() <= MAX_TOOL_LINES && text.len() <= MAX_TOOL_BYTES {
+        return (text.to_string(), false);
     }
-    let start = bytes.len() - MAX_TOOL_BYTES;
-    let start = text
-        .char_indices()
-        .find(|(i, _)| *i >= start)
-        .map(|(i, _)| i)
-        .unwrap_or(start);
-    format!("…(truncated)\n{}", &text[start..])
+    let mut kept = Vec::new();
+    let mut bytes = 0;
+    for line in lines.iter().rev().take(MAX_TOOL_LINES) {
+        let needed = line.len() + usize::from(!kept.is_empty());
+        if bytes + needed > MAX_TOOL_BYTES {
+            break;
+        }
+        kept.push(*line);
+        bytes += needed;
+    }
+    kept.reverse();
+    (kept.join("\n"), true)
 }
 
 #[cfg(test)]
@@ -587,5 +610,19 @@ mod tests {
             out.content.len()
         );
         assert!(out.content.contains("truncated") || out.content.contains("more lines"));
+    }
+
+    #[test]
+    fn bash_keeps_the_tail() {
+        let full = (0..2500)
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (bounded, truncated) = truncate_tail(&full);
+        assert!(truncated);
+        assert!(bounded.ends_with("2499"), "{bounded}");
+        assert!(!bounded.starts_with("0\n"), "{bounded}");
+        assert!(bounded.lines().count() <= MAX_TOOL_LINES);
+        assert!(bounded.len() <= MAX_TOOL_BYTES);
     }
 }

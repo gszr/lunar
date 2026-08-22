@@ -34,7 +34,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Auth | Env or Lunar-managed auth. `key_in = "env"` names an env secret with `key_name`. `key_in = "auth"` names a canonical built-in integration with `auth_provider` (initially `xai`) and resolves API-key or OAuth credentials from `~/.lunar/auth.json`. `/login xai` supports xAI device-code subscription auth and masked API-key entry; `/logout [xai]` removes it. The xAI device flow uses the public client ID distributed by Pi. `LUNAR_API_KEY` / `LUNAR_BASE_URL` / `LUNAR_MODEL` remain the no-Lua path |
 | TUI | `ratatui` + `crossterm` |
 | Transcript | The current mission. Scrollable: every message in that mission is reachable as painted (tool cards stay 8 lines, thinking stays a 3-line preview). Not a tail-only view. `/resume` switches missions; there is no Session history object |
-| Tools | `read` / `write` / `edit` (`old_string`/`new_string`) / `bash`. Gate = allow. Bash timeout 60s, Esc kills the process group. Bash stdin is null; on Unix the child is a new session so a nested TUI cannot take the glass. Tool results cap 50KB. `finish_reason=length` does not execute tool calls. Calls in one assistant turn run in parallel. Tool loops pause after 50 rounds; submitting `continue` starts a fresh turn |
+| Tools | `read` / `write` / `edit` (`old_string`/`new_string`) / `bash`. Gate = allow. Bash timeout 60s, Esc kills the process group. Bash stdin is null; on Unix the child is a new session so a nested TUI cannot take the glass. Tool results cap 50KB or 2000 lines per result. `read` keeps the head and gives the next offset. `bash` keeps the tail; truncated bash output is saved under `~/.lunar/tool-output/` and the path is included in the result. Files older than seven days are deleted at startup. `finish_reason=length` does not execute tool calls. Calls in one assistant turn run in parallel. Tool loops pause after 50 rounds; submitting `continue` starts a fresh turn |
 | Missions | Linear append-only jsonl. Not a tree. Not Pi-compatible |
 | Full context | Warn and refuse submit. No auto-compact. `/compact` only after this hurts |
 | Entry | `lunar` always opens the TUI. No print mode in v0 |
@@ -50,6 +50,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
   lua/
   trust.json                 # not used yet
   auth.json                  # Lunar-managed API keys and OAuth tokens
+  tool-output/               # full truncated bash output; 7-day startup cleanup
 
 .lunar/
   init.lua                   # trusted project Lua; later slice
@@ -153,7 +154,7 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 **Shipped**
 
 - Glass, Completions and Responses streams, reused HTTP agent, no global timeout. Completions `max_tokens` 32768 (reasoning + answer). POST retries 429/5xx/reset (3 times, 0.5s…8s, Esc cancels the wait). Completions `finish_reason` / Responses `response.completed` ends the turn; leftover Completions SSE is drained for usage (1s cap) and `[DONE]` in the background so the socket can return to the pool. Transcript scroll: PageUp / PageDown, wheel, Ctrl+Home / Ctrl+End; follow only at the tail. History paint is cached; only the streaming tail is re-wrapped
-- Four tools + continue-after-tools (50-round cap; submit `continue` to proceed). Tools in one round run in parallel. Results cap 50KB. Truncated completions do not run tool calls
+- Four tools + continue-after-tools (50-round cap; submit `continue` to proceed). Tools in one round run in parallel. Results cap 50KB or 2000 lines; truncated bash output is saved under `~/.lunar/tool-output/`. Truncated completions do not run tool calls
 - Missions: `/new` `/resume` `/name` `/mission`, `-c`
 - Token stats + refuse submit when last prompt ≥ window
 - CWD `AGENTS.md` / `CONTEXT.md` + `.agents/skills` summaries as a leading user message, snapshotted per user turn
@@ -188,4 +189,5 @@ Package manager, print/RPC/SDK, Pi session compatibility, provider zoo, themes, 
 
 ## Layout in the repo
 
-`src/main.rs` app/TUI · `auth.rs` managed credentials + xAI OAuth · `protocol/` HTTP (`stream` + Completions / Responses adapters) · `lua.rs` user `init.lua` · `tools.rs` four tools · `mission.rs` jsonl · `prompt.rs` CWD context + skill summaries · `render.rs` transcript paint · `splash.rs` art + colors
+`src/main.rs` app/TUI · `auth.rs` managed credentials + xAI OAuth · `protocol/` HTTP (`stream` + Completions / Responses adapters) · `lua.rs` user `init.lua` · `tools.rs` four tools · `tool_output.rs` truncated bash files · `mission.rs` jsonl · `prompt.rs` CWD context + skill summaries · `render.rs` transcript paint · `splash.rs` art + colors
+tools · `tool_output.rs` truncated bash files · `mission.rs` jsonl · `prompt.rs` CWD context + skill summaries · `render.rs` transcript paint · `splash.rs` art + colors
