@@ -149,6 +149,7 @@ fn body(cfg: &Config, messages: &[ChatMessage], cache_key: Option<&str>) -> Stri
         "model": cfg.model,
         "stream": true,
         "store": false,
+        "reasoning": { "effort": "none" },
         "tools": tools::responses_definitions(),
         "input": flatten_input(messages),
     });
@@ -312,6 +313,7 @@ mod tests {
         assert_eq!(parsed["stream"], true);
         assert_eq!(parsed["store"], false);
         assert_eq!(parsed["prompt_cache_key"], "2026-08-22-1");
+        assert_eq!(parsed["reasoning"]["effort"], "none");
         assert!(parsed.get("max_output_tokens").is_none());
         assert!(parsed.get("messages").is_none());
         assert_eq!(parsed["tools"][0]["type"], "function");

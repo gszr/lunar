@@ -29,7 +29,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Prompt conventions | CWD `AGENTS.md` + `CONTEXT.md` in full. Skill *summaries* from `.agents/skills/*/SKILL.md`. `~/.agents/skills` later |
 | System prompt | None. Context is a leading user message, snapshotted at each user submit, held for the tool loop, not persisted |
 | v0 goal | Daily driver for one user, not ecosystem parity |
-| Model protocol | Completions, Responses, and Messages. Selected by model `api`: `"completions"` · `"responses"` · `"messages"`. Case-sensitive, no aliases. Omitted `api` is Completions. Completions and Responses send. Responses stays `store: false` and replays the full converted history each round. When a mission exists, Responses also sends `prompt_cache_key` (mission id, 64 chars max) and Pi affinity headers `session_id` / `x-client-request-id`. No `previous_response_id`. Messages is not implemented. Env path stays Completions until that path is removed |
+| Model protocol | Completions, Responses, and Messages. Selected by model `api`: `"completions"` · `"responses"` · `"messages"`. Case-sensitive, no aliases. Omitted `api` is Completions. Completions and Responses send. Responses stays `store: false` and replays the full converted history each round. When a mission exists, Responses also sends `prompt_cache_key` (mission id, 64 chars max) and Pi affinity headers `session_id` / `x-client-request-id`. No `previous_response_id`. Responses sends `reasoning.effort` `"none"` (footer `off`). Completions-on-OpenAI already sends `reasoning_effort` `"none"`. Messages is not implemented. Env path stays Completions until that path is removed |
 | First brand | xAI. Config is env, not a compiled-in brand |
 | Auth | Env or Lunar-managed auth. `key_in = "env"` names an env secret with `key_name`. `key_in = "auth"` names a canonical built-in integration with `auth_provider` (initially `xai`) and resolves API-key or OAuth credentials from `~/.lunar/auth.json`. `/login xai` supports xAI device-code subscription auth and masked API-key entry; `/logout [xai]` removes it. The xAI device flow uses the public client ID distributed by Pi. `LUNAR_API_KEY` / `LUNAR_BASE_URL` / `LUNAR_MODEL` remain the no-Lua path |
 | TUI | `ratatui` + `crossterm` |
@@ -166,7 +166,7 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 - Walk-up discovery, `~/.agents/skills`, skill bodies (only summaries ship)
 - `/reload` `/trust`
 - Messages API (catalog accepts `api`; Completions and Responses send)
-- Thinking level (footer says `off` and it is not wired). grok-4.6 ignores `reasoning_effort`; the `max_tokens` cap is the bound
+- Thinking level UI (footer says `off`; Responses sends `reasoning.effort` `"none"`. Completions-on-OpenAI sends `reasoning_effort` `"none"`). grok-4.6 ignores `reasoning_effort`; the `max_tokens` cap is the bound
 - Cost in the footer, git branch, `$` prices
 - `/compact`
 
