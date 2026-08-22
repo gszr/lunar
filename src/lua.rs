@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use mlua::{Lua, Table, Value};
 
-use crate::complete::{self, Config};
+use crate::complete::{self, Api, Config};
 
 pub(crate) struct Loaded {
     pub config: Option<Config>,
@@ -130,11 +130,20 @@ fn resolve(guest: &Guest) -> Loaded {
                 notice,
             }
         }
-        Err(notice) => Loaded {
-            config: None,
-            models: Vec::new(),
-            notice: Some(notice),
-        },
+        Err(notice) => {
+            let combined = join_notices(
+                guest
+                    .model_notices
+                    .iter()
+                    .chain(guest.provider_notices.iter())
+                    .chain(std::iter::once(&notice)),
+            );
+            Loaded {
+                config: None,
+                models: choices(guest),
+                notice: combined,
+            }
+        }
     }
 }
 
@@ -202,12 +211,20 @@ fn provider_config(
         }
         _ => return Err(format!("{provider_key} key_in is not env or auth")),
     };
+    if model.api == Api::Messages {
+        let name = model.alias.as_deref().unwrap_or(model.id.as_str());
+        return Err(format!(
+            "{name} uses {}, not implemented",
+            model.api.as_str()
+        ));
+    }
     Ok(Config {
         api_key,
         base_url: base_url.to_string(),
         model: model.id.clone(),
         provider: provider_key.to_string(),
         window: model.window.or_else(|| complete::guess_window(&model.id)),
+        api: model.api,
     })
 }
 
@@ -227,9 +244,14 @@ fn config_from_lua(guest: &Guest, defaults: &RawDefaults) -> Result<(Config, Vec
         .get(provider_key)
         .ok_or_else(|| format!("unknown provider: {provider_key}"))?;
     let (listed, skips) = resolve_listed(&guest.models, &provider.models);
-    let chosen =
-        pick_model(&listed, model_key).ok_or_else(|| format!("unknown model: {model_key}"))?;
-    Ok((provider_config(provider_key, provider, chosen)?, skips))
+    let chosen = match pick_model(&listed, model_key) {
+        Some(model) => model,
+        None => return Err(join_parts(skips, format!("unknown model: {model_key}"))),
+    };
+    match provider_config(provider_key, provider, chosen) {
+        Ok(config) => Ok((config, skips)),
+        Err(err) => Err(join_parts(skips, err)),
+    }
 }
 
 fn resolve_listed(
@@ -245,6 +267,7 @@ fn resolve_listed(
                     alias: Some(alias.clone()),
                     id: def.id.clone(),
                     window: def.window,
+                    api: def.api,
                 }),
                 None => notices.push(format!("unknown alias: {alias}")),
             },
@@ -252,6 +275,7 @@ fn resolve_listed(
                 alias: None,
                 id: def.id.clone(),
                 window: def.window,
+                api: def.api,
             }),
         }
     }
@@ -277,10 +301,10 @@ fn parse_models(table: &Table) -> (BTreeMap<String, ModelDef>, Vec<String>) {
         };
         match v {
             Value::Table(t) => match model_def(&t) {
-                Some(def) => {
+                Ok(def) => {
                     models.insert(alias, def);
                 }
-                None => notices.push(format!("model {alias} has no id")),
+                Err(err) => notices.push(def_error(&format!("model {alias}"), err)),
             },
             _ => notices.push(format!("model {alias} has no id")),
         }
@@ -335,8 +359,8 @@ fn parse_listed(table: &Table) -> (Vec<Listed>, Vec<String>) {
         match value {
             Ok(Value::String(s)) => out.push(Listed::Alias(s.to_string_lossy())),
             Ok(Value::Table(t)) => match model_def(&t) {
-                Some(def) => out.push(Listed::Local(def)),
-                None => notices.push(format!("provider model #{n} has no id")),
+                Ok(def) => out.push(Listed::Local(def)),
+                Err(err) => notices.push(def_error(&format!("provider model #{n}"), err)),
             },
             Ok(_) => notices.push(format!("provider model #{n} skipped")),
             Err(err) => notices.push(err.to_string()),
@@ -345,13 +369,30 @@ fn parse_listed(table: &Table) -> (Vec<Listed>, Vec<String>) {
     (out, notices)
 }
 
-fn model_def(table: &Table) -> Option<ModelDef> {
-    let id = field_string(table, "id").filter(|s| !s.is_empty())?;
+fn model_def(table: &Table) -> Result<ModelDef, DefError> {
+    let id = field_string(table, "id")
+        .filter(|s| !s.is_empty())
+        .ok_or(DefError::NoId)?;
     let window = match table.get::<Value>("window") {
         Ok(v) => opt_u32(v),
         Err(_) => None,
     };
-    Some(ModelDef { id, window })
+    let api = match table.get::<Value>("api") {
+        Ok(Value::Nil) | Err(_) => Api::Responses,
+        Ok(v) => match value_string(&v) {
+            Some(raw) => Api::parse(&raw).ok_or(DefError::UnknownApi(Some(raw)))?,
+            None => return Err(DefError::UnknownApi(None)),
+        },
+    };
+    Ok(ModelDef { id, window, api })
+}
+
+fn def_error(prefix: &str, err: DefError) -> String {
+    match err {
+        DefError::NoId => format!("{prefix} has no id"),
+        DefError::UnknownApi(Some(raw)) => format!("{prefix} has unknown api: {raw}"),
+        DefError::UnknownApi(None) => format!("{prefix} has unknown api"),
+    }
 }
 
 fn field_string(table: &Table, key: &str) -> Option<String> {
@@ -383,6 +424,11 @@ fn join_notices<'a>(parts: impl Iterator<Item = &'a String>) -> Option<String> {
     if text.is_empty() { None } else { Some(text) }
 }
 
+fn join_parts(mut parts: Vec<String>, last: String) -> String {
+    parts.push(last);
+    parts.join("\n")
+}
+
 fn nonempty(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|s| !s.is_empty())
 }
@@ -401,10 +447,16 @@ struct RawDefaults {
     model: Option<String>,
 }
 
+enum DefError {
+    NoId,
+    UnknownApi(Option<String>),
+}
+
 #[derive(Clone)]
 struct ModelDef {
     id: String,
     window: Option<u32>,
+    api: Api,
 }
 
 struct ProviderDef {
@@ -424,6 +476,7 @@ struct ResolvedModel {
     alias: Option<String>,
     id: String,
     window: Option<u32>,
+    api: Api,
 }
 
 #[cfg(test)]
@@ -500,7 +553,7 @@ mod tests {
 
     const SAMPLE: &str = r#"
 lunar.models {
-  grok46 = { id = "grok-4.6", window = 500000 },
+  grok46 = { id = "grok-4.6", window = 500000, api = "completions" },
 }
 
 lunar.providers {
@@ -509,7 +562,7 @@ lunar.providers {
     key_name = "XAI_API_KEY",
     models = {
       "grok46",
-      { id = "grok-4.5" },
+      { id = "grok-4.5", api = "completions" },
     },
   },
 }
@@ -593,7 +646,7 @@ lunar.providers {
   xai = {
     base_url = "https://api.x.ai/v1",
     key_name = "XAI_API_KEY",
-    models = { { id = "grok-4.5" } },
+    models = { { id = "grok-4.5", api = "completions" } },
   },
 }
 lunar.defaults { provider = "xai", model = "grok-4.5" }
@@ -602,6 +655,152 @@ lunar.defaults { provider = "xai", model = "grok-4.5" }
         let cfg = loaded.config.unwrap();
         assert_eq!(cfg.model, "grok-4.5");
         assert_eq!(cfg.window, Some(500_000));
+    }
+
+    #[test]
+    fn omitted_api_is_responses_and_can_send() {
+        let _e = isolate(&[("XAI_API_KEY", "k")]);
+        let src = r#"
+lunar.providers {
+  xai = {
+    base_url = "https://api.x.ai/v1",
+    key_name = "XAI_API_KEY",
+    models = { { id = "grok-4.5" } },
+  },
+}
+lunar.defaults { provider = "xai", model = "grok-4.5" }
+"#;
+        let loaded = load_path(&write_init(&scratch(), src));
+        let cfg = loaded.config.unwrap();
+        assert_eq!(cfg.model, "grok-4.5");
+        assert_eq!(cfg.api, Api::Responses);
+        assert_eq!(loaded.notice, None);
+        assert!(loaded.models[0].config.is_some());
+    }
+
+    #[test]
+    fn unknown_api_skips_entry() {
+        let _e = isolate(&[("XAI_API_KEY", "k")]);
+        let src = r#"
+lunar.models {
+  grok46 = { id = "grok-4.6", api = "chat" },
+}
+lunar.providers {
+  xai = {
+    base_url = "https://api.x.ai/v1",
+    key_name = "XAI_API_KEY",
+    models = { "grok46", { id = "grok-4.5", api = "completions" } },
+  },
+}
+lunar.defaults { provider = "xai", model = "grok46" }
+"#;
+        let loaded = load_path(&write_init(&scratch(), src));
+        assert!(loaded.config.is_none());
+        assert_eq!(
+            loaded.notice.as_deref(),
+            Some("model grok46 has unknown api: chat\nunknown alias: grok46\nunknown model: grok46")
+        );
+        assert_eq!(loaded.models.len(), 1);
+        assert_eq!(loaded.models[0].id, "grok-4.5");
+        assert!(loaded.models[0].config.is_some());
+    }
+
+    #[test]
+    fn responses_default_resolves() {
+        let _e = isolate(&[("XAI_API_KEY", "k")]);
+        let src = r#"
+lunar.models {
+  gpt = { id = "gpt-5", api = "responses" },
+  grok46 = { id = "grok-4.6", api = "completions" },
+}
+lunar.providers {
+  openai = {
+    base_url = "https://api.openai.com/v1",
+    key_name = "XAI_API_KEY",
+    models = { "gpt", "grok46" },
+  },
+}
+lunar.defaults { provider = "openai", model = "gpt" }
+"#;
+        let loaded = load_path(&write_init(&scratch(), src));
+        let cfg = loaded.config.unwrap();
+        assert_eq!(cfg.model, "gpt-5");
+        assert_eq!(cfg.api, Api::Responses);
+        assert_eq!(loaded.models.len(), 2);
+        assert!(loaded.models.iter().all(|m| m.config.is_some()));
+    }
+
+    #[test]
+    fn messages_api_cannot_send() {
+        let _e = isolate(&[("XAI_API_KEY", "k")]);
+        let src = r#"
+lunar.providers {
+  anthropic = {
+    base_url = "https://api.anthropic.com",
+    key_name = "XAI_API_KEY",
+    models = { { id = "claude-opus-4", api = "messages" } },
+  },
+}
+lunar.defaults { provider = "anthropic", model = "claude-opus-4" }
+"#;
+        let loaded = load_path(&write_init(&scratch(), src));
+        assert!(loaded.config.is_none());
+        assert_eq!(
+            loaded.notice.as_deref(),
+            Some("claude-opus-4 uses messages, not implemented")
+        );
+    }
+
+    #[test]
+    fn string_ref_inherits_catalog_api() {
+        let _e = isolate(&[("XAI_API_KEY", "k")]);
+        let src = r#"
+lunar.models {
+  grok46 = { id = "grok-4.6", api = "completions" },
+}
+lunar.providers {
+  xai = {
+    base_url = "https://api.x.ai/v1",
+    key_name = "XAI_API_KEY",
+    models = { "grok46" },
+  },
+}
+lunar.defaults { provider = "xai", model = "grok46" }
+"#;
+        let loaded = load_path(&write_init(&scratch(), src));
+        assert_eq!(loaded.config.unwrap().model, "grok-4.6");
+        assert_eq!(loaded.notice, None);
+    }
+
+    #[test]
+    fn local_def_can_differ_from_catalog() {
+        let _e = isolate(&[("XAI_API_KEY", "k")]);
+        let src = r#"
+lunar.models {
+  gpt = { id = "gpt-5", api = "responses" },
+}
+lunar.providers {
+  openai = {
+    base_url = "https://api.openai.com/v1",
+    key_name = "XAI_API_KEY",
+    models = { "gpt" },
+  },
+  proxy = {
+    base_url = "https://proxy.example/v1",
+    key_name = "XAI_API_KEY",
+    models = { { id = "gpt-5", api = "completions" } },
+  },
+}
+lunar.defaults { provider = "proxy", model = "gpt-5" }
+"#;
+        let loaded = load_path(&write_init(&scratch(), src));
+        let cfg = loaded.config.unwrap();
+        assert_eq!(cfg.model, "gpt-5");
+        assert_eq!(cfg.provider(), "proxy");
+        assert_eq!(cfg.api, Api::Completions);
+        assert_eq!(loaded.models.len(), 2);
+        let openai = loaded.models.iter().find(|m| m.provider == "openai").unwrap();
+        assert_eq!(openai.config.as_ref().unwrap().api, Api::Responses);
     }
 
     #[test]
@@ -614,7 +813,7 @@ lunar.defaults { provider = "xai", model = "grok-4.5" }
         ]);
         let src = r#"
 lunar.providers {
-  xai = { base_url = "https://api.x.ai/v1", key_name = "XAI_API_KEY", models = { { id = "grok-4.6" } } },
+  xai = { base_url = "https://api.x.ai/v1", key_name = "XAI_API_KEY", models = { { id = "grok-4.6", api = "completions" } } },
 }
 lunar.defaults { provider = "xai" }
 "#;
@@ -642,7 +841,7 @@ lunar.defaults { provider = "nope", model = "grok-4.6" }
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
 lunar.providers {
-  xai = { base_url = "https://api.x.ai/v1", key_name = "XAI_API_KEY", models = { { id = "grok-4.6" } } },
+  xai = { base_url = "https://api.x.ai/v1", key_name = "XAI_API_KEY", models = { { id = "grok-4.6", api = "completions" } } },
 }
 lunar.defaults { provider = "xai", model = "missing" }
 "#;
@@ -656,7 +855,7 @@ lunar.defaults { provider = "xai", model = "missing" }
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
 lunar.providers {
-  xai = { key_name = "XAI_API_KEY", models = { { id = "grok-4.6" } } },
+  xai = { key_name = "XAI_API_KEY", models = { { id = "grok-4.6", api = "completions" } } },
 }
 lunar.defaults { provider = "xai", model = "grok-4.6" }
 "#;
@@ -670,7 +869,7 @@ lunar.defaults { provider = "xai", model = "grok-4.6" }
         let _e = isolate(&[]);
         let src = r#"
 lunar.providers {
-  xai = { base_url = "https://api.x.ai/v1", key_name = "XAI_API_KEY", models = { { id = "grok-4.6" } } },
+  xai = { base_url = "https://api.x.ai/v1", key_name = "XAI_API_KEY", models = { { id = "grok-4.6", api = "completions" } } },
 }
 lunar.defaults { provider = "xai", model = "grok-4.6" }
 "#;
@@ -688,7 +887,7 @@ lunar.providers {
     base_url = "https://api.x.ai/v1",
     key_name = "XAI_API_KEY",
     key_in = "file",
-    models = { { id = "grok-4.6" } },
+    models = { { id = "grok-4.6", api = "completions" } },
   },
 }
 lunar.defaults { provider = "xai", model = "grok-4.6" }
@@ -706,7 +905,7 @@ lunar.defaults { provider = "xai", model = "grok-4.6" }
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
 lunar.models {
-  grok46 = { id = "grok-4.6" },
+  grok46 = { id = "grok-4.6", api = "completions" },
 }
 lunar.providers {
   xai = {
@@ -727,8 +926,8 @@ lunar.defaults { provider = "xai", model = "grok46" }
     fn last_call_wins() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
-lunar.models { grok46 = { id = "grok-4.6" } }
-lunar.models { grok45 = { id = "grok-4.5" } }
+lunar.models { grok46 = { id = "grok-4.6", api = "completions" } }
+lunar.models { grok45 = { id = "grok-4.5", api = "completions" } }
 lunar.providers {
   xai = { base_url = "https://api.x.ai/v1", key_name = "XAI_API_KEY", models = { "grok45" } },
 }

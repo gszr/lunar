@@ -13,6 +13,65 @@ const DEFAULT_READ_LIMIT: usize = 2000;
 const DEFAULT_BASH_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_TOOL_BYTES: usize = 50 * 1024;
 
+pub fn responses_definitions() -> Value {
+    json!([
+        {
+            "type": "function",
+            "name": "read",
+            "description": "Read file contents. Use this instead of cat or sed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Path to the file to read (relative or absolute)" },
+                    "offset": { "type": "integer", "description": "Line number to start reading from (1-indexed)" },
+                    "limit": { "type": "integer", "description": "Maximum number of lines to read" }
+                },
+                "required": ["path"]
+            }
+        },
+        {
+            "type": "function",
+            "name": "write",
+            "description": "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Path to the file to write (relative or absolute)" },
+                    "content": { "type": "string", "description": "Content to write to the file" }
+                },
+                "required": ["path", "content"]
+            }
+        },
+        {
+            "type": "function",
+            "name": "edit",
+            "description": "Edit a file by replacing one unique string with another.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Path to the file to edit (relative or absolute)" },
+                    "old_string": { "type": "string", "description": "Exact text to find. Must appear exactly once." },
+                    "new_string": { "type": "string", "description": "Replacement text." }
+                },
+                "required": ["path", "old_string", "new_string"]
+            }
+        },
+        {
+            "type": "function",
+            "name": "bash",
+            "description": "Execute a bash command in the current working directory. Returns stdout and stderr.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string", "description": "Bash command to execute" },
+                    "timeout": { "type": "integer", "description": "Timeout in seconds (optional)" }
+                },
+                "required": ["command"]
+            }
+        }
+    ])
+}
+
 pub fn definitions() -> Value {
     json!([
         {

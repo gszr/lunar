@@ -39,6 +39,7 @@ lunar.models {
   grok46 = {
     id = "grok-4.6",
     window = 500000,
+    api = "completions",
   },
 }
 
@@ -69,6 +70,7 @@ lunar.models {
   grok46 = {
     id = "grok-4.6",
     window = 500000,
+    api = "completions",
   },
 }
 
@@ -113,7 +115,7 @@ end
 
 ## Status
 
-Lunar is early software for macOS and Linux. It currently supports OpenAI Chat Completions endpoints. Lua extensions and the Responses API are not implemented yet.
+Lunar is early software for macOS and Linux. Model `api` selects Completions, Responses, or Messages; Completions and Responses send. Lua extensions are not implemented yet.
 
 ## License
 

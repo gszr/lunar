@@ -24,12 +24,12 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Trust | Project Lua runs only after an explicit trust decision (`trust.json`) |
 | Language | Lua 5.5.1, vendored via `mlua` (`lua55` + `vendored`). Embed this slice |
 | Lua guest API | Host injects `lunar`. `lunar.models { }`, `lunar.providers { }`, and `lunar.defaults { }` are dump-table registrars; last call wins, no merge. **No `lunar.on`** (hook bus is not v0) |
-| Model catalog | Global `lunar.models`: alias → `{ id, window? }`. `id` is the wire string; alias is a Lua name. Provider `models` is an ordered list: string = ref to a global alias, table = local `{ id, window? }`. Missing alias = notice, skip that entry. This slice reads **id** and optional **window** only |
-| Live model | `lunar.defaults { provider, model }`. `provider` is a providers key; `model` matches that list as alias then wire `id`. Unknown provider or model is an error: notice, glass opens, cannot send. Omitted defaults = today’s env Config. Partial defaults (only one field) = present and invalid, no env fallback. On the Lua path the selected provider must have `base_url`, plus `key_name` (`key_in = "env"`) or `auth_provider` (`key_in = "auth"`); missing either = notice, cannot send. Model `window` if set, else the Grok-id guess; `LUNAR_CONTEXT_WINDOW` is env-path only. Footer provider is the providers key |
+| Model catalog | Global `lunar.models`: alias → `{ id, window?, api? }`. `id` is the wire string; alias is a Lua name. Provider `models` is an ordered list: string = ref to a global alias, table = local `{ id, window?, api? }`. Missing alias = notice, skip that entry. Missing `id` or unknown `api` = notice, skip that entry. This slice reads **id**, optional **window**, and optional **api**. Omitted `api` is Responses |
+| Live model | `lunar.defaults { provider, model }`. `provider` is a providers key; `model` matches that list as alias then wire `id`. Unknown provider or model is an error: notice, glass opens, cannot send. Omitted defaults = today’s env Config. Partial defaults (only one field) = present and invalid, no env fallback. On the Lua path the selected provider must have `base_url`, plus `key_name` (`key_in = "env"`) or `auth_provider` (`key_in = "auth"`); missing either = notice, cannot send. Live `api` `"messages"` is resolve-time refuse: notice, cannot send, entry stays in `/model`. Completions and Responses send. Model `window` if set, else the Grok-id guess; `LUNAR_CONTEXT_WINDOW` is env-path only. Footer provider is the providers key |
 | Prompt conventions | CWD `AGENTS.md` + `CONTEXT.md` in full. Skill *summaries* from `.agents/skills/*/SKILL.md`. `~/.agents/skills` later |
 | System prompt | None. Context is a leading user message, snapshotted at each user submit, held for the tool loop, not persisted |
 | v0 goal | Daily driver for one user, not ecosystem parity |
-| Model protocol | Completions **and** Responses. **Only Completions is implemented** |
+| Model protocol | Completions, Responses, and Messages. Selected by model `api`: `"completions"` · `"responses"` · `"messages"`. Case-sensitive, no aliases. Omitted `api` is Responses. Completions and Responses send. Messages is not implemented. Env path stays Completions until that path is removed |
 | First brand | xAI. Config is env, not a compiled-in brand |
 | Auth | Env or Lunar-managed auth. `key_in = "env"` names an env secret with `key_name`. `key_in = "auth"` names a canonical built-in integration with `auth_provider` (initially `xai`) and resolves API-key or OAuth credentials from `~/.lunar/auth.json`. `/login xai` supports xAI device-code subscription auth and masked API-key entry; `/logout [xai]` removes it. The xAI device flow uses the public client ID distributed by Pi. `LUNAR_API_KEY` / `LUNAR_BASE_URL` / `LUNAR_MODEL` remain the no-Lua path |
 | TUI | `ratatui` + `crossterm` |
@@ -77,7 +77,7 @@ Host injects `lunar` and runs `~/.lunar/init.lua` (or `$LUNAR_HOME/init.lua`) on
 
 ```lua
 lunar.models {
-  grok46 = { id = "grok-4.6", window = 500000 },
+  grok46 = { id = "grok-4.6", window = 500000, api = "completions" },
 }
 
 lunar.providers {
@@ -88,7 +88,7 @@ lunar.providers {
     -- key_in = "auth", auth_provider = "xai"  -- ~/.lunar/auth.json via /login
     models = {
       "grok46",            -- ref: alias → global catalog
-      { id = "grok-4.5" }, -- local def
+      { id = "grok-4.5", api = "completions" }, -- local def
     },
   },
 }
@@ -100,9 +100,9 @@ lunar.defaults {
 ```
 
 - **Provider name** is the table key, not a `name` field.
-- **Alias** is a Lua name (`grok46`). **`id`** is the wire string (`grok-4.6`). Every model def requires `id`; skip that entry if missing.
-- Provider `models` is an **ordered list**. String = ref to a global alias (missing alias = notice, skip). Table = local `{ id, window? }`.
-- This slice honors **`id`** and optional **`window`** only.
+- **Alias** is a Lua name (`grok46`). **`id`** is the wire string (`grok-4.6`). Every model def requires `id`; skip that entry if missing. `api` is `"completions"` · `"responses"` · `"messages"`; unknown value = notice, skip that entry (same as missing `id`). Omitted `api` is Responses, not an error.
+- Provider `models` is an **ordered list**. String = ref to a global alias (missing alias = notice, skip). Table = local `{ id, window?, api? }`.
+- This slice honors **`id`**, optional **`window`**, and optional **`api`**. `api` is only on a model def (global catalog or a local listed table). Provider tables and `lunar.defaults` have no `api`. A string ref inherits the alias’s `api`. Omitted `api` is Responses. xAI models set `api` explicitly.
 - **`key_name`** is the env var to read when `key_in` is `"env"`. Token never sits in Lua.
 - **`key_in`** defaults to `"env"`. `"env"` reads `key_name`; `"auth"` reads `~/.lunar/auth.json` for `auth_provider` (initially `xai`). Any other value = notice, cannot send.
 - **`lunar.defaults`**: both `provider` and `model` required when the call is present. `model` matches that provider's list as alias, then as wire `id`.
@@ -119,6 +119,7 @@ lunar.defaults {
 | Selected provider missing `base_url`, or `key_name` (`env`) / `auth_provider` (`auth`) | Notice, cannot send |
 | `key_in` not `"env"` or `"auth"`, env lookup empty, or no saved auth | Notice, cannot send |
 | Defaults resolve | Live Config from Lua. Ignore `LUNAR_MODEL` / `LUNAR_BASE_URL` / `LUNAR_API_KEY` / `LUNAR_PROVIDER` / `LUNAR_CONTEXT_WINDOW` |
+| Live model `api` is `"messages"` | Resolve-time refuse: no live Config. Notice (`claude uses messages, not implemented`). Entry stays in `/model`, dimmed. Completions and Responses siblings stay pickable |
 | Lua `window` set | Use it |
 | Lua `window` omitted | Grok-id guess from wire `id` (same as today) |
 | Footer provider (Lua path) | The providers key |
@@ -151,7 +152,7 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 
 **Shipped**
 
-- Glass, Completions stream, reused HTTP agent, no global timeout. `max_tokens` 32768 (reasoning + answer). POST retries 429/5xx/reset (3 times, 0.5s…8s, Esc cancels the wait). `finish_reason` ends the turn; leftover SSE is drained for usage (1s cap) and `[DONE]` in the background so the socket can return to the pool. Transcript scroll: PageUp / PageDown, wheel, Ctrl+Home / Ctrl+End; follow only at the tail. History paint is cached; only the streaming tail is re-wrapped
+- Glass, Completions and Responses streams, reused HTTP agent, no global timeout. Completions `max_tokens` 32768 (reasoning + answer). POST retries 429/5xx/reset (3 times, 0.5s…8s, Esc cancels the wait). Completions `finish_reason` / Responses `response.completed` ends the turn; leftover Completions SSE is drained for usage (1s cap) and `[DONE]` in the background so the socket can return to the pool. Transcript scroll: PageUp / PageDown, wheel, Ctrl+Home / Ctrl+End; follow only at the tail. History paint is cached; only the streaming tail is re-wrapped
 - Four tools + continue-after-tools (50-round cap; submit `continue` to proceed). Tools in one round run in parallel. Results cap 50KB. Truncated completions do not run tool calls
 - Missions: `/new` `/resume` `/name` `/mission`, `-c`
 - Token stats + refuse submit when last prompt ≥ window
@@ -163,7 +164,7 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 
 - Walk-up discovery, `~/.agents/skills`, skill bodies (only summaries ship)
 - `/reload` `/trust`
-- Responses API
+- Messages API (catalog accepts `api`; Completions and Responses send)
 - Thinking level (footer says `off` and it is not wired). grok-4.6 ignores `reasoning_effort`; the `max_tokens` cap is the bound
 - Cost in the footer, git branch, `$` prices
 - `/compact`
@@ -180,7 +181,7 @@ Package manager, print/RPC/SDK, Pi session compatibility, provider zoo, themes, 
 
 ## Next slices (recommended order)
 
-1. Responses, if you actually use a Responses-only id
+1. Messages, if you actually use a Messages-only id
 2. Trusted project `.lunar/init.lua`
 3. Dumb `/compact` after the window hurts
 4. Walk-up context + `~/.agents/skills`
@@ -188,5 +189,3 @@ Package manager, print/RPC/SDK, Pi session compatibility, provider zoo, themes, 
 ## Layout in the repo
 
 `src/main.rs` app/TUI · `auth.rs` managed credentials + xAI OAuth · `complete.rs` HTTP · `lua.rs` user `init.lua` · `tools.rs` four tools · `mission.rs` jsonl · `prompt.rs` CWD context + skill summaries · `render.rs` transcript paint · `splash.rs` art + colors
-ript paint · `splash.rs` art + colors
- + colors
