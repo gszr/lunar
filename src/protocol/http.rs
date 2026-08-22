@@ -1,9 +1,9 @@
 //! Shared POST retry, SSE helpers, and usage parsing.
 
 use std::io::{self, BufRead};
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant};
 

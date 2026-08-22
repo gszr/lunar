@@ -2,9 +2,9 @@
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::Arc;
 
 use serde_json::{Value, json};
 
@@ -100,7 +100,8 @@ pub(super) fn stream(
                 .unwrap_or("request failed");
             return Err(msg.to_string());
         }
-        if let Some(parsed) = parse_usage(&value).or_else(|| value.get("response").and_then(parse_usage))
+        if let Some(parsed) =
+            parse_usage(&value).or_else(|| value.get("response").and_then(parse_usage))
         {
             usage = Some(parsed);
         }
@@ -198,7 +199,10 @@ fn apply_event(
             }
         }
         "response.function_call_arguments.delta" => {
-            let index = value.get("output_index").and_then(Value::as_u64).unwrap_or(0);
+            let index = value
+                .get("output_index")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
             let entry = calls.entry(index).or_insert_with(|| ToolCall {
                 id: String::new(),
                 name: String::new(),
@@ -217,7 +221,10 @@ fn apply_event(
             }
         }
         "response.function_call_arguments.done" => {
-            let index = value.get("output_index").and_then(Value::as_u64).unwrap_or(0);
+            let index = value
+                .get("output_index")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
             let entry = calls.entry(index).or_insert_with(|| ToolCall {
                 id: String::new(),
                 name: String::new(),

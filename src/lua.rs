@@ -698,7 +698,9 @@ lunar.defaults { provider = "xai", model = "grok46" }
         assert!(loaded.config.is_none());
         assert_eq!(
             loaded.notice.as_deref(),
-            Some("model grok46 has unknown api: chat\nunknown alias: grok46\nunknown model: grok46")
+            Some(
+                "model grok46 has unknown api: chat\nunknown alias: grok46\nunknown model: grok46"
+            )
         );
         assert_eq!(loaded.models.len(), 1);
         assert_eq!(loaded.models[0].id, "grok-4.5");
@@ -799,7 +801,11 @@ lunar.defaults { provider = "proxy", model = "gpt-5" }
         assert_eq!(cfg.provider(), "proxy");
         assert_eq!(cfg.api, Api::Completions);
         assert_eq!(loaded.models.len(), 2);
-        let openai = loaded.models.iter().find(|m| m.provider == "openai").unwrap();
+        let openai = loaded
+            .models
+            .iter()
+            .find(|m| m.provider == "openai")
+            .unwrap();
         assert_eq!(openai.config.as_ref().unwrap().api, Api::Responses);
     }
 
