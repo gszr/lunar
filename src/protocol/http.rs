@@ -249,13 +249,19 @@ pub(super) fn parse_usage(value: &Value) -> Option<Usage> {
         }
         0
     };
-    let details = usage.get("prompt_tokens_details");
-    let cache_read = details
-        .and_then(|d| d.get("cached_tokens").and_then(Value::as_u64))
+    let detail_num = |keys: &[&str]| {
+        ["prompt_tokens_details", "input_tokens_details"]
+            .iter()
+            .filter_map(|name| usage.get(*name))
+            .find_map(|details| {
+                keys.iter()
+                    .find_map(|key| details.get(*key).and_then(Value::as_u64))
+            })
+    };
+    let cache_read = detail_num(&["cached_tokens", "cache_read_tokens"])
         .unwrap_or_else(|| u64::from(num(usage, &["cache_read_tokens", "cached_tokens"])))
         as u32;
-    let cache_write = details
-        .and_then(|d| d.get("cache_creation_tokens").and_then(Value::as_u64))
+    let cache_write = detail_num(&["cache_write_tokens", "cache_creation_tokens"])
         .unwrap_or_else(|| u64::from(num(usage, &["cache_write_tokens", "cache_creation_tokens"])))
         as u32;
     let prompt = num(usage, &["prompt_tokens", "input_tokens"]);
@@ -285,6 +291,26 @@ mod tests {
         assert_eq!(u.cache_read, 800);
         assert_eq!(u.output, 20);
         assert_eq!(u.prompt(), 1000);
+    }
+
+    #[test]
+    fn parse_responses_usage_splits_cache_write_out_of_input() {
+        let value = json!({
+            "usage": {
+                "input_tokens": 5889,
+                "input_tokens_details": {
+                    "cache_write_tokens": 5886,
+                    "cached_tokens": 0
+                },
+                "output_tokens": 130
+            }
+        });
+        let u = parse_usage(&value).unwrap();
+        assert_eq!(u.input, 3);
+        assert_eq!(u.cache_read, 0);
+        assert_eq!(u.cache_write, 5886);
+        assert_eq!(u.output, 130);
+        assert_eq!(u.prompt(), 5889);
     }
 
     #[test]

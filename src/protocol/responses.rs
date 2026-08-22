@@ -230,10 +230,10 @@ fn apply_event(
                 name: String::new(),
                 arguments: String::new(),
             });
-            if let Some(id) = value
-                .get("call_id")
-                .or_else(|| value.get("item_id"))
-                .and_then(Value::as_str)
+            if let Some(id) = value.get("call_id").and_then(Value::as_str) {
+                entry.id = id.to_string();
+            } else if entry.id.is_empty()
+                && let Some(id) = value.get("item_id").and_then(Value::as_str)
             {
                 entry.id = id.to_string();
             }
@@ -359,7 +359,7 @@ mod tests {
             &json!({
                 "type": "response.function_call_arguments.done",
                 "output_index": 1,
-                "call_id": "call_1",
+                "item_id": "fc_1",
                 "arguments": "{\"path\":\"a\"}"
             }),
             &tx,
