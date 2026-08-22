@@ -19,11 +19,20 @@ pub(super) fn post_retry(
     api_key: &str,
     body: &str,
     cancel: &AtomicBool,
+    session: Option<&str>,
 ) -> Result<ureq::http::Response<ureq::Body>, String> {
     let mut attempt = 0;
     loop {
         if cancel.load(Ordering::Relaxed) {
             return Err("aborted".into());
+        }
+        let mut headers = json!({
+            "authorization": "Bearer [REDACTED]",
+            "content-type": "application/json"
+        });
+        if let Some(session) = session {
+            headers["session_id"] = json!(session);
+            headers["x-client-request-id"] = json!(session);
         }
         crate::debug::event(
             "request",
@@ -31,18 +40,20 @@ pub(super) fn post_retry(
                 "attempt": attempt + 1,
                 "method": "POST",
                 "url": url,
-                "headers": {
-                    "authorization": "Bearer [REDACTED]",
-                    "content-type": "application/json"
-                },
+                "headers": headers,
                 "body": serde_json::from_str::<Value>(body).unwrap_or_else(|_| Value::String(body.into())),
             }),
         );
-        let response = agent()
+        let mut request = agent()
             .post(url)
             .header("Authorization", &format!("Bearer {api_key}"))
-            .header("Content-Type", "application/json")
-            .send(body);
+            .header("Content-Type", "application/json");
+        if let Some(session) = session {
+            request = request
+                .header("session_id", session)
+                .header("x-client-request-id", session);
+        }
+        let response = request.send(body);
         match response {
             Ok(response) if response.status().is_success() => {
                 crate::debug::event(

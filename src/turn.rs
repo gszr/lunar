@@ -270,7 +270,8 @@ pub(crate) fn continue_turn(app: &mut App) {
     let history = api_history(app.preamble.as_deref(), &app.messages);
     let (tx, rx) = mpsc::channel();
     app.stream_rx = Some(rx);
-    std::thread::spawn(move || protocol::stream(cfg, history, cancel, tx));
+    let cache_key = app.mission.as_ref().map(|m| m.id.clone());
+    std::thread::spawn(move || protocol::stream(cfg, history, cancel, tx, cache_key));
 }
 
 pub(crate) fn api_history(preamble: Option<&str>, messages: &[Message]) -> Vec<ChatMessage> {

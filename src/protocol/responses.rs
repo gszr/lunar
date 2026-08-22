@@ -73,10 +73,15 @@ pub(super) fn stream(
     messages: Vec<ChatMessage>,
     cancel: Arc<AtomicBool>,
     tx: &Sender<StreamEvent>,
+    cache_key: Option<String>,
 ) -> Result<(), String> {
     let url = format!("{}/responses", cfg.base_url.trim_end_matches('/'));
-    let body = body(&cfg, &messages);
-    let response = post_retry(&url, &cfg.api_key, &body, &cancel)?;
+    let cache_key = cache_key
+        .as_deref()
+        .map(clamp_cache_key)
+        .filter(|key| !key.is_empty());
+    let body = body(&cfg, &messages, cache_key.as_deref());
+    let response = post_retry(&url, &cfg.api_key, &body, &cancel, cache_key.as_deref())?;
 
     let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();
     let mut usage = None;
@@ -135,15 +140,22 @@ pub(super) fn stream(
     Ok(())
 }
 
-fn body(cfg: &Config, messages: &[ChatMessage]) -> String {
-    json!({
+fn clamp_cache_key(key: &str) -> String {
+    key.chars().take(64).collect()
+}
+
+fn body(cfg: &Config, messages: &[ChatMessage], cache_key: Option<&str>) -> String {
+    let mut value = json!({
         "model": cfg.model,
         "stream": true,
         "store": false,
         "tools": tools::responses_definitions(),
         "input": flatten_input(messages),
-    })
-    .to_string()
+    });
+    if let Some(key) = cache_key {
+        value["prompt_cache_key"] = json!(key);
+    }
+    value.to_string()
 }
 
 fn apply_event(
@@ -294,10 +306,12 @@ mod tests {
                 content: "ok".into(),
             },
         ];
-        let parsed: Value = serde_json::from_str(&body(&sample_cfg(), &messages)).unwrap();
+        let parsed: Value =
+            serde_json::from_str(&body(&sample_cfg(), &messages, Some("2026-08-22-1"))).unwrap();
         assert_eq!(parsed["model"], "gpt-5");
         assert_eq!(parsed["stream"], true);
         assert_eq!(parsed["store"], false);
+        assert_eq!(parsed["prompt_cache_key"], "2026-08-22-1");
         assert!(parsed.get("max_output_tokens").is_none());
         assert!(parsed.get("messages").is_none());
         assert_eq!(parsed["tools"][0]["type"], "function");
@@ -317,6 +331,28 @@ mod tests {
         assert!(parsed["input"][2].get("id").is_none());
         assert_eq!(parsed["input"][3]["type"], "function_call_output");
         assert_eq!(parsed["input"][3]["call_id"], "call_1");
+    }
+
+    #[test]
+    fn body_omits_empty_cache_key_and_clamps_long_ones() {
+        let messages = vec![ChatMessage::User("hi".into())];
+        let none: Value = serde_json::from_str(&body(&sample_cfg(), &messages, None)).unwrap();
+        assert!(none.get("prompt_cache_key").is_none());
+        let long = "m".repeat(80);
+        let clamped: Value = serde_json::from_str(&body(
+            &sample_cfg(),
+            &messages,
+            Some(&clamp_cache_key(&long)),
+        ))
+        .unwrap();
+        assert_eq!(
+            clamped["prompt_cache_key"]
+                .as_str()
+                .unwrap()
+                .chars()
+                .count(),
+            64
+        );
     }
 
     #[test]

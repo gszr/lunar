@@ -52,7 +52,7 @@ pub(super) fn stream(
     let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
     let body = body(&cfg, &messages);
 
-    let response = post_retry(&url, &cfg.api_key, &body, &cancel)?;
+    let response = post_retry(&url, &cfg.api_key, &body, &cancel, None)?;
 
     let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();
     let mut usage = None;

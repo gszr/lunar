@@ -164,10 +164,11 @@ pub fn stream(
     messages: Vec<ChatMessage>,
     cancel: Arc<AtomicBool>,
     tx: Sender<StreamEvent>,
+    cache_key: Option<String>,
 ) {
     let result = match cfg.api {
         Api::Completions => completions::stream(cfg, messages, cancel, &tx),
-        Api::Responses => responses::stream(cfg, messages, cancel, &tx),
+        Api::Responses => responses::stream(cfg, messages, cancel, &tx, cache_key),
         Api::Messages => Err(format!("{} uses messages, not implemented", cfg.model)),
     };
     if let Err(err) = result {
