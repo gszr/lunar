@@ -50,6 +50,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
   lua/
   trust.json                 # not used yet
   auth.json                  # Lunar-managed API keys and OAuth tokens
+  debug.log                  # model HTTP traffic when started with --debug
   tool-output/               # full truncated bash output; 7-day startup cleanup
 
 .lunar/
@@ -190,4 +191,3 @@ Package manager, print/RPC/SDK, Pi session compatibility, provider zoo, themes, 
 ## Layout in the repo
 
 `src/main.rs` app/TUI · `auth.rs` managed credentials + xAI OAuth · `protocol/` HTTP (`stream` + Completions / Responses adapters) · `lua.rs` user `init.lua` · `tools.rs` four tools · `tool_output.rs` truncated bash files · `mission.rs` jsonl · `prompt.rs` CWD context + skill summaries · `render.rs` transcript paint · `splash.rs` art + colors
-tools · `tool_output.rs` truncated bash files · `mission.rs` jsonl · `prompt.rs` CWD context + skill summaries · `render.rs` transcript paint · `splash.rs` art + colors
