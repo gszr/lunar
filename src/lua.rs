@@ -378,7 +378,7 @@ fn model_def(table: &Table) -> Result<ModelDef, DefError> {
         Err(_) => None,
     };
     let api = match table.get::<Value>("api") {
-        Ok(Value::Nil) | Err(_) => Api::Responses,
+        Ok(Value::Nil) | Err(_) => Api::Completions,
         Ok(v) => match value_string(&v) {
             Some(raw) => Api::parse(&raw).ok_or(DefError::UnknownApi(Some(raw)))?,
             None => return Err(DefError::UnknownApi(None)),
@@ -658,7 +658,7 @@ lunar.defaults { provider = "xai", model = "grok-4.5" }
     }
 
     #[test]
-    fn omitted_api_is_responses_and_can_send() {
+    fn omitted_api_is_completions_and_can_send() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
 lunar.providers {
@@ -673,7 +673,7 @@ lunar.defaults { provider = "xai", model = "grok-4.5" }
         let loaded = load_path(&write_init(&scratch(), src));
         let cfg = loaded.config.unwrap();
         assert_eq!(cfg.model, "grok-4.5");
-        assert_eq!(cfg.api, Api::Responses);
+        assert_eq!(cfg.api, Api::Completions);
         assert_eq!(loaded.notice, None);
         assert!(loaded.models[0].config.is_some());
     }
