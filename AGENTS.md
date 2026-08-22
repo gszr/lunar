@@ -42,3 +42,4 @@ tokens and confuse the LLM.
 - Conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`).
 - Separate commits for separate concerns.
 - Add yourself as coauthor.
+- Run `cargo fmt --check` and `cargo clippy` and fix issues before committing.
