@@ -230,6 +230,7 @@ fn stream_inner(
             return Ok(());
         }
         let line = line.map_err(|e| e.to_string())?;
+        crate::debug::event("response", json!({ "line": &line }));
         let Some(data) = line.strip_prefix("data:") else {
             continue;
         };
@@ -417,27 +418,99 @@ fn post_retry(
         if cancel.load(Ordering::Relaxed) {
             return Err("aborted".into());
         }
-        match agent()
+        crate::debug::event(
+            "request",
+            json!({
+                "attempt": attempt + 1,
+                "method": "POST",
+                "url": url,
+                "headers": {
+                    "authorization": "Bearer [REDACTED]",
+                    "content-type": "application/json"
+                },
+                "body": serde_json::from_str::<Value>(body).unwrap_or_else(|_| Value::String(body.into())),
+            }),
+        );
+        let response = agent()
             .post(url)
             .header("Authorization", &format!("Bearer {api_key}"))
             .header("Content-Type", "application/json")
-            .send(body)
-        {
-            Ok(response) => return Ok(response),
+            .send(body);
+        match response {
+            Ok(response) if response.status().is_success() => {
+                crate::debug::event(
+                    "response_start",
+                    json!({
+                        "attempt": attempt + 1,
+                        "status": response.status().as_u16(),
+                    }),
+                );
+                return Ok(response);
+            }
+            Ok(response) => {
+                let status = response.status().as_u16();
+                let retry = attempt < MAX_RETRIES && should_retry_status(status);
+                let delay = retry.then(|| retry_delay(attempt));
+                let body = response.into_body().read_to_string().unwrap_or_default();
+                crate::debug::event(
+                    "response_error",
+                    json!({
+                        "attempt": attempt + 1,
+                        "status": status,
+                        "body": body,
+                        "retry": retry,
+                        "retry_delay_ms": delay.map(|d| d.as_millis()),
+                    }),
+                );
+                if !retry {
+                    return Err(error_response(status, &body));
+                }
+                sleep_cancel(delay.unwrap(), cancel)?;
+                attempt += 1;
+            }
             Err(err) => {
-                if attempt >= MAX_RETRIES || !should_retry(&err) {
+                let retry = attempt < MAX_RETRIES && should_retry(&err);
+                let delay = retry.then(|| retry_delay(attempt));
+                crate::debug::event(
+                    "request_error",
+                    json!({
+                        "attempt": attempt + 1,
+                        "error": err.to_string(),
+                        "retry": retry,
+                        "retry_delay_ms": delay.map(|d| d.as_millis()),
+                    }),
+                );
+                if !retry {
                     return Err(err.to_string());
                 }
-                sleep_cancel(retry_delay(attempt), cancel)?;
+                sleep_cancel(delay.unwrap(), cancel)?;
                 attempt += 1;
             }
         }
     }
 }
 
+fn should_retry_status(code: u16) -> bool {
+    matches!(code, 408 | 409 | 429) || code >= 500
+}
+
+fn error_response(status: u16, body: &str) -> String {
+    serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|value| {
+            value
+                .pointer("/error/message")
+                .or_else(|| value.get("message"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .filter(|message| !message.is_empty())
+        .unwrap_or_else(|| format!("http status: {status}"))
+}
+
 fn should_retry(err: &ureq::Error) -> bool {
     match err {
-        ureq::Error::StatusCode(code) => matches!(code, 408 | 409 | 429) || *code >= 500,
+        ureq::Error::StatusCode(code) => should_retry_status(*code),
         ureq::Error::Io(e) => matches!(
             e.kind(),
             io::ErrorKind::ConnectionReset
@@ -474,6 +547,7 @@ fn agent() -> Agent {
     AGENT
         .get_or_init(|| {
             Agent::config_builder()
+                .http_status_as_error(false)
                 .timeout_global(None)
                 .timeout_connect(Some(Duration::from_secs(30)))
                 .build()
@@ -569,11 +643,20 @@ mod tests {
 
     #[test]
     fn retries_transient_status_not_auth() {
-        assert!(should_retry(&ureq::Error::StatusCode(429)));
-        assert!(should_retry(&ureq::Error::StatusCode(503)));
-        assert!(should_retry(&ureq::Error::StatusCode(408)));
-        assert!(!should_retry(&ureq::Error::StatusCode(401)));
-        assert!(!should_retry(&ureq::Error::StatusCode(400)));
+        assert!(should_retry_status(429));
+        assert!(should_retry_status(503));
+        assert!(should_retry_status(408));
+        assert!(!should_retry_status(401));
+        assert!(!should_retry_status(400));
+    }
+
+    #[test]
+    fn error_response_uses_json_message() {
+        assert_eq!(
+            error_response(400, r#"{"error":{"message":"bad model"}}"#),
+            "bad model"
+        );
+        assert_eq!(error_response(400, "not json"), "http status: 400");
     }
 
     #[test]

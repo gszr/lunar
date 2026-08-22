@@ -4,6 +4,7 @@ mod auth;
 mod cli;
 mod commands;
 mod complete;
+mod debug;
 mod event;
 mod history;
 mod input;
@@ -25,7 +26,7 @@ use app::App;
 
 fn main() -> io::Result<()> {
     let open = match cli::parse(std::env::args_os().skip(1)) {
-        Ok(cli::Action::Open(open)) => open,
+        Ok(cli::Action::Open(options)) => options,
         Ok(cli::Action::Help) => {
             print!("{}", cli::HELP);
             return Ok(());
@@ -37,7 +38,12 @@ fn main() -> io::Result<()> {
     };
     let mut terminal = terminal::Terminal::init();
     let mut app = App::new(lua::load());
-    match open {
+    if open.debug
+        && let Err(err) = debug::enable()
+    {
+        app.notice = Some(format!("debug log: {err}"));
+    }
+    match open.open {
         cli::Open::New => {}
         cli::Open::Continue => match mission::list()?.into_iter().next() {
             Some(meta) => load_mission(&mut app, &meta.path),
