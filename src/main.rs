@@ -205,6 +205,27 @@ mod tests {
     }
 
     #[test]
+    fn up_from_typed_command_walks_history() {
+        let mut app = test_app();
+        app.history = vec!["previous prompt".into()];
+        app.input = "/help".into();
+        app.cursor = 5;
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Up));
+        assert_eq!(app.input, "previous prompt");
+    }
+
+    #[test]
+    fn up_cycles_completion_when_several_commands_match() {
+        let mut app = test_app();
+        app.history = vec!["previous prompt".into()];
+        app.input = "/".into();
+        app.cursor = 1;
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Up));
+        assert_eq!(app.input, "/");
+        assert_eq!(app.complete_sel, crate::commands::COMMANDS.len() - 1);
+    }
+
+    #[test]
     fn reverse_search_cycles_and_escape_restores_draft() {
         let mut app = test_app();
         app.history = vec!["cargo test".into(), "git status".into(), "cargo fmt".into()];

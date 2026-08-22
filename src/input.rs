@@ -103,11 +103,19 @@ pub(crate) fn on_complete_key(app: &mut App, key: KeyEvent, submit: fn(&mut App)
         return false;
     }
     match (key.modifiers, key.code) {
-        (_, KeyCode::Tab) | (_, KeyCode::Down) | (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
+        (_, KeyCode::Tab) | (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
             app.complete_sel = commands::cycle(app.complete_sel, n, 1);
             true
         }
-        (_, KeyCode::BackTab) | (_, KeyCode::Up) | (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+        (_, KeyCode::Down) if n > 1 => {
+            app.complete_sel = commands::cycle(app.complete_sel, n, 1);
+            true
+        }
+        (_, KeyCode::BackTab) | (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+            app.complete_sel = commands::cycle(app.complete_sel, n, -1);
+            true
+        }
+        (_, KeyCode::Up) if n > 1 => {
             app.complete_sel = commands::cycle(app.complete_sel, n, -1);
             true
         }
