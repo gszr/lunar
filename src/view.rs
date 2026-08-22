@@ -10,7 +10,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::app::{App, Message, Mode, Role};
-use crate::complete::Config;
+use crate::protocol::Config;
 use crate::{commands, lua, mission, splash, transcript};
 
 pub(crate) const EDITOR_MAX_LINES: u16 = 8;

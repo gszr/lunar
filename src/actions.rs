@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{self, TryRecvError};
 
 use crate::app::{App, AuthEvent, AuthPrompt, Message, Mode};
-use crate::complete::Usage;
+use crate::protocol::Usage;
 use crate::transcript::{invalidate_paint, jump_to_tail};
 use crate::turn::persist_value;
 use crate::view::draw;

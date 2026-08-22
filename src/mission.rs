@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::complete::ToolCall;
+use crate::protocol::ToolCall;
 
 pub struct Mission {
     pub path: PathBuf,

@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, TryRecvError};
 
 use crate::app::{App, Message, Role};
-use crate::complete::{self, ChatMessage, Config, StreamEvent, ToolCall, ToolResult};
+use crate::protocol::{self, ChatMessage, Config, StreamEvent, ToolCall, ToolResult};
 use crate::transcript::jump_to_tail;
 use crate::{mission, prompt, tools};
 
@@ -270,7 +270,7 @@ pub(crate) fn continue_turn(app: &mut App) {
     let history = api_history(app.preamble.as_deref(), &app.messages);
     let (tx, rx) = mpsc::channel();
     app.stream_rx = Some(rx);
-    std::thread::spawn(move || complete::stream(cfg, history, cancel, tx));
+    std::thread::spawn(move || protocol::stream(cfg, history, cancel, tx));
 }
 
 pub(crate) fn api_history(preamble: Option<&str>, messages: &[Message]) -> Vec<ChatMessage> {

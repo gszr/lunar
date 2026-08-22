@@ -6,7 +6,7 @@ use std::sync::mpsc::Receiver;
 
 use ratatui::text::Line;
 
-use crate::complete::{Config, StreamEvent, ToolCall, Usage};
+use crate::protocol::{Config, StreamEvent, ToolCall, Usage};
 use crate::{lua, mission};
 
 pub(crate) struct App {

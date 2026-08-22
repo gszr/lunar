@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use mlua::{Lua, Table, Value};
 
-use crate::complete::{self, Api, Config};
+use crate::protocol::{self, Api, Config};
 
 pub(crate) struct Loaded {
     pub config: Option<Config>,
@@ -223,7 +223,7 @@ fn provider_config(
         base_url: base_url.to_string(),
         model: model.id.clone(),
         provider: provider_key.to_string(),
-        window: model.window.or_else(|| complete::guess_window(&model.id)),
+        window: model.window.or_else(|| protocol::guess_window(&model.id)),
         api: model.api,
     })
 }

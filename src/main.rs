@@ -3,7 +3,7 @@ mod app;
 mod auth;
 mod cli;
 mod commands;
-mod complete;
+mod protocol;
 mod debug;
 mod event;
 mod history;
@@ -84,7 +84,7 @@ fn main() -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::app::{Message, Mode};
-    use crate::complete::{ToolCall, Usage};
+    use crate::protocol::{ToolCall, Usage};
     use crate::event::{on_key, on_paste};
     use crate::transcript::painted_lines;
     use crate::transcript::{jump_to_tail, on_mouse};
