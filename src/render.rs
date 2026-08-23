@@ -3,6 +3,7 @@
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
+use unicode_width::UnicodeWidthStr;
 
 use crate::splash;
 
@@ -213,7 +214,7 @@ impl Markdown {
 
     fn push_line(&mut self, mut spans: Vec<Span<'static>>) {
         if self.code {
-            let used: usize = spans.iter().map(|span| span.content.chars().count()).sum();
+            let used: usize = spans.iter().map(|span| display_width(&span.content)).sum();
             spans.push(Span::styled(
                 " ".repeat(self.width.saturating_sub(used)),
                 Style::default().bg(splash::CODE_BG),
@@ -258,7 +259,7 @@ fn title_line(name: &str, rest: &str, width: usize) -> Line<'static> {
 }
 
 fn fill(text: &str, width: usize, fg: Color, bg: Color) -> Line<'static> {
-    let pad = width.saturating_sub(text.chars().count());
+    let pad = width.saturating_sub(display_width(text));
     Line::from(Span::styled(
         format!("{text}{}", " ".repeat(pad)),
         Style::default().fg(fg).bg(bg),
@@ -266,12 +267,16 @@ fn fill(text: &str, width: usize, fg: Color, bg: Color) -> Line<'static> {
 }
 
 fn pad_spans(mut spans: Vec<Span<'static>>, width: usize, bg: Color) -> Line<'static> {
-    let used: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+    let used: usize = spans.iter().map(|s| display_width(&s.content)).sum();
     let pad = width.saturating_sub(used);
     if pad > 0 {
         spans.push(Span::styled(" ".repeat(pad), Style::default().bg(bg)));
     }
     Line::from(spans)
+}
+
+fn display_width(text: &str) -> usize {
+    UnicodeWidthStr::width(text)
 }
 
 pub fn wrap(text: &str, width: usize) -> Vec<String> {
@@ -288,7 +293,7 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
         for word in paragraph.split(' ') {
             if line.is_empty() {
                 line.push_str(word);
-            } else if line.chars().count() + 1 + word.chars().count() <= width {
+            } else if display_width(&line) + 1 + display_width(word) <= width {
                 line.push(' ');
                 line.push_str(word);
             } else {
@@ -334,6 +339,27 @@ mod tests {
     fn assistant_shows_link_destination() {
         let lines = assistant("read [the docs](https://example.com)", 80);
         assert_eq!(line_text(&lines[0]), "read the docs (https://example.com)");
+    }
+
+    #[test]
+    fn tool_card_fills_terminal_width_after_wide_text() {
+        let lines = tool_card("bash", "✓ 日本語", 12);
+        for line in lines {
+            let width: usize = line
+                .spans
+                .iter()
+                .map(|span| display_width(&span.content))
+                .sum();
+            assert_eq!(width, 12);
+        }
+    }
+
+    #[test]
+    fn tool_card_wraps_using_terminal_width() {
+        let lines = tool_card("read", "日本語 ab", 7);
+        let got: Vec<String> = lines.iter().map(line_text).collect();
+        assert_eq!(got[1].trim_end(), "日本語");
+        assert_eq!(got[2].trim_end(), "ab");
     }
 
     #[test]

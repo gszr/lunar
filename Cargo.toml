@@ -12,5 +12,6 @@ mlua = { version = "0.12", features = ["lua55", "vendored"] }
 pulldown-cmark = "0.13"
 ratatui = "0.30"
 serde_json = "1.0.151"
+unicode-width = "0.2"
 ureq = "3"
 webbrowser = "1"

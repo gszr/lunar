@@ -926,6 +926,7 @@ dependencies = [
  "pulldown-cmark",
  "ratatui",
  "serde_json",
+ "unicode-width",
  "ureq",
  "webbrowser",
 ]
