@@ -3,6 +3,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::process::Command;
 use std::rc::Rc;
 
 use mlua::{Lua, Table, Value};
@@ -220,14 +221,17 @@ fn provider_config(
         ));
     }
     let api_key = match provider.key_in.as_str() {
-        "env" => {
-            let key_name = provider
-                .key_name
-                .as_deref()
-                .filter(|s| !s.is_empty())
-                .ok_or_else(|| format!("{provider_key} has no key_name"))?;
-            nonempty(key_name).ok_or_else(|| format!("missing {key_name}"))?
-        }
+        "env" => match provider.key_cmd.as_deref().filter(|s| !s.is_empty()) {
+            Some(command) => command_key(provider_key, command)?,
+            None => {
+                let key_name = provider
+                    .key_name
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| format!("{provider_key} has no key_name or key_cmd"))?;
+                nonempty(key_name).ok_or_else(|| format!("missing {key_name}"))?
+            }
+        },
         "auth" => crate::auth::resolve(auth_provider.as_deref().unwrap())?,
         _ => unreachable!(),
     };
@@ -356,6 +360,7 @@ fn parse_providers(table: &Table) -> (BTreeMap<String, ProviderDef>, Vec<String>
             ProviderDef {
                 base_url: field_string(&t, "base_url"),
                 key_name: field_string(&t, "key_name"),
+                key_cmd: field_string(&t, "key_cmd"),
                 key_in,
                 auth_provider: field_string(&t, "auth_provider"),
                 models,
@@ -447,6 +452,26 @@ fn nonempty(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|s| !s.is_empty())
 }
 
+fn command_key(provider: &str, command: &str) -> Result<String, String> {
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .output()
+        .map_err(|err| format!("{provider} key_cmd: {err}"))?;
+    if !output.status.success() {
+        return Err(format!("{provider} key_cmd failed with {}", output.status));
+    }
+    let key = String::from_utf8(output.stdout)
+        .map_err(|_| format!("{provider} key_cmd output is not UTF-8"))?
+        .trim_end()
+        .to_string();
+    if key.is_empty() {
+        Err(format!("{provider} key_cmd returned an empty key"))
+    } else {
+        Ok(key)
+    }
+}
+
 #[derive(Default)]
 struct Guest {
     models: BTreeMap<String, ModelDef>,
@@ -476,6 +501,7 @@ struct ModelDef {
 struct ProviderDef {
     base_url: Option<String>,
     key_name: Option<String>,
+    key_cmd: Option<String>,
     key_in: String,
     auth_provider: Option<String>,
     models: Vec<Listed>,
@@ -891,6 +917,45 @@ lunar.defaults { provider = "xai", model = "grok-4.6" }
         let loaded = load_path(&write_init(&scratch(), src));
         assert!(loaded.config.is_none());
         assert_eq!(loaded.notice.as_deref(), Some("xai has no base_url"));
+    }
+
+    #[test]
+    fn key_cmd_supplies_secret() {
+        let _e = isolate(&[]);
+        let src = r#"
+lunar.providers {
+  xai = {
+    base_url = "https://api.x.ai/v1",
+    key_cmd = "printf 'command-key\\n'",
+    models = { { id = "grok-4.6", api = "completions" } },
+  },
+}
+lunar.defaults { provider = "xai", model = "grok-4.6" }
+"#;
+        let loaded = load_path(&write_init(&scratch(), src));
+        assert_eq!(loaded.config.unwrap().api_key, "command-key");
+        assert_eq!(loaded.notice, None);
+    }
+
+    #[test]
+    fn failing_key_cmd_cannot_send() {
+        let _e = isolate(&[]);
+        let src = r#"
+lunar.providers {
+  xai = {
+    base_url = "https://api.x.ai/v1",
+    key_cmd = "exit 7",
+    models = { { id = "grok-4.6", api = "completions" } },
+  },
+}
+lunar.defaults { provider = "xai", model = "grok-4.6" }
+"#;
+        let loaded = load_path(&write_init(&scratch(), src));
+        assert!(loaded.config.is_none());
+        assert_eq!(
+            loaded.notice.as_deref(),
+            Some("xai key_cmd failed with exit status: 7")
+        );
     }
 
     #[test]

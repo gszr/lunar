@@ -31,7 +31,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | v0 goal | Daily driver for one user, not ecosystem parity |
 | Model protocol | Completions, Responses, and Messages. Selected by model `api`: `"completions"` · `"responses"` · `"messages"`. Case-sensitive, no aliases. Omitted `api` is Completions. Completions and Responses send. Responses stays `store: false`, requests an automatic reasoning summary for the thinking preview, and replays the full converted history each round. When a mission exists, Responses also sends `prompt_cache_key` (mission id, 64 chars max) and Pi affinity headers `session_id` / `x-client-request-id`. No `previous_response_id`. ChatGPT Plus (`auth_provider = "openai"`) is Responses-only: POST `{base_url}/codex/responses` (not `{base_url}/responses`), plus `chatgpt-account-id` decoded from the access JWT at send and refresh (`https://api.openai.com/auth` → `chatgpt_account_id`; missing or empty = notice, cannot send) and `originator: lunar`. No extra `auth.json` field. Completions on that auth is resolve-time refuse. No websocket and no zstd this slice. Messages is not implemented. Env path stays Completions until that path is removed |
 | First brand | xAI. Config is env, not a compiled-in brand |
-| Auth | Env or Lunar-managed auth. `key_in = "env"` names an env secret with `key_name`. `key_in = "auth"` names a canonical built-in integration with `auth_provider` (`xai` or `openai`) and resolves API-key or OAuth credentials from `~/.lunar/auth.json`. `/login` is a provider picker (`xAI`, `OpenAI`). Enter on xAI opens the existing method picker. Enter on OpenAI starts device-code immediately. `/login xai` opens the xAI method picker. `/login openai` is ChatGPT Plus/Pro subscription OAuth only (no stored platform API key this slice): device-code, same glass as xAI (open URL, show user code, poll, Esc cancels). No browser PKCE and no localhost callback this slice. `/logout xai` / `/logout openai` remove that credential; `/logout` with no argument notices usage. The xAI device flow uses the public client ID distributed by Pi. The OpenAI device flow uses the public Codex client ID distributed by Pi. `LUNAR_API_KEY` / `LUNAR_BASE_URL` / `LUNAR_MODEL` remain the no-Lua path |
+| Auth | Env, shell command, or Lunar-managed auth. With `key_in = "env"`, `key_cmd` runs through `sh -c` and supplies the secret, otherwise `key_name` names an env secret. `key_in = "auth"` names a canonical built-in integration with `auth_provider` (`xai` or `openai`) and resolves API-key or OAuth credentials from `~/.lunar/auth.json`. `/login` is a provider picker (`xAI`, `OpenAI`). Enter on xAI opens the existing method picker. Enter on OpenAI starts device-code immediately. `/login xai` opens the xAI method picker. `/login openai` is ChatGPT Plus/Pro subscription OAuth only (no stored platform API key this slice): device-code, same glass as xAI (open URL, show user code, poll, Esc cancels). No browser PKCE and no localhost callback this slice. `/logout xai` / `/logout openai` remove that credential; `/logout` with no argument notices usage. The xAI device flow uses the public client ID distributed by Pi. The OpenAI device flow uses the public Codex client ID distributed by Pi. `LUNAR_API_KEY` / `LUNAR_BASE_URL` / `LUNAR_MODEL` remain the no-Lua path |
 | TUI | `ratatui` + `crossterm` |
 | Transcript | The current mission. Scrollable: every message in that mission is reachable as painted (tool cards stay 8 lines, thinking stays a 3-line preview). Not a tail-only view. `/resume` switches missions; there is no Session history object |
 | Tools | `read` / `write` / `edit` (`old_string`/`new_string`) / `bash`. Gate = allow. Bash timeout 60s, Esc kills the process group. Bash stdin is null; on Unix the child is a new session so a nested TUI cannot take the glass. Tool results cap 50KB or 2000 lines per result. `read` keeps the head and gives the next offset. `bash` keeps the tail; truncated bash output is saved under `~/.lunar/tool-output/` and the path is included in the result. Files older than seven days are deleted at startup. `finish_reason=length` does not execute tool calls. Calls in one assistant turn run in parallel. Tool loops pause after 50 rounds; submitting `continue` starts a fresh turn |
@@ -86,6 +86,7 @@ lunar.providers {
   xai = {
     base_url = "https://api.x.ai/v1",
     key_name = "XAI_API_KEY",
+    -- key_cmd = "pass my_key" -- shell command; takes precedence over key_name
     -- key_in = "env"  -- default if omitted
     -- key_in = "auth", auth_provider = "xai"  -- ~/.lunar/auth.json via /login
     models = {
@@ -106,7 +107,8 @@ lunar.defaults {
 - Provider `models` is an **ordered list**. String = ref to a global alias (missing alias = notice, skip). Table = local `{ id, window?, api? }`.
 - This slice honors **`id`**, optional **`window`**, and optional **`api`**. `api` is only on a model def (global catalog or a local listed table). Provider tables and `lunar.defaults` have no `api`. A string ref inherits the alias’s `api`. Omitted `api` is Completions. xAI models set `api` explicitly.
 - **`key_name`** is the env var to read when `key_in` is `"env"`. Token never sits in Lua.
-- **`key_in`** defaults to `"env"`. `"env"` reads `key_name`; `"auth"` reads `~/.lunar/auth.json` for `auth_provider` (`xai` or `openai`). Any other value = notice, cannot send.
+- **`key_cmd`** is an alternative when `key_in` is `"env"`. It runs through `sh -c` at config resolution, before Lunar enters TUI mode, so interactive credential helpers such as GPG pinentry can use the terminal; trailing whitespace is trimmed. Non-zero exit, non-UTF-8 output, or an empty key = notice, cannot send. When both are set, `key_cmd` wins.
+- **`key_in`** defaults to `"env"`. `"env"` reads `key_cmd` or `key_name`; `"auth"` reads `~/.lunar/auth.json` for `auth_provider` (`xai` or `openai`). Any other value = notice, cannot send.
 - **`lunar.defaults`**: both `provider` and `model` required when the call is present. `model` matches that provider's list as alias, then as wire `id`.
 
 **Resolve Config**
@@ -118,8 +120,8 @@ lunar.defaults {
 | File loaded, `lunar.defaults` never called | Env Config (catalog unused) |
 | `lunar.defaults` present, only one field | Present and invalid: notice, cannot send |
 | Unknown provider or model | Notice, cannot send |
-| Selected provider missing `base_url` (unless `key_in = "auth"` and `auth_provider` is `xai` or `openai`), or `key_name` (`env`) / `auth_provider` (`auth`) | Notice, cannot send |
-| `key_in` not `"env"` or `"auth"`, env lookup empty, or no saved auth | Notice, cannot send |
+| Selected provider missing `base_url` (unless `key_in = "auth"` and `auth_provider` is `xai` or `openai`), both `key_cmd` and `key_name` (`env`), or `auth_provider` (`auth`) | Notice, cannot send |
+| `key_in` not `"env"` or `"auth"`, env lookup empty, `key_cmd` fails/returns no key, or no saved auth | Notice, cannot send |
 | Defaults resolve | Live Config from Lua. Ignore `LUNAR_MODEL` / `LUNAR_BASE_URL` / `LUNAR_API_KEY` / `LUNAR_PROVIDER` / `LUNAR_CONTEXT_WINDOW` |
 | Live model `api` is `"messages"` | Resolve-time refuse: no live Config. Notice (`claude uses messages, not implemented`). Entry stays in `/model`, dimmed. Completions and Responses siblings stay pickable |
 | Lua `window` set | Use it |

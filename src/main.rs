@@ -38,8 +38,9 @@ fn main() -> io::Result<()> {
         }
     };
     tool_output::cleanup();
+    let loaded = lua::load();
     let mut terminal = terminal::Terminal::init();
-    let mut app = App::new(lua::load());
+    let mut app = App::new(loaded);
     if open.debug
         && let Err(err) = debug::enable()
     {
