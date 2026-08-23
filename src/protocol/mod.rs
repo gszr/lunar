@@ -42,6 +42,7 @@ pub struct Config {
     pub provider: String,
     pub window: Option<u32>,
     pub api: Api,
+    pub auth_provider: Option<String>,
 }
 
 impl Config {
@@ -57,6 +58,7 @@ impl Config {
             base_url,
             model,
             api: Api::Completions,
+            auth_provider: None,
         })
     }
 
@@ -160,12 +162,21 @@ pub enum StreamEvent {
 }
 
 pub fn stream(
-    cfg: Config,
+    mut cfg: Config,
     messages: Vec<ChatMessage>,
     cancel: Arc<AtomicBool>,
     tx: Sender<StreamEvent>,
     cache_key: Option<String>,
 ) {
+    if let Some(provider) = cfg.auth_provider.as_deref() {
+        match crate::auth::resolve(provider) {
+            Ok(access) => cfg.api_key = access,
+            Err(err) => {
+                let _ = tx.send(StreamEvent::Failed(err));
+                return;
+            }
+        }
+    }
     let result = match cfg.api {
         Api::Completions => completions::stream(cfg, messages, cancel, &tx),
         Api::Responses => responses::stream(cfg, messages, cancel, &tx, cache_key),

@@ -131,6 +131,7 @@ mod tests {
             auth_rx: None,
             auth_cancel: None,
             auth_prompt: None,
+            auth_brand: None,
         }
     }
 

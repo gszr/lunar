@@ -75,13 +75,25 @@ pub(super) fn stream(
     tx: &Sender<StreamEvent>,
     cache_key: Option<String>,
 ) -> Result<(), String> {
-    let url = format!("{}/responses", cfg.base_url.trim_end_matches('/'));
+    let url = responses_url(&cfg);
     let cache_key = cache_key
         .as_deref()
         .map(clamp_cache_key)
         .filter(|key| !key.is_empty());
     let body = body(&cfg, &messages, cache_key.as_deref());
-    let response = post_retry(&url, &cfg.api_key, &body, &cancel, cache_key.as_deref())?;
+    let account = if cfg.auth_provider.as_deref() == Some("openai") {
+        Some(crate::auth::chatgpt_account_id(&cfg.api_key)?)
+    } else {
+        None
+    };
+    let response = post_retry(
+        &url,
+        &cfg.api_key,
+        &body,
+        &cancel,
+        cache_key.as_deref(),
+        account.as_deref(),
+    )?;
 
     let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();
     let mut usage = None;
@@ -138,6 +150,15 @@ pub(super) fn stream(
         let _ = tx.send(StreamEvent::Tools { calls, truncated });
     }
     Ok(())
+}
+
+fn responses_url(cfg: &Config) -> String {
+    let base = cfg.base_url.trim_end_matches('/');
+    if cfg.auth_provider.as_deref() == Some("openai") {
+        format!("{base}/codex/responses")
+    } else {
+        format!("{base}/responses")
+    }
 }
 
 fn clamp_cache_key(key: &str) -> String {
@@ -286,7 +307,24 @@ mod tests {
             provider: "openai".into(),
             window: None,
             api: Api::Responses,
+            auth_provider: None,
         }
+    }
+
+    #[test]
+    fn plus_posts_codex_responses() {
+        let mut cfg = sample_cfg();
+        cfg.auth_provider = Some("openai".into());
+        cfg.base_url = "https://chatgpt.com/backend-api".into();
+        assert_eq!(
+            responses_url(&cfg),
+            "https://chatgpt.com/backend-api/codex/responses"
+        );
+        cfg.auth_provider = None;
+        assert_eq!(
+            responses_url(&cfg),
+            "https://chatgpt.com/backend-api/responses"
+        );
     }
 
     #[test]

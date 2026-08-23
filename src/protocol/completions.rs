@@ -52,7 +52,7 @@ pub(super) fn stream(
     let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
     let body = body(&cfg, &messages);
 
-    let response = post_retry(&url, &cfg.api_key, &body, &cancel, None)?;
+    let response = post_retry(&url, &cfg.api_key, &body, &cancel, None, None)?;
 
     let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();
     let mut usage = None;
@@ -213,6 +213,7 @@ mod tests {
             provider: "xai".into(),
             window: Some(500_000),
             api: Api::Completions,
+            auth_provider: None,
         };
         let body: Value = serde_json::from_str(&body(&cfg, &[])).unwrap();
         assert_eq!(body["max_tokens"], MAX_TOKENS);
@@ -229,6 +230,7 @@ mod tests {
             provider: "anything".into(),
             window: None,
             api: Api::Completions,
+            auth_provider: None,
         };
         let parsed: Value = serde_json::from_str(&body(&cfg, &[])).unwrap();
         assert_eq!(parsed["max_completion_tokens"], MAX_TOKENS);

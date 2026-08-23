@@ -42,6 +42,7 @@ pub(crate) struct App {
     pub(crate) auth_rx: Option<Receiver<AuthEvent>>,
     pub(crate) auth_cancel: Option<Arc<AtomicBool>>,
     pub(crate) auth_prompt: Option<AuthPrompt>,
+    pub(crate) auth_brand: Option<&'static str>,
 }
 
 pub(crate) struct HistorySearch {
@@ -138,6 +139,7 @@ impl App {
             auth_rx: None,
             auth_cancel: None,
             auth_prompt: None,
+            auth_brand: None,
         }
     }
 }

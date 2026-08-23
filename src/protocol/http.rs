@@ -20,6 +20,7 @@ pub(super) fn post_retry(
     body: &str,
     cancel: &AtomicBool,
     session: Option<&str>,
+    account: Option<&str>,
 ) -> Result<ureq::http::Response<ureq::Body>, String> {
     let mut attempt = 0;
     loop {
@@ -33,6 +34,11 @@ pub(super) fn post_retry(
         if let Some(session) = session {
             headers["session_id"] = json!(session);
             headers["x-client-request-id"] = json!(session);
+        }
+        if let Some(account) = account {
+            headers["chatgpt-account-id"] = json!(account);
+            headers["originator"] = json!("lunar");
+            headers["openai-beta"] = json!("responses=experimental");
         }
         crate::debug::event(
             "request",
@@ -52,6 +58,12 @@ pub(super) fn post_retry(
             request = request
                 .header("session_id", session)
                 .header("x-client-request-id", session);
+        }
+        if let Some(account) = account {
+            request = request
+                .header("chatgpt-account-id", account)
+                .header("originator", "lunar")
+                .header("OpenAI-Beta", "responses=experimental");
         }
         let response = request.send(body);
         match response {

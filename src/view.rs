@@ -75,23 +75,24 @@ pub(crate) fn auth_editor_height(app: &App, width: u16) -> Option<u16> {
 }
 
 pub(crate) fn auth_prompt_text(app: &App) -> String {
+    let brand = app.auth_brand.unwrap_or("xAI");
     match &app.auth_prompt {
         Some(prompt) if prompt.browser_opened => format!(
-            "Sign in to xAI\nOpen: {}\nCode: {}\nWaiting for authorization…  Esc cancels",
+            "Sign in to {brand}\nOpen: {}\nCode: {}\nWaiting for authorization…  Esc cancels",
             prompt.url, prompt.code
         ),
         Some(prompt) => format!(
-            "Sign in to xAI\nOpen: {}\nCode: {}\nCouldn’t open your browser. Copy and paste the URL above, then enter the displayed code.\nWaiting for authorization…  Esc cancels",
+            "Sign in to {brand}\nOpen: {}\nCode: {}\nCouldn’t open your browser. Copy and paste the URL above, then enter the displayed code.\nWaiting for authorization…  Esc cancels",
             prompt.url, prompt.code
         ),
-        None => "Sign in to xAI\nRequesting device code…  Esc cancels".into(),
+        None => format!("Sign in to {brand}\nRequesting device code…  Esc cancels"),
     }
 }
 
 pub(crate) fn model_picker_height(app: &App) -> u16 {
     match &app.mode {
         Mode::Model { items, .. } => items.len().saturating_add(1).min(u16::MAX as usize) as u16,
-        Mode::LoginProvider { .. } => 2,
+        Mode::LoginProvider { .. } => 3,
         Mode::LoginMethod { .. } => 3,
         _ => 0,
     }
@@ -392,7 +393,7 @@ pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
             area,
             app,
             "login  j/k  enter  esc",
-            &["xAI"],
+            &["xAI", "OpenAI"],
             *cursor,
         );
         return;

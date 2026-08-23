@@ -63,7 +63,7 @@ lunar.defaults {
 export XAI_API_KEY=...
 ```
 
-Or let Lunar store the credential. Use `/login` in the TUI (xAI subscription via device code, or a masked API key). `/logout` removes it.
+Or let Lunar store the credential. Use `/login` in the TUI: xAI (subscription via device code, or a masked API key) or OpenAI (ChatGPT Plus/Pro via device code). `/logout xai` and `/logout openai` remove that credential.
 
 ```lua
 lunar.models {
@@ -88,6 +88,25 @@ lunar.providers {
 lunar.defaults {
   provider = "xai",
   model = "grok46",
+}
+```
+
+ChatGPT Plus/Pro uses the same `key_in = "auth"` path with `auth_provider = "openai"`. Models must set `api = "responses"`. Omitted `base_url` is `https://chatgpt.com/backend-api`; Lunar posts to `{base_url}/codex/responses`:
+
+```lua
+lunar.providers {
+  openai = {
+    key_in = "auth",
+    auth_provider = "openai",
+    models = {
+      { id = "gpt-5.4", api = "responses" },
+    },
+  },
+}
+
+lunar.defaults {
+  provider = "openai",
+  model = "gpt-5.4",
 }
 ```
 

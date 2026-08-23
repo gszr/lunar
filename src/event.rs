@@ -8,9 +8,9 @@ use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::actions::{
-    drain_auth, edit_config, load_mission, logout_xai, name_mission, new_mission, open_login,
-    open_model, open_resume, resume_prefix, save_api_key, select_model, show_mission,
-    start_xai_oauth,
+    drain_auth, edit_config, load_mission, logout_openai, logout_xai, name_mission, new_mission,
+    open_login, open_model, open_resume, open_xai_login, resume_prefix, save_api_key, select_model,
+    show_mission, start_openai_oauth, start_xai_oauth,
 };
 use crate::app::{App, Mode};
 use crate::history;
@@ -67,9 +67,17 @@ pub(crate) fn on_key(app: &mut App, key: KeyEvent) {
     if let Mode::LoginProvider { cursor } = app.mode {
         match key.code {
             KeyCode::Esc => app.mode = Mode::Chat,
-            KeyCode::Enter => app.mode = Mode::LoginMethod { cursor: 0 },
-            KeyCode::Up | KeyCode::Char('k') | KeyCode::Down | KeyCode::Char('j') => {
-                app.mode = Mode::LoginProvider { cursor }
+            KeyCode::Enter if cursor == 0 => open_xai_login(app),
+            KeyCode::Enter => start_openai_oauth(app),
+            KeyCode::Up | KeyCode::Char('k') => {
+                app.mode = Mode::LoginProvider {
+                    cursor: cursor.saturating_sub(1),
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                app.mode = Mode::LoginProvider {
+                    cursor: (cursor + 1).min(1),
+                }
             }
             _ => {}
         }
@@ -294,8 +302,12 @@ pub(crate) fn submit(app: &mut App) {
         }
         "/config" => edit_config(app),
         "/new" => new_mission(app),
-        "/login" | "/login xai" => open_login(app),
-        "/logout" | "/logout xai" => logout_xai(app),
+        "/login" => open_login(app),
+        "/login xai" => open_xai_login(app),
+        "/login openai" => start_openai_oauth(app),
+        "/logout" => app.notice = Some("usage: /logout xai|openai".into()),
+        "/logout xai" => logout_xai(app),
+        "/logout openai" => logout_openai(app),
         "/resume" => open_resume(app),
         "/model" => open_model(app),
         "/mission" => show_mission(app),

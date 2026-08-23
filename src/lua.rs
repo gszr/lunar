@@ -187,11 +187,38 @@ fn provider_config(
     provider: &ProviderDef,
     model: &ResolvedModel,
 ) -> Result<Config, String> {
+    let auth_provider = match provider.key_in.as_str() {
+        "env" => None,
+        "auth" => {
+            let auth_provider = provider
+                .auth_provider
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| format!("{provider_key} has no auth_provider"))?;
+            if !matches!(auth_provider, "xai" | "openai") {
+                return Err(format!(
+                    "{provider_key} has unknown auth_provider: {auth_provider}"
+                ));
+            }
+            Some(auth_provider.to_string())
+        }
+        _ => return Err(format!("{provider_key} key_in is not env or auth")),
+    };
     let base_url = provider
         .base_url
         .as_deref()
         .filter(|s| !s.is_empty())
+        .or_else(|| default_auth_base(auth_provider.as_deref()))
         .ok_or_else(|| format!("{provider_key} has no base_url"))?;
+    if model.api == Api::Messages
+        || (auth_provider.as_deref() == Some("openai") && model.api != Api::Responses)
+    {
+        let name = model.alias.as_deref().unwrap_or(model.id.as_str());
+        return Err(format!(
+            "{name} uses {}, not implemented",
+            model.api.as_str()
+        ));
+    }
     let api_key = match provider.key_in.as_str() {
         "env" => {
             let key_name = provider
@@ -201,23 +228,9 @@ fn provider_config(
                 .ok_or_else(|| format!("{provider_key} has no key_name"))?;
             nonempty(key_name).ok_or_else(|| format!("missing {key_name}"))?
         }
-        "auth" => {
-            let auth_provider = provider
-                .auth_provider
-                .as_deref()
-                .filter(|s| !s.is_empty())
-                .ok_or_else(|| format!("{provider_key} has no auth_provider"))?;
-            crate::auth::resolve(auth_provider)?
-        }
-        _ => return Err(format!("{provider_key} key_in is not env or auth")),
+        "auth" => crate::auth::resolve(auth_provider.as_deref().unwrap())?,
+        _ => unreachable!(),
     };
-    if model.api == Api::Messages {
-        let name = model.alias.as_deref().unwrap_or(model.id.as_str());
-        return Err(format!(
-            "{name} uses {}, not implemented",
-            model.api.as_str()
-        ));
-    }
     Ok(Config {
         api_key,
         base_url: base_url.to_string(),
@@ -225,6 +238,7 @@ fn provider_config(
         provider: provider_key.to_string(),
         window: model.window.or_else(|| protocol::guess_window(&model.id)),
         api: model.api,
+        auth_provider,
     })
 }
 
@@ -479,6 +493,14 @@ struct ResolvedModel {
     api: Api,
 }
 
+fn default_auth_base(auth_provider: Option<&str>) -> Option<&'static str> {
+    match auth_provider {
+        Some("xai") => Some("https://api.x.ai/v1"),
+        Some("openai") => Some("https://chatgpt.com/backend-api"),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -508,6 +530,7 @@ mod tests {
             "LUNAR_MODEL",
             "LUNAR_PROVIDER",
             "LUNAR_CONTEXT_WINDOW",
+            "LUNAR_HOME",
             "XAI_API_KEY",
         ];
         let saved = KEYS
@@ -907,6 +930,27 @@ lunar.defaults { provider = "xai", model = "grok-4.6" }
     }
 
     #[test]
+    fn auth_provider_must_be_builtin() {
+        let _e = isolate(&[]);
+        let src = r#"
+lunar.providers {
+  typo = {
+    key_in = "auth",
+    auth_provider = "opneai",
+    models = { { id = "gpt-5.4", api = "responses" } },
+  },
+}
+lunar.defaults { provider = "typo", model = "gpt-5.4" }
+"#;
+        let loaded = load_path(&write_init(&scratch(), src));
+        assert!(loaded.config.is_none());
+        assert_eq!(
+            loaded.notice.as_deref(),
+            Some("typo has unknown auth_provider: opneai")
+        );
+    }
+
+    #[test]
     fn missing_alias_is_skipped() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
@@ -942,6 +986,39 @@ lunar.defaults { provider = "xai", model = "grok45" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert_eq!(loaded.config.unwrap().model, "grok-4.5");
+    }
+
+    #[test]
+    fn auth_provider_fills_omitted_base_url() {
+        assert_eq!(
+            default_auth_base(Some("openai")),
+            Some("https://chatgpt.com/backend-api")
+        );
+        assert_eq!(default_auth_base(Some("xai")), Some("https://api.x.ai/v1"));
+        assert_eq!(default_auth_base(Some("other")), None);
+        assert_eq!(default_auth_base(None), None);
+    }
+
+    #[test]
+    fn openai_auth_completions_cannot_send() {
+        let _e = isolate(&[]);
+        let src = r#"
+lunar.providers {
+  openai = {
+    base_url = "https://chatgpt.com/backend-api",
+    key_in = "auth",
+    auth_provider = "openai",
+    models = { { id = "gpt-5.4", api = "completions" } },
+  },
+}
+lunar.defaults { provider = "openai", model = "gpt-5.4" }
+"#;
+        let loaded = load_path(&write_init(&scratch(), src));
+        assert!(loaded.config.is_none());
+        assert_eq!(
+            loaded.notice.as_deref(),
+            Some("gpt-5.4 uses completions, not implemented")
+        );
     }
 
     #[test]
