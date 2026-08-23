@@ -1,5 +1,6 @@
 //! Transcript paint. User bar, tool cards, light markdown.
 
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
@@ -47,41 +48,179 @@ pub fn thinking_preview(text: &str, width: usize) -> Vec<Line<'static>> {
 }
 
 pub fn assistant(text: &str, width: usize) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-    let mut fence: Option<Vec<&str>> = None;
-    for raw in text.split('\n') {
-        if raw.trim_start().starts_with("```") {
-            match fence.take() {
-                Some(block) => lines.extend(code_block(&block, width)),
-                None => fence = Some(Vec::new()),
-            }
-            continue;
+    Markdown::new(width).render(text)
+}
+
+struct Markdown {
+    width: usize,
+    lines: Vec<Line<'static>>,
+    spans: Vec<Span<'static>>,
+    style: Style,
+    quote_depth: usize,
+    list: Vec<Option<u64>>,
+    link: Vec<String>,
+    code: bool,
+}
+
+impl Markdown {
+    fn new(width: usize) -> Self {
+        Self {
+            width,
+            lines: Vec::new(),
+            spans: Vec::new(),
+            style: Style::default().fg(splash::BONE),
+            quote_depth: 0,
+            list: Vec::new(),
+            link: Vec::new(),
+            code: false,
         }
-        if let Some(block) = fence.as_mut() {
-            block.push(raw);
-            continue;
-        }
-        if let Some(rest) = raw.strip_prefix('#') {
-            let heading = rest.trim_start_matches('#').trim();
-            for s in wrap(heading, width) {
-                lines.push(Line::from(Span::styled(
-                    s,
-                    Style::default().fg(splash::GOLD),
-                )));
+    }
+
+    fn render(mut self, text: &str) -> Vec<Line<'static>> {
+        let parser = Parser::new_ext(text, Options::ENABLE_STRIKETHROUGH);
+        for event in parser {
+            match event {
+                Event::Start(tag) => self.start(tag),
+                Event::End(tag) => self.end(tag),
+                Event::Text(text) => self.text(&text),
+                Event::Code(text) => self.spans.push(Span::styled(
+                    text.into_string(),
+                    self.style.fg(splash::CODE_FG).bg(splash::CODE_BG),
+                )),
+                Event::SoftBreak => self.text(" "),
+                Event::HardBreak => self.flush(),
+                Event::Rule => {
+                    self.flush();
+                    self.text(&"─".repeat(self.width));
+                    self.flush();
+                }
+                _ => {}
             }
+        }
+        self.flush();
+        self.lines
+    }
+
+    fn start(&mut self, tag: Tag<'_>) {
+        match tag {
+            Tag::Heading { .. } => self.style = self.style.fg(splash::GOLD).bold(),
+            Tag::Emphasis => self.style = self.style.italic(),
+            Tag::Strong => self.style = self.style.bold(),
+            Tag::Strikethrough => self.style = self.style.crossed_out(),
+            Tag::BlockQuote(_) => self.quote_depth += 1,
+            Tag::List(start) => self.list.push(start),
+            Tag::Item => {
+                self.flush();
+                let marker = match self.list.last_mut() {
+                    Some(Some(n)) => {
+                        let marker = format!("{n}. ");
+                        *n += 1;
+                        marker
+                    }
+                    _ => "• ".into(),
+                };
+                self.text(&format!(
+                    "{}{}",
+                    "  ".repeat(self.list.len().saturating_sub(1)),
+                    marker
+                ));
+            }
+            Tag::CodeBlock(_) => {
+                self.flush();
+                self.code = true;
+            }
+            Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. } => {
+                self.link.push(dest_url.into_string())
+            }
+            _ => {}
+        }
+    }
+
+    fn end(&mut self, tag: TagEnd) {
+        match tag {
+            TagEnd::Heading(_) => {
+                self.flush();
+                self.style = Style::default().fg(splash::BONE);
+            }
+            TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => {
+                self.style = Style::default().fg(splash::BONE)
+            }
+            TagEnd::Paragraph | TagEnd::Item => self.flush(),
+            TagEnd::BlockQuote(_) => {
+                self.flush();
+                self.quote_depth = self.quote_depth.saturating_sub(1);
+            }
+            TagEnd::List(_) => {
+                self.flush();
+                self.list.pop();
+            }
+            TagEnd::CodeBlock => {
+                self.flush();
+                self.code = false;
+            }
+            TagEnd::Link | TagEnd::Image => {
+                if let Some(url) = self.link.pop() {
+                    self.spans.push(Span::styled(
+                        format!(" ({url})"),
+                        Style::default().fg(splash::ASH),
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn text(&mut self, text: &str) {
+        let style = if self.code {
+            self.style.fg(splash::CODE_FG).bg(splash::CODE_BG)
+        } else if !self.link.is_empty() {
+            self.style.fg(splash::GOLD).underlined()
         } else {
-            for s in wrap(raw, width) {
-                lines.push(Line::from(Span::styled(
-                    s,
-                    Style::default().fg(splash::BONE),
-                )));
+            self.style
+        };
+        self.spans.push(Span::styled(text.to_string(), style));
+    }
+
+    fn flush(&mut self) {
+        if self.spans.is_empty() {
+            return;
+        }
+        let prefix = if self.quote_depth > 0 { "│ " } else { "" };
+        let mut pending = vec![Span::styled(
+            prefix.to_string(),
+            Style::default().fg(splash::ASH),
+        )];
+        let mut used = prefix.chars().count();
+        for span in std::mem::take(&mut self.spans) {
+            for word in span.content.split_inclusive(' ') {
+                let len = word.chars().count();
+                if used > prefix.len() && used + len > self.width {
+                    self.push_line(std::mem::take(&mut pending));
+                    pending.push(Span::styled(
+                        prefix.to_string(),
+                        Style::default().fg(splash::ASH),
+                    ));
+                    used = prefix.chars().count();
+                }
+                pending.push(Span::styled(word.to_string(), span.style));
+                used += len;
             }
         }
+        if pending.len() > 1 {
+            self.push_line(pending);
+        }
     }
-    if let Some(block) = fence {
-        lines.extend(code_block(&block, width));
+
+    fn push_line(&mut self, mut spans: Vec<Span<'static>>) {
+        if self.code {
+            let used: usize = spans.iter().map(|span| span.content.chars().count()).sum();
+            spans.push(Span::styled(
+                " ".repeat(self.width.saturating_sub(used)),
+                Style::default().bg(splash::CODE_BG),
+            ));
+        }
+        self.lines.push(Line::from(spans));
     }
-    lines
 }
 
 pub fn tool_card(title: &str, body: &str, width: usize) -> Vec<Line<'static>> {
@@ -116,17 +255,6 @@ fn title_line(name: &str, rest: &str, width: usize) -> Line<'static> {
     }
     spans[0].style = spans[0].style.bg(splash::TOOL_BG);
     pad_spans(spans, width, splash::TOOL_BG)
-}
-
-fn code_block(block: &[&str], width: usize) -> Vec<Line<'static>> {
-    if block.is_empty() {
-        return vec![fill("", width, splash::CODE_FG, splash::CODE_BG)];
-    }
-    block
-        .iter()
-        .flat_map(|line| wrap(line, width))
-        .map(|s| fill(&s, width, splash::CODE_FG, splash::CODE_BG))
-        .collect()
 }
 
 fn fill(text: &str, width: usize, fg: Color, bg: Color) -> Line<'static> {
@@ -181,6 +309,31 @@ mod tests {
 
     fn line_text(line: &Line) -> String {
         line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn assistant_renders_common_mark() {
+        let lines = assistant("# Gold\n\n**bold** and `code`\n\n- one\n- two", 40);
+        let got: Vec<String> = lines.iter().map(line_text).collect();
+        assert_eq!(got, vec!["Gold", "bold and code", "• one", "• two"]);
+        assert!(
+            lines[0].spans[1]
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        assert!(
+            lines[1]
+                .spans
+                .iter()
+                .any(|span| span.style.bg == Some(splash::CODE_BG))
+        );
+    }
+
+    #[test]
+    fn assistant_shows_link_destination() {
+        let lines = assistant("read [the docs](https://example.com)", 80);
+        assert_eq!(line_text(&lines[0]), "read the docs (https://example.com)");
     }
 
     #[test]
