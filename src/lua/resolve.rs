@@ -76,7 +76,7 @@ fn provider_config(
     model: &ResolvedModel,
 ) -> Result<Config, String> {
     let auth_provider = match provider.key_in.as_str() {
-        "env" => None,
+        "env" | "none" => None,
         "auth" => {
             let auth_provider = provider
                 .auth_provider
@@ -90,17 +90,26 @@ fn provider_config(
             }
             Some(auth_provider.to_string())
         }
-        _ => return Err(format!("{provider_key} key_in is not env or auth")),
+        _ => return Err(format!("{provider_key} key_in is not env, auth, or none")),
     };
-    let base_url = match provider.base_url_cmd.as_deref().filter(|s| !s.is_empty()) {
-        Some(command) => command_value(provider_key, "base_url_cmd", command)?,
-        None => provider
+    let base_url = if provider.key_in == "none" {
+        provider
             .base_url
             .as_deref()
             .filter(|s| !s.is_empty())
-            .or_else(|| default_auth_base(auth_provider.as_deref()))
-            .ok_or_else(|| format!("{provider_key} has no base_url or base_url_cmd"))?
-            .to_string(),
+            .ok_or_else(|| format!("{provider_key} has no base_url"))?
+            .to_string()
+    } else {
+        match provider.base_url_cmd.as_deref().filter(|s| !s.is_empty()) {
+            Some(command) => command_value(provider_key, "base_url_cmd", command)?,
+            None => provider
+                .base_url
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .or_else(|| default_auth_base(auth_provider.as_deref()))
+                .ok_or_else(|| format!("{provider_key} has no base_url or base_url_cmd"))?
+                .to_string(),
+        }
     };
     if model.api == Api::Messages
         || (auth_provider.as_deref() == Some("openai") && model.api != Api::Responses)
@@ -124,6 +133,7 @@ fn provider_config(
             }
         },
         "auth" => crate::auth::resolve(auth_provider.as_deref().unwrap())?,
+        "none" => String::new(),
         _ => unreachable!(),
     };
     Ok(Config {

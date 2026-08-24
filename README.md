@@ -59,6 +59,16 @@ A provider can use `base_url_cmd = "pass lunar/xai-url"` instead of `base_url`, 
 
 Alternatively, let Lunar store the credential. Use `/login` in the TUI: xAI (subscription via device code, or a masked API key) or OpenAI (ChatGPT Plus/Pro via device code). Set `key_in = "auth"` and `auth_provider = "xai"` or `"openai"` on the provider. `/logout xai` and `/logout openai` remove the credential.
 
+For an unauthenticated local server, set `key_in = "none"` and an explicit HTTP or HTTPS `base_url`. Lunar sends no Authorization header:
+
+```lua
+ollama = {
+  base_url = "http://localhost:11434/v1",
+  key_in = "none",
+  models = { { id = "qwen3", api = "completions" } },
+}
+```
+
 ChatGPT Plus/Pro models must set `api = "responses"`. Omitted `base_url` is `https://chatgpt.com/backend-api`; Lunar posts to `{base_url}/codex/responses`:
 
 ```lua

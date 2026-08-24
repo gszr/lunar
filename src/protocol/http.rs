@@ -28,9 +28,11 @@ pub(super) fn post_retry(
             return Err("aborted".into());
         }
         let mut headers = json!({
-            "authorization": "Bearer [REDACTED]",
             "content-type": "application/json"
         });
+        if !api_key.is_empty() {
+            headers["authorization"] = json!("Bearer [REDACTED]");
+        }
         if let Some(session) = session {
             headers["session_id"] = json!(session);
             headers["x-client-request-id"] = json!(session);
@@ -50,10 +52,10 @@ pub(super) fn post_retry(
                 "body": serde_json::from_str::<Value>(body).unwrap_or_else(|_| Value::String(body.into())),
             }),
         );
-        let mut request = agent()
-            .post(url)
-            .header("Authorization", &format!("Bearer {api_key}"))
-            .header("Content-Type", "application/json");
+        let mut request = agent().post(url).header("Content-Type", "application/json");
+        if !api_key.is_empty() {
+            request = request.header("Authorization", &format!("Bearer {api_key}"));
+        }
         if let Some(session) = session {
             request = request
                 .header("session_id", session)
@@ -298,7 +300,37 @@ pub(super) fn parse_usage(value: &Value) -> Option<Usage> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
     use super::*;
+
+    #[test]
+    fn empty_api_key_omits_authorization_header() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 4096];
+            let size = stream.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..size]).to_ascii_lowercase();
+            assert!(!request.contains("authorization:"));
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+                .unwrap();
+        });
+        let cancel = AtomicBool::new(false);
+        post_retry(
+            &format!("http://{address}/chat/completions"),
+            "",
+            "{}",
+            &cancel,
+            None,
+            None,
+        )
+        .unwrap();
+        server.join().unwrap();
+    }
 
     #[test]
     fn parse_usage_splits_cache_out_of_prompt() {

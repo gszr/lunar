@@ -593,7 +593,7 @@ return {
 }
 
 #[test]
-fn key_in_must_be_env() {
+fn key_in_must_be_known() {
     let _e = isolate(&[("XAI_API_KEY", "k")]);
     let src = r#"
 return {
@@ -612,8 +612,50 @@ return {
     assert!(loaded.config.is_none());
     assert_eq!(
         loaded.notice.as_deref(),
-        Some("xai key_in is not env or auth")
+        Some("xai key_in is not env, auth, or none")
     );
+}
+
+#[test]
+fn key_in_none_allows_http_without_a_secret() {
+    let _e = isolate(&[]);
+    let src = r#"
+return {
+  providers = {
+    ollama = {
+      base_url = "http://localhost:11434/v1",
+      key_in = "none",
+      models = { { id = "qwen3", api = "completions" } },
+    },
+  },
+  defaults = { provider = "ollama", model = "qwen3" },
+}
+"#;
+    let loaded = load_path(&write_init(&scratch(), src));
+    let config = loaded.config.unwrap();
+    assert_eq!(config.base_url, "http://localhost:11434/v1");
+    assert_eq!(config.api_key, "");
+    assert_eq!(config.auth_provider, None);
+    assert_eq!(loaded.notice, None);
+}
+
+#[test]
+fn key_in_none_requires_explicit_base_url() {
+    let _e = isolate(&[]);
+    let src = r#"
+return {
+  providers = {
+    ollama = {
+      key_in = "none",
+      models = { { id = "qwen3", api = "completions" } },
+    },
+  },
+  defaults = { provider = "ollama", model = "qwen3" },
+}
+"#;
+    let loaded = load_path(&write_init(&scratch(), src));
+    assert!(loaded.config.is_none());
+    assert_eq!(loaded.notice.as_deref(), Some("ollama has no base_url"));
 }
 
 #[test]
