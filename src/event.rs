@@ -64,146 +64,168 @@ pub(crate) fn on_key(app: &mut App, key: KeyEvent) {
         }
         return;
     }
-    if let Mode::LoginProvider { cursor } = app.mode {
-        match key.code {
-            KeyCode::Esc => app.mode = Mode::Chat,
-            KeyCode::Enter if cursor == 0 => open_xai_login(app),
-            KeyCode::Enter => start_openai_oauth(app),
-            KeyCode::Up | KeyCode::Char('k') => {
-                app.mode = Mode::LoginProvider {
-                    cursor: cursor.saturating_sub(1),
-                }
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                app.mode = Mode::LoginProvider {
-                    cursor: (cursor + 1).min(1),
-                }
-            }
-            _ => {}
+    match &app.mode {
+        Mode::LoginProvider { cursor } => on_login_provider_key(app, key, *cursor),
+        Mode::LoginMethod { cursor } => on_login_method_key(app, key, *cursor),
+        Mode::ApiKey => on_api_key(app, key),
+        Mode::Thinking { cursor } => on_thinking_key(app, key, *cursor),
+        Mode::Model { items, cursor } => {
+            let len = items.len();
+            let cursor = *cursor;
+            on_model_key(app, key, len, cursor);
         }
-        return;
-    }
-    if let Mode::LoginMethod { cursor } = app.mode {
-        match key.code {
-            KeyCode::Esc => app.mode = Mode::Chat,
-            KeyCode::Up | KeyCode::Char('k') => {
-                app.mode = Mode::LoginMethod {
-                    cursor: cursor.saturating_sub(1),
-                }
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                app.mode = Mode::LoginMethod {
-                    cursor: (cursor + 1).min(1),
-                }
-            }
-            KeyCode::Enter if cursor == 0 => start_xai_oauth(app),
-            KeyCode::Enter => {
-                app.mode = Mode::ApiKey;
-                app.input.clear();
-                app.cursor = 0;
-            }
-            _ => {}
+        Mode::Resume { items, cursor, .. } => {
+            let len = items.len();
+            let cursor = *cursor;
+            on_resume_key(app, key, len, cursor);
         }
-        return;
+        Mode::Chat => on_chat_key(app, key),
     }
-    if matches!(app.mode, Mode::ApiKey) {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
+}
+
+fn on_login_provider_key(app: &mut App, key: KeyEvent, cursor: usize) {
+    match key.code {
+        KeyCode::Esc => app.mode = Mode::Chat,
+        KeyCode::Enter if cursor == 0 => open_xai_login(app),
+        KeyCode::Enter => start_openai_oauth(app),
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.mode = Mode::LoginProvider {
+                cursor: cursor.saturating_sub(1),
+            }
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.mode = Mode::LoginProvider {
+                cursor: (cursor + 1).min(1),
+            }
+        }
+        _ => {}
+    }
+}
+
+fn on_login_method_key(app: &mut App, key: KeyEvent, cursor: usize) {
+    match key.code {
+        KeyCode::Esc => app.mode = Mode::Chat,
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.mode = Mode::LoginMethod {
+                cursor: cursor.saturating_sub(1),
+            }
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.mode = Mode::LoginMethod {
+                cursor: (cursor + 1).min(1),
+            }
+        }
+        KeyCode::Enter if cursor == 0 => start_xai_oauth(app),
+        KeyCode::Enter => {
+            app.mode = Mode::ApiKey;
+            app.input.clear();
+            app.cursor = 0;
+        }
+        _ => {}
+    }
+}
+
+fn on_api_key(app: &mut App, key: KeyEvent) {
+    match (key.modifiers, key.code) {
+        (_, KeyCode::Esc) => {
+            app.mode = Mode::Chat;
+            app.input.clear();
+            app.cursor = 0;
+        }
+        (_, KeyCode::Enter) => save_api_key(app),
+        (_, KeyCode::Backspace) => {
+            let from = prev_char(&app.input, app.cursor);
+            app.input.replace_range(from..app.cursor, "");
+            app.cursor = from;
+        }
+        (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => insert_input(app, c),
+        _ => {}
+    }
+}
+
+fn on_thinking_key(app: &mut App, key: KeyEvent, cursor: usize) {
+    match key.code {
+        KeyCode::Esc => app.mode = Mode::Chat,
+        KeyCode::Left | KeyCode::Up | KeyCode::Char('h' | 'k') => {
+            app.mode = Mode::Thinking {
+                cursor: cursor.saturating_sub(1),
+            };
+        }
+        KeyCode::Right | KeyCode::Down | KeyCode::Char('l' | 'j') => {
+            app.mode = Mode::Thinking {
+                cursor: (cursor + 1).min(3),
+            };
+        }
+        KeyCode::Enter => {
+            let level = [
+                crate::protocol::Thinking::Off,
+                crate::protocol::Thinking::Low,
+                crate::protocol::Thinking::Medium,
+                crate::protocol::Thinking::High,
+            ][cursor];
+            app.mode = Mode::Chat;
+            set_thinking(app, level);
+            app.notice = Some(format!("thinking: {}", level.as_str()));
+        }
+        _ => {}
+    }
+}
+
+fn on_model_key(app: &mut App, key: KeyEvent, len: usize, cursor: usize) {
+    match key.code {
+        KeyCode::Esc => app.mode = Mode::Chat,
+        KeyCode::Up | KeyCode::Char('k') => {
+            if let Mode::Model { cursor, .. } = &mut app.mode {
+                *cursor = cursor.saturating_sub(1);
+            }
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if let Mode::Model { cursor, .. } = &mut app.mode {
+                *cursor = (*cursor + 1).min(len.saturating_sub(1));
+            }
+        }
+        KeyCode::Enter => {
+            let item = match &app.mode {
+                Mode::Model { items, .. } => items.get(cursor).cloned(),
+                _ => None,
+            };
+            if let Some(item) = item {
                 app.mode = Mode::Chat;
-                app.input.clear();
-                app.cursor = 0;
+                select_model(app, item, true);
             }
-            (_, KeyCode::Enter) => save_api_key(app),
-            (_, KeyCode::Backspace) => {
-                let from = prev_char(&app.input, app.cursor);
-                app.input.replace_range(from..app.cursor, "");
-                app.cursor = from;
-            }
-            (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
-                insert_input(app, c)
-            }
-            _ => {}
         }
-        return;
+        _ => {}
     }
-    if let Mode::Thinking { cursor } = app.mode {
-        match key.code {
-            KeyCode::Esc => app.mode = Mode::Chat,
-            KeyCode::Left | KeyCode::Up | KeyCode::Char('h' | 'k') => {
-                app.mode = Mode::Thinking {
-                    cursor: cursor.saturating_sub(1),
-                };
+}
+
+fn on_resume_key(app: &mut App, key: KeyEvent, len: usize, cursor: usize) {
+    match key.code {
+        KeyCode::Esc => app.mode = Mode::Chat,
+        KeyCode::Up | KeyCode::Char('k') => {
+            if let Mode::Resume { cursor, .. } = &mut app.mode {
+                *cursor = cursor.saturating_sub(1);
             }
-            KeyCode::Right | KeyCode::Down | KeyCode::Char('l' | 'j') => {
-                app.mode = Mode::Thinking {
-                    cursor: (cursor + 1).min(3),
-                };
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if let Mode::Resume { cursor, .. } = &mut app.mode {
+                *cursor = (*cursor + 1).min(len.saturating_sub(1));
             }
-            KeyCode::Enter => {
-                let level = [
-                    crate::protocol::Thinking::Off,
-                    crate::protocol::Thinking::Low,
-                    crate::protocol::Thinking::Medium,
-                    crate::protocol::Thinking::High,
-                ][cursor];
+        }
+        KeyCode::Enter => {
+            let meta = match &app.mode {
+                Mode::Resume { items, .. } => items.get(cursor).cloned(),
+                _ => None,
+            };
+            if let Some(meta) = meta {
                 app.mode = Mode::Chat;
-                set_thinking(app, level);
-                app.notice = Some(format!("thinking: {}", level.as_str()));
+                load_mission(app, &meta.path);
             }
-            _ => {}
         }
-        return;
+        _ => {}
     }
-    if let Mode::Model { items, cursor } = &app.mode {
-        let len = items.len();
-        let cursor = *cursor;
-        match key.code {
-            KeyCode::Esc => app.mode = Mode::Chat,
-            KeyCode::Up | KeyCode::Char('k') => {
-                if let Mode::Model { cursor, .. } = &mut app.mode {
-                    *cursor = cursor.saturating_sub(1);
-                }
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if let Mode::Model { cursor, .. } = &mut app.mode {
-                    *cursor = (*cursor + 1).min(len.saturating_sub(1));
-                }
-            }
-            KeyCode::Enter => {
-                if let Some(item) = items.get(cursor).cloned() {
-                    app.mode = Mode::Chat;
-                    select_model(app, item, true);
-                }
-            }
-            _ => {}
-        }
-        return;
-    }
-    if let Mode::Resume { items, cursor, .. } = &app.mode {
-        let len = items.len();
-        let cursor = *cursor;
-        match key.code {
-            KeyCode::Esc => app.mode = Mode::Chat,
-            KeyCode::Up | KeyCode::Char('k') => {
-                if let Mode::Resume { cursor, .. } = &mut app.mode {
-                    *cursor = cursor.saturating_sub(1);
-                }
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if let Mode::Resume { cursor, .. } = &mut app.mode {
-                    *cursor = (*cursor + 1).min(len.saturating_sub(1));
-                }
-            }
-            KeyCode::Enter => {
-                if let Some(meta) = items.get(cursor).cloned() {
-                    app.mode = Mode::Chat;
-                    load_mission(app, &meta.path);
-                }
-            }
-            _ => {}
-        }
-        return;
-    }
+}
+
+fn on_chat_key(app: &mut App, key: KeyEvent) {
     if app.search.is_some() {
         on_search_key(app, key);
         return;
