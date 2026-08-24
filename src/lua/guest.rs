@@ -44,6 +44,18 @@ pub(super) enum Listed {
     Local(ModelDef),
 }
 
+impl Guest {
+    pub(super) fn merge(&mut self, project: Self) {
+        self.models.extend(project.models);
+        self.providers.extend(project.providers);
+        if project.defaults.is_some() {
+            self.defaults = project.defaults;
+        }
+        self.model_notices.extend(project.model_notices);
+        self.provider_notices.extend(project.provider_notices);
+    }
+}
+
 pub(super) fn parse(table: &Table) -> Result<Guest, String> {
     let (models, model_notices) = match table.get::<Value>("models") {
         Ok(Value::Table(models)) => parse_models(&models),

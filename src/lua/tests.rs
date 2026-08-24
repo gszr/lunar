@@ -85,6 +85,77 @@ return {
 "#;
 
 #[test]
+fn project_config_overrides_user_config_by_key() {
+    let _e = isolate(&[("XAI_API_KEY", "k")]);
+    let user_dir = scratch();
+    let project_dir = scratch();
+    let user = write_init(
+        &user_dir,
+        r#"return {
+  models = {
+    shared = { id = "global-model" },
+    global_only = { id = "global-only" },
+  },
+  providers = {
+    global = {
+      base_url = "https://global.example/v1",
+      key_name = "XAI_API_KEY",
+      models = { "global_only" },
+    },
+    shared = {
+      base_url = "https://old.example/v1",
+      key_name = "XAI_API_KEY",
+      models = { "shared" },
+    },
+  },
+  defaults = { provider = "global", model = "global_only" },
+}"#,
+    );
+    let project = write_init(
+        &project_dir,
+        r#"return {
+  models = { shared = { id = "project-model", api = "responses" } },
+  providers = {
+    shared = {
+      base_url = "https://project.example/v1",
+      key_name = "XAI_API_KEY",
+      models = { "shared" },
+    },
+  },
+  defaults = { provider = "shared", model = "shared" },
+}"#,
+    );
+
+    let loaded = load_paths(&user, &project);
+    let config = loaded.config.unwrap();
+    assert_eq!(config.model, "project-model");
+    assert_eq!(config.base_url, "https://project.example/v1");
+    assert_eq!(config.api, Api::Responses);
+    assert_eq!(loaded.models.len(), 2);
+    assert!(
+        loaded
+            .models
+            .iter()
+            .any(|choice| choice.provider == "global")
+    );
+}
+
+#[test]
+fn project_without_defaults_inherits_user_defaults() {
+    let _e = isolate(&[("XAI_API_KEY", "k")]);
+    let user_dir = scratch();
+    let project_dir = scratch();
+    let user = write_init(&user_dir, SAMPLE);
+    let project = write_init(
+        &project_dir,
+        r#"return { models = { extra = { id = "extra" } } }"#,
+    );
+
+    let loaded = load_paths(&user, &project);
+    assert_eq!(loaded.config.unwrap().model, "grok-4.6");
+}
+
+#[test]
 fn missing_file_is_unconfigured() {
     let _e = isolate(&[]);
     let loaded = load_path(&scratch().join("init.lua"));

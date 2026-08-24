@@ -1,10 +1,12 @@
-//! User `~/.lunar/init.lua`. The returned table is the configuration.
+//! User and project `init.lua`. Each returns a configuration table.
 
 use std::path::Path;
 
 use mlua::{Lua, Value};
 
 use crate::protocol::Config;
+
+use self::guest::Guest;
 
 pub(crate) struct Loaded {
     pub config: Option<Config>,
@@ -22,58 +24,77 @@ pub struct ModelChoice {
 }
 
 pub fn load() -> Loaded {
-    load_path(&crate::mission::home().join("init.lua"))
+    load_paths(
+        &crate::mission::home().join("init.lua"),
+        &std::env::current_dir()
+            .unwrap_or_default()
+            .join(".lunar/init.lua"),
+    )
 }
 
+fn load_paths(user_path: &Path, project_path: &Path) -> Loaded {
+    let user = match parse_path(user_path) {
+        Ok(guest) => guest,
+        Err(notice) => return failed(notice),
+    };
+    let project = match parse_path(project_path) {
+        Ok(guest) => guest,
+        Err(notice) => return failed(notice),
+    };
+    match (user, project) {
+        (None, None) => empty(),
+        (Some(guest), None) | (None, Some(guest)) => resolve::loaded(&guest),
+        (Some(mut user), Some(project)) => {
+            user.merge(project);
+            resolve::loaded(&user)
+        }
+    }
+}
+
+#[cfg(test)]
 fn load_path(path: &Path) -> Loaded {
-    if !path.is_file() {
-        return Loaded {
-            config: None,
-            models: Vec::new(),
-            notice: None,
-        };
-    }
-    match std::fs::read_to_string(path) {
-        Ok(src) => run(path, &src),
-        Err(err) => Loaded {
-            config: None,
-            models: Vec::new(),
-            notice: Some(format!("init.lua: {err}")),
-        },
+    match parse_path(path) {
+        Ok(Some(guest)) => resolve::loaded(&guest),
+        Ok(None) => empty(),
+        Err(notice) => failed(notice),
     }
 }
 
-fn run(path: &Path, src: &str) -> Loaded {
+fn parse_path(path: &Path) -> Result<Option<Guest>, String> {
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let src = std::fs::read_to_string(path).map_err(|err| format!("init.lua: {err}"))?;
+    run(path, &src).map(Some)
+}
+
+fn empty() -> Loaded {
+    Loaded {
+        config: None,
+        models: Vec::new(),
+        notice: None,
+    }
+}
+
+fn failed(notice: String) -> Loaded {
+    Loaded {
+        config: None,
+        models: Vec::new(),
+        notice: Some(notice),
+    }
+}
+
+fn run(path: &Path, src: &str) -> Result<Guest, String> {
     let lua = Lua::new();
-    let value = match lua
+    let value = lua
         .load(src)
         .set_name(format!("@{}", path.display()))
         .eval::<Value>()
-    {
-        Ok(value) => value,
-        Err(err) => {
-            return Loaded {
-                config: None,
-                models: Vec::new(),
-                notice: Some(format!("init.lua: {err}")),
-            };
-        }
-    };
+        .map_err(|err| format!("init.lua: {err}"))?;
     let Value::Table(table) = value else {
-        return Loaded {
-            config: None,
-            models: Vec::new(),
-            notice: Some("init.lua must return a table".into()),
-        };
+        return Err("init.lua must return a table".into());
     };
-    match guest::parse(&table) {
-        Ok(guest) => resolve::loaded(&guest),
-        Err(notice) => Loaded {
-            config: None,
-            models: Vec::new(),
-            notice: Some(notice),
-        },
-    }
+    guest::parse(&table)
 }
 
 mod guest;

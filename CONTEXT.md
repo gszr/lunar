@@ -19,9 +19,9 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Product shape | Pi-shaped: Rust is the program, Lua is a guest |
 | Workflow in the binary | None |
 | Extension model | Slots (replaceable parts). Hook bus does **not** ship in v0. S only for now |
-| Config | User `~/.lunar/init.lua`; project later. No model configuration via `LUNAR_*`. `LUNAR_HOME` and `LUNAR_PROMPT_BUDGET` stay env |
-| Lua load | `~/.lunar/init.lua` this slice (or `$LUNAR_HOME/init.lua`). Trusted `.lunar/init.lua` later. No auto-load directories. Syntax/runtime error = notice, glass opens, no env fallback |
-| Trust | Project Lua runs only after an explicit trust decision (`trust.json`) |
+| Config | User `~/.lunar/init.lua`, overridden by CWD `.lunar/init.lua`. No model configuration via `LUNAR_*`. `LUNAR_HOME` and `LUNAR_PROMPT_BUDGET` stay env |
+| Lua load | `~/.lunar/init.lua`, then CWD `.lunar/init.lua` (or `$LUNAR_HOME/init.lua` for user config). No auto-load directories. Syntax/runtime error in either = notice, glass opens, cannot send |
+| Trust | Not implemented. Project `.lunar/init.lua` runs automatically this slice |
 | Language | Lua 5.5.1, vendored via `mlua` (`lua55` + `vendored`). Embed this slice |
 | Lua guest API | `init.lua` returns one table containing optional `models`, `providers`, and `defaults` tables. The registrar form does not exist. **No `lunar.on`** (hook bus is not v0) |
 | Model catalog | Top-level `models`: alias → `{ id, window?, api?, thinking? }`. `id` is the wire string; alias is a Lua name. Provider `models` is an ordered list: string = ref to a global alias, table = local `{ id, window?, api?, thinking? }`. Missing alias = notice, skip that entry. Missing `id`, unknown `api`, or unknown `thinking` = notice, skip that entry. `thinking` is `off` · `low` · `medium` · `high`; a model value overrides its provider default. Omitted values resolve to `off`. Omitted `api` is Completions |
@@ -55,7 +55,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
   tool-output/               # full truncated bash output; 7-day startup cleanup
 
 .lunar/
-  init.lua                   # trusted project Lua; later slice
+  init.lua                   # project config overrides
 ```
 
 Mission headers persist a short semantic `name` derived locally from the first user prompt. The displayed session title is `<id> - <name>`; `/name` rewrites the header name. Existing mission headers may be backfilled in place. UI shows `mission: <id> - <name>`.
@@ -69,9 +69,9 @@ Model configuration lives in `init.lua`. These host settings remain environment 
 | `LUNAR_PROMPT_BUDGET` | optional; warn at startup if context files + skill summaries exceed it (default 16000) |
 | `LUNAR_HOME` | overrides `~/.lunar` |
 
-## User `init.lua` (this slice)
+## User and project `init.lua`
 
-Host runs `~/.lunar/init.lua` (or `$LUNAR_HOME/init.lua`) once at startup and reads its returned table. No project file, no `trust.json`. The optional top-level fields are `models`, `providers`, and `defaults`; the old registrar form does not exist. **No `lunar.on`.**
+Host runs `~/.lunar/init.lua` (or `$LUNAR_HOME/init.lua`) and then CWD `.lunar/init.lua` once at startup. Both return the same shape. Project `models` and `providers` replace matching user entries by key while unmatched user entries remain. Project `defaults`, when present, replaces user `defaults`; when omitted, user defaults remain. There is no trust check this slice. The optional top-level fields are `models`, `providers`, and `defaults`; the old registrar form does not exist. **No `lunar.on`.**
 
 ```lua
 return {
@@ -186,10 +186,9 @@ Package manager, print/RPC/SDK, Pi session compatibility, provider zoo, themes, 
 ## Next slices (recommended order)
 
 1. Messages, if you actually use a Messages-only id
-2. Trusted project `.lunar/init.lua`
-3. Dumb `/compact` after the window hurts
-4. Walk-up context + `~/.agents/skills`
+2. Dumb `/compact` after the window hurts
+3. Walk-up context + `~/.agents/skills`
 
 ## Layout in the repo
 
-`src/main.rs` app/TUI · `auth.rs` managed credentials + xAI / OpenAI OAuth · `protocol/` HTTP (`stream` + Completions / Responses adapters) · `lua.rs` user `init.lua` · `tools.rs` four tools · `tool_output.rs` truncated bash files · `mission.rs` jsonl · `prompt.rs` CWD context + skill summaries · `render.rs` transcript paint · `splash.rs` art + colors
+`src/main.rs` app/TUI · `auth.rs` managed credentials + xAI / OpenAI OAuth · `protocol/` HTTP (`stream` + Completions / Responses adapters) · `lua.rs` user + project `init.lua` · `tools.rs` four tools · `tool_output.rs` truncated bash files · `mission.rs` jsonl · `prompt.rs` CWD context + skill summaries · `render.rs` transcript paint · `splash.rs` art + colors
