@@ -98,6 +98,7 @@ pub(super) fn stream(
     let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();
     let mut usage = None;
     let mut truncated = false;
+    let mut summary = SummaryState::default();
     let reader = BufReader::new(response.into_parts().1.into_reader());
     for line in reader.lines() {
         if cancel.load(Ordering::Relaxed) {
@@ -122,7 +123,7 @@ pub(super) fn stream(
         {
             usage = Some(parsed);
         }
-        apply_event(&value, tx, &mut calls, &mut truncated);
+        apply_event(&value, tx, &mut calls, &mut truncated, &mut summary);
         if finished(&value) {
             break;
         }
@@ -190,11 +191,18 @@ fn body(cfg: &Config, messages: &[ChatMessage], cache_key: Option<&str>) -> Stri
     value.to_string()
 }
 
+#[derive(Default)]
+struct SummaryState {
+    has_text: bool,
+    pending_break: bool,
+}
+
 fn apply_event(
     value: &Value,
     tx: &Sender<StreamEvent>,
     calls: &mut BTreeMap<u64, ToolCall>,
     truncated: &mut bool,
+    summary: &mut SummaryState,
 ) {
     let event = value.get("type").and_then(Value::as_str).unwrap_or("");
     match event {
@@ -205,7 +213,22 @@ fn apply_event(
                 let _ = tx.send(StreamEvent::Delta(text.to_string()));
             }
         }
-        "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => {
+        "response.reasoning_summary_part.added" => {
+            summary.pending_break = summary.has_text;
+        }
+        "response.reasoning_summary_text.delta" => {
+            if let Some(text) = value.get("delta").and_then(Value::as_str)
+                && !text.is_empty()
+            {
+                if summary.pending_break {
+                    let _ = tx.send(StreamEvent::Think("\n".into()));
+                    summary.pending_break = false;
+                }
+                summary.has_text = true;
+                let _ = tx.send(StreamEvent::Think(text.to_string()));
+            }
+        }
+        "response.reasoning_text.delta" => {
             if let Some(text) = value.get("delta").and_then(Value::as_str)
                 && !text.is_empty()
             {
@@ -415,15 +438,44 @@ mod tests {
     }
 
     #[test]
+    fn reasoning_summary_parts_are_separated() {
+        let (tx, rx) = mpsc::channel();
+        let mut calls = BTreeMap::new();
+        let mut truncated = false;
+        let mut summary = SummaryState::default();
+        for value in [
+            json!({"type":"response.reasoning_summary_part.added","summary_index":0}),
+            json!({"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":"**First**"}),
+            json!({"type":"response.reasoning_summary_text.done","summary_index":0,"text":"**First**"}),
+            json!({"type":"response.reasoning_summary_part.added","summary_index":1}),
+            json!({"type":"response.reasoning_summary_text.delta","summary_index":1,"delta":"**Second**"}),
+            json!({"type":"response.reasoning_summary_text.done","summary_index":1,"text":"**Second**"}),
+        ] {
+            apply_event(&value, &tx, &mut calls, &mut truncated, &mut summary);
+        }
+        drop(tx);
+        let text: String = rx
+            .iter()
+            .filter_map(|event| match event {
+                StreamEvent::Think(text) => Some(text),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(text, "**First**\n**Second**");
+    }
+
+    #[test]
     fn text_delta_and_function_call() {
         let (tx, rx) = mpsc::channel();
         let mut calls = BTreeMap::new();
         let mut truncated = false;
+        let mut summary = SummaryState::default();
         apply_event(
             &json!({"type":"response.output_text.delta","delta":"hello"}),
             &tx,
             &mut calls,
             &mut truncated,
+            &mut summary,
         );
         apply_event(
             &json!({
@@ -439,6 +491,7 @@ mod tests {
             &tx,
             &mut calls,
             &mut truncated,
+            &mut summary,
         );
         apply_event(
             &json!({
@@ -449,6 +502,7 @@ mod tests {
             &tx,
             &mut calls,
             &mut truncated,
+            &mut summary,
         );
         apply_event(
             &json!({
@@ -460,12 +514,14 @@ mod tests {
             &tx,
             &mut calls,
             &mut truncated,
+            &mut summary,
         );
         apply_event(
             &json!({"type":"response.incomplete","response":{"status":"incomplete"}}),
             &tx,
             &mut calls,
             &mut truncated,
+            &mut summary,
         );
         drop(tx);
         let events: Vec<_> = rx.iter().collect();
