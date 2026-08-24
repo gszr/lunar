@@ -2,11 +2,13 @@
   <img src="docs/logos/lunar-logo-with-wordmark-transparent.png" alt="Lunar" width="220">
 </p>
 
-<p align="center">A terminal coding harness. You open <code>lunar</code> and code.</p>
+<p align="center">A terminal coding harness. You open <code>lunar</code> and code</p>
 
-<p align="center">Simple and fast like <a href="https://github.com/earendil-works/pi">Pi &lt;3</a>, but using Lua for extensions.</p>
+<p align="center">Simple and fast like <a href="https://github.com/earendil-works/pi">Pi &lt;3</a>, but using Lua for extensions</p>
 
-<p align="center">Lunar gives the model four tools—<code>read</code>, <code>write</code>, <code>edit</code>, and <code>bash</code>—without imposing a workflow.</p>
+<p align="center">Lunar gives the model four tools—<code>read</code>, <code>write</code>, <code>edit</code>, and <code>bash</code>. No hidden system prompts</p>
+
+<p align="center">No token wasting on hidden system prompts or excessive tool schema</p>
 
 ## Install
 
