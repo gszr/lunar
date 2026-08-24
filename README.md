@@ -24,17 +24,7 @@ cargo install --git https://github.com/gszr/lunar
 
 ## Configure
 
-With no `~/.lunar/init.lua`, set an API key, an OpenAI Chat Completions base URL, and a model:
-
-```bash
-export LUNAR_API_KEY=...
-export LUNAR_BASE_URL=https://api.x.ai/v1
-export LUNAR_MODEL=grok-4.6
-```
-
-Any OpenAI Chat Completions-compatible endpoint should work.
-
-For lasting configuration, create `~/.lunar/init.lua`. Copy an example from [`examples/`](examples/), or from Lunar, `/config` opens this file with `$VISUAL` or `$EDITOR`, then reloads it when the editor exits:
+Configure Lunar with `~/.lunar/init.lua`. Copy an example from [`examples/`](examples/), or from Lunar, `/config` opens this file with `$VISUAL` or `$EDITOR`, then reloads it when the editor exits:
 
 ```lua
 return {

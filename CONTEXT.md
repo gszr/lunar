@@ -19,19 +19,19 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Product shape | Pi-shaped: Rust is the program, Lua is a guest |
 | Workflow in the binary | None |
 | Extension model | Slots (replaceable parts). Hook bus does **not** ship in v0. S only for now |
-| Config | Lua, when present. User `~/.lunar/init.lua` first; project later. If defaults resolve, that is the live Config — `LUNAR_MODEL` / `LUNAR_BASE_URL` / `LUNAR_API_KEY` are ignored. No Lua or no defaults = today’s env path. `LUNAR_HOME` and `LUNAR_PROMPT_BUDGET` stay env |
+| Config | User `~/.lunar/init.lua`; project later. No model configuration via `LUNAR_*`. `LUNAR_HOME` and `LUNAR_PROMPT_BUDGET` stay env |
 | Lua load | `~/.lunar/init.lua` this slice (or `$LUNAR_HOME/init.lua`). Trusted `.lunar/init.lua` later. No auto-load directories. Syntax/runtime error = notice, glass opens, no env fallback |
 | Trust | Project Lua runs only after an explicit trust decision (`trust.json`) |
 | Language | Lua 5.5.1, vendored via `mlua` (`lua55` + `vendored`). Embed this slice |
 | Lua guest API | `init.lua` returns one table containing optional `models`, `providers`, and `defaults` tables. The registrar form does not exist. **No `lunar.on`** (hook bus is not v0) |
 | Model catalog | Top-level `models`: alias → `{ id, window?, api?, thinking? }`. `id` is the wire string; alias is a Lua name. Provider `models` is an ordered list: string = ref to a global alias, table = local `{ id, window?, api?, thinking? }`. Missing alias = notice, skip that entry. Missing `id`, unknown `api`, or unknown `thinking` = notice, skip that entry. `thinking` is `off` · `low` · `medium` · `high`; a model value overrides its provider default. Omitted values resolve to `off`. Omitted `api` is Completions |
-| Live model | Top-level `defaults = { provider, model }`. `provider` is a providers key; `model` matches that list as alias then wire `id`. Unknown provider or model is an error: notice, glass opens, cannot send. Omitted defaults = today’s env Config. Partial defaults (only one field) = present and invalid, no env fallback. On the Lua path the selected provider must have `base_url_cmd` or `base_url` unless `key_in = "auth"` and `auth_provider` is `xai` or `openai` (then `https://api.x.ai/v1` or `https://chatgpt.com/backend-api`). Plus `key_cmd` or `key_name` (`key_in = "env"`), or `auth_provider` (`key_in = "auth"`); missing the applicable source = notice, cannot send. `base_url_cmd` takes precedence over `base_url`, which takes precedence over an auth default. Live `api` `"messages"` is resolve-time refuse: notice, cannot send, entry stays in `/model`. Completions and Responses send. Live Config carries optional `auth_provider` from Lua `key_in = "auth"` (env path leaves it unset). `"openai"` means Codex Responses + JWT account header; Completions on that auth is refuse. Do not sniff `base_url`. Model `window` if set, else the Grok-id guess; `LUNAR_CONTEXT_WINDOW` is env-path only. Footer provider is the providers key |
+| Live model | Top-level `defaults = { provider, model }`. `provider` is a providers key; `model` matches that list as alias then wire `id`. Unknown provider or model is an error: notice, glass opens, cannot send. Omitted defaults = no live Config; the catalog remains available in `/model`. Partial defaults (only one field) = present and invalid. The selected provider must have `base_url_cmd` or `base_url` unless `key_in = "auth"` and `auth_provider` is `xai` or `openai` (then `https://api.x.ai/v1` or `https://chatgpt.com/backend-api`). Plus `key_cmd` or `key_name` (`key_in = "env"`), or `auth_provider` (`key_in = "auth"`); missing the applicable source = notice, cannot send. `base_url_cmd` takes precedence over `base_url`, which takes precedence over an auth default. Live `api` `"messages"` is resolve-time refuse: notice, cannot send, entry stays in `/model`. Completions and Responses send. Live Config carries optional `auth_provider` from Lua `key_in = "auth"`. `"openai"` means Codex Responses + JWT account header; Completions on that auth is refuse. Do not sniff `base_url`. Model `window` if set, else the Grok-id guess. Footer provider is the providers key |
 | Prompt conventions | CWD `AGENTS.md` + `CONTEXT.md` in full. Skill *summaries* from `.agents/skills/*/SKILL.md`. `~/.agents/skills` later |
 | System prompt | None. Context is a leading user message, snapshotted at each user submit, held for the tool loop, not persisted |
 | v0 goal | Daily driver for one user, not ecosystem parity |
-| Model protocol | Completions, Responses, and Messages. Selected by model `api`: `"completions"` · `"responses"` · `"messages"`. Case-sensitive, no aliases. Omitted `api` is Completions. Completions and Responses send. Responses stays `store: false`, requests an automatic reasoning summary for the thinking preview, and replays the full converted history each round. When a mission exists, Responses also sends `prompt_cache_key` (mission id, 64 chars max) and Pi affinity headers `session_id` / `x-client-request-id`. No `previous_response_id`. ChatGPT Plus (`auth_provider = "openai"`) is Responses-only: POST `{base_url}/codex/responses` (not `{base_url}/responses`), plus `chatgpt-account-id` decoded from the access JWT at send and refresh (`https://api.openai.com/auth` → `chatgpt_account_id`; missing or empty = notice, cannot send) and `originator: lunar`. No extra `auth.json` field. Completions on that auth is resolve-time refuse. No websocket and no zstd this slice. Messages is not implemented. Env path stays Completions until that path is removed |
-| First brand | xAI. Config is env, not a compiled-in brand |
-| Auth | Env, shell command, or Lunar-managed auth. With `key_in = "env"`, `key_cmd` runs through `sh -c` and supplies the secret, otherwise `key_name` names an env secret. `key_in = "auth"` names a canonical built-in integration with `auth_provider` (`xai` or `openai`) and resolves API-key or OAuth credentials from `~/.lunar/auth.json`. `/login` is a provider picker (`xAI`, `OpenAI`). Enter on xAI opens the existing method picker. Enter on OpenAI starts device-code immediately. `/login xai` opens the xAI method picker. `/login openai` is ChatGPT Plus/Pro subscription OAuth only (no stored platform API key this slice): device-code, same glass as xAI (open URL, show user code, poll, Esc cancels). No browser PKCE and no localhost callback this slice. `/logout xai` / `/logout openai` remove that credential; `/logout` with no argument notices usage. The xAI device flow uses the public client ID distributed by Pi. The OpenAI device flow uses the public Codex client ID distributed by Pi. `LUNAR_API_KEY` / `LUNAR_BASE_URL` / `LUNAR_MODEL` remain the no-Lua path |
+| Model protocol | Completions, Responses, and Messages. Selected by model `api`: `"completions"` · `"responses"` · `"messages"`. Case-sensitive, no aliases. Omitted `api` is Completions. Completions and Responses send. Responses stays `store: false`, requests an automatic reasoning summary for the thinking preview, and replays the full converted history each round. When a mission exists, Responses also sends `prompt_cache_key` (mission id, 64 chars max) and Pi affinity headers `session_id` / `x-client-request-id`. No `previous_response_id`. ChatGPT Plus (`auth_provider = "openai"`) is Responses-only: POST `{base_url}/codex/responses` (not `{base_url}/responses`), plus `chatgpt-account-id` decoded from the access JWT at send and refresh (`https://api.openai.com/auth` → `chatgpt_account_id`; missing or empty = notice, cannot send) and `originator: lunar`. No extra `auth.json` field. Completions on that auth is resolve-time refuse. No websocket and no zstd this slice. Messages is not implemented |
+| First brand | xAI. No provider is compiled into configuration |
+| Auth | Env named by Lua, shell command, or Lunar-managed auth. With `key_in = "env"`, `key_cmd` runs through `sh -c` and supplies the secret, otherwise `key_name` names an env secret. `key_in = "auth"` names a canonical built-in integration with `auth_provider` (`xai` or `openai`) and resolves API-key or OAuth credentials from `~/.lunar/auth.json`. `/login` is a provider picker (`xAI`, `OpenAI`). Enter on xAI opens the existing method picker. Enter on OpenAI starts device-code immediately. `/login xai` opens the xAI method picker. `/login openai` is ChatGPT Plus/Pro subscription OAuth only (no stored platform API key this slice): device-code, same glass as xAI (open URL, show user code, poll, Esc cancels). No browser PKCE and no localhost callback this slice. `/logout xai` / `/logout openai` remove that credential; `/logout` with no argument notices usage. The xAI device flow uses the public client ID distributed by Pi. The OpenAI device flow uses the public Codex client ID distributed by Pi |
 | Thinking | `off` · `low` · `medium` · `high`. `/thinking` opens a one-line `<- off low medium high ->` picker; left/right selects and Enter applies. `/thinking <level>` applies directly. It changes the running Config for the current mission and is appended to that mission’s JSONL; reopening the mission restores its last level. Before the first prompt it is held in memory and written when the mission is created. `/new` returns to the configured default. Lua model value overrides provider default; omitted resolves to `off`. Completions sends `reasoning_effort`, Responses sends `reasoning.effort`; `off` omits effort. Footer shows the live level |
 | TUI | `ratatui` + `crossterm` |
 | Transcript | The current mission. Scrollable: every message in that mission is reachable as painted (tool cards stay 8 lines, thinking stays a 3-line preview). Not a tail-only view. `/resume` switches missions; there is no Session history object |
@@ -60,19 +60,14 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 
 Mission headers persist a short semantic `name` derived locally from the first user prompt. The displayed session title is `<id> - <name>`; `/name` rewrites the header name. Existing mission headers may be backfilled in place. UI shows `mission: <id> - <name>`.
 
-## Env (no-Lua path)
+## Environment
 
-Used when `~/.lunar/init.lua` is missing, or the returned table omitted `defaults`. Not mixed with a resolved Lua Config.
+Model configuration lives in `init.lua`. These host settings remain environment variables:
 
 | | |
 |---|---|
-| `LUNAR_API_KEY` | required to send |
-| `LUNAR_BASE_URL` | required (e.g. `https://api.x.ai/v1`) |
-| `LUNAR_MODEL` | required (e.g. `grok-4.6`) |
-| `LUNAR_PROVIDER` | optional label; else inferred from URL |
-| `LUNAR_CONTEXT_WINDOW` | optional; else inferred for some Grok ids |
-| `LUNAR_PROMPT_BUDGET` | optional; warn at startup if context files + skill summaries exceed it (default 16000). Always env |
-| `LUNAR_HOME` | overrides `~/.lunar`. Always env |
+| `LUNAR_PROMPT_BUDGET` | optional; warn at startup if context files + skill summaries exceed it (default 16000) |
+| `LUNAR_HOME` | overrides `~/.lunar` |
 
 ## User `init.lua` (this slice)
 
@@ -120,14 +115,14 @@ return {
 
 | Situation | Result |
 |---|---|
-| No `init.lua` | Env path |
-| File exists, syntax or runtime error | Notice, glass opens, **no env fallback** |
-| Returned table omits `defaults` | Env Config (catalog unused) |
+| No `init.lua` | Unconfigured; glass opens, cannot send |
+| File exists, syntax or runtime error | Notice, glass opens, cannot send |
+| Returned table omits `defaults` | Catalog loads; no live Config until `/model` selects one |
 | `defaults` contains only one field | Present and invalid: notice, cannot send |
 | Unknown provider or model | Notice, cannot send |
 | Selected provider missing both `base_url_cmd` and `base_url` (unless `key_in = "auth"` and `auth_provider` is `xai` or `openai`), both `key_cmd` and `key_name` (`env`), or `auth_provider` (`auth`) | Notice, cannot send |
 | `key_in` not `"env"` or `"auth"`, env lookup empty, `base_url_cmd` or `key_cmd` fails/returns no value, or no saved auth | Notice, cannot send |
-| Defaults resolve | Live Config from Lua. Ignore `LUNAR_MODEL` / `LUNAR_BASE_URL` / `LUNAR_API_KEY` / `LUNAR_PROVIDER` / `LUNAR_CONTEXT_WINDOW` |
+| Defaults resolve | Live Config from Lua |
 | Live model `api` is `"messages"` | Resolve-time refuse: no live Config. Notice (`claude uses messages, not implemented`). Entry stays in `/model`, dimmed. Completions and Responses siblings stay pickable |
 | Lua `window` set | Use it |
 | Lua `window` omitted | Grok-id guess from wire `id` (same as today) |

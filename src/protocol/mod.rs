@@ -77,23 +77,6 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_env() -> Option<Self> {
-        let model = nonempty("LUNAR_MODEL")?;
-        let base_url = nonempty("LUNAR_BASE_URL")?;
-        Some(Self {
-            api_key: nonempty("LUNAR_API_KEY")?,
-            provider: nonempty("LUNAR_PROVIDER").unwrap_or_else(|| provider_from_url(&base_url)),
-            window: nonempty("LUNAR_CONTEXT_WINDOW")
-                .and_then(|s| s.parse().ok())
-                .or_else(|| guess_window(&model)),
-            base_url,
-            model,
-            api: Api::Completions,
-            auth_provider: None,
-            thinking: Thinking::Off,
-        })
-    }
-
     pub fn context_window(&self) -> Option<u32> {
         self.window
     }
@@ -112,25 +95,6 @@ pub fn guess_window(id: &str) -> Option<u32> {
         Some(256_000)
     } else {
         None
-    }
-}
-
-fn provider_from_url(base: &str) -> String {
-    let rest = base.split("://").nth(1).unwrap_or(base);
-    let host = rest.split('/').next().unwrap_or(rest);
-    let host = host.strip_prefix("api.").unwrap_or(host);
-    let mut parts: Vec<&str> = host.split('.').collect();
-    if parts.len() >= 2 {
-        let tld = parts.last().copied().unwrap_or("");
-        if matches!(tld, "com" | "ai" | "dev" | "io" | "net" | "org") {
-            parts.pop();
-        }
-    }
-    let name = parts.join("");
-    if name.is_empty() {
-        "openai".into()
-    } else {
-        name
     }
 }
 
@@ -217,8 +181,4 @@ pub fn stream(
     if let Err(err) = result {
         let _ = tx.send(StreamEvent::Failed(err));
     }
-}
-
-fn nonempty(key: &str) -> Option<String> {
-    std::env::var(key).ok().filter(|s| !s.is_empty())
 }

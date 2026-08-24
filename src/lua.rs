@@ -30,8 +30,8 @@ pub fn load() -> Loaded {
 fn load_path(path: &Path) -> Loaded {
     if !path.is_file() {
         return Loaded {
-            config: Config::from_env(),
-            models: env_choices(),
+            config: None,
+            models: Vec::new(),
             notice: None,
         };
     }
@@ -109,8 +109,8 @@ fn parse_guest(table: &Table) -> Result<Guest, String> {
 fn resolve(guest: &Guest) -> Loaded {
     let Some(defaults) = &guest.defaults else {
         return Loaded {
-            config: Config::from_env(),
-            models: env_choices(),
+            config: None,
+            models: choices(guest),
             notice: None,
         };
     };
@@ -144,19 +144,6 @@ fn resolve(guest: &Guest) -> Loaded {
             }
         }
     }
-}
-
-fn env_choices() -> Vec<ModelChoice> {
-    Config::from_env()
-        .map(|config| ModelChoice {
-            provider: config.provider.clone(),
-            alias: None,
-            id: config.model.clone(),
-            config: Some(config),
-            error: None,
-        })
-        .into_iter()
-        .collect()
 }
 
 fn choices(guest: &Guest) -> Vec<ModelChoice> {
@@ -600,15 +587,7 @@ mod tests {
 
     fn isolate(vars: &[(&str, &str)]) -> EnvGuard {
         let lock = ENV.lock().unwrap_or_else(|e| e.into_inner());
-        const KEYS: &[&str] = &[
-            "LUNAR_API_KEY",
-            "LUNAR_BASE_URL",
-            "LUNAR_MODEL",
-            "LUNAR_PROVIDER",
-            "LUNAR_CONTEXT_WINDOW",
-            "LUNAR_HOME",
-            "XAI_API_KEY",
-        ];
+        const KEYS: &[&str] = &["LUNAR_HOME", "XAI_API_KEY"];
         let saved = KEYS
             .iter()
             .map(|k| ((*k).to_string(), std::env::var(k).ok()))
@@ -673,28 +652,17 @@ return {
 "#;
 
     #[test]
-    fn missing_file_uses_env() {
-        let _e = isolate(&[
-            ("LUNAR_API_KEY", "env-key"),
-            ("LUNAR_BASE_URL", "https://api.x.ai/v1"),
-            ("LUNAR_MODEL", "grok-env"),
-            ("LUNAR_PROVIDER", "envp"),
-        ]);
+    fn missing_file_is_unconfigured() {
+        let _e = isolate(&[]);
         let loaded = load_path(&scratch().join("init.lua"));
-        let cfg = loaded.config.unwrap();
-        assert_eq!(cfg.model, "grok-env");
-        assert_eq!(cfg.api_key, "env-key");
-        assert_eq!(cfg.provider(), "envp");
+        assert!(loaded.config.is_none());
+        assert!(loaded.models.is_empty());
         assert_eq!(loaded.notice, None);
     }
 
     #[test]
-    fn syntax_error_does_not_fall_back_to_env() {
-        let _e = isolate(&[
-            ("LUNAR_API_KEY", "env-key"),
-            ("LUNAR_BASE_URL", "https://api.x.ai/v1"),
-            ("LUNAR_MODEL", "grok-env"),
-        ]);
+    fn syntax_error_cannot_send() {
+        let _e = isolate(&[]);
         let path = write_init(&scratch(), "this is not lua {");
         let loaded = load_path(&path);
         assert!(loaded.config.is_none());
@@ -702,32 +670,29 @@ return {
     }
 
     #[test]
-    fn no_defaults_uses_env() {
-        let _e = isolate(&[
-            ("LUNAR_API_KEY", "env-key"),
-            ("LUNAR_BASE_URL", "https://api.x.ai/v1"),
-            ("LUNAR_MODEL", "grok-env"),
-        ]);
+    fn no_defaults_has_catalog_but_cannot_send() {
+        let _e = isolate(&[]);
         let path = write_init(
             &scratch(),
             r#"return {
   models = { grok46 = { id = "grok-4.6" } },
+  providers = {
+    xai = {
+      base_url = "https://api.x.ai/v1",
+      key_name = "XAI_API_KEY",
+      models = { "grok46" },
+    },
+  },
 }"#,
         );
         let loaded = load_path(&path);
-        assert_eq!(loaded.config.unwrap().model, "grok-env");
+        assert!(loaded.config.is_none());
+        assert_eq!(loaded.models.len(), 1);
     }
 
     #[test]
-    fn defaults_resolve_and_ignore_lunar_model() {
-        let _e = isolate(&[
-            ("LUNAR_API_KEY", "env-key"),
-            ("LUNAR_BASE_URL", "https://ignored.example"),
-            ("LUNAR_MODEL", "grok-env"),
-            ("LUNAR_PROVIDER", "envp"),
-            ("LUNAR_CONTEXT_WINDOW", "123"),
-            ("XAI_API_KEY", "lua-key"),
-        ]);
+    fn defaults_resolve_from_lua() {
+        let _e = isolate(&[("XAI_API_KEY", "lua-key")]);
         let path = write_init(&scratch(), SAMPLE);
         let loaded = load_path(&path);
         let cfg = loaded.config.expect("resolved");
@@ -955,12 +920,7 @@ return {
 
     #[test]
     fn partial_defaults_cannot_send() {
-        let _e = isolate(&[
-            ("LUNAR_API_KEY", "env-key"),
-            ("LUNAR_BASE_URL", "https://api.x.ai/v1"),
-            ("LUNAR_MODEL", "grok-env"),
-            ("XAI_API_KEY", "k"),
-        ]);
+        let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
 return {
   providers = {
@@ -1256,11 +1216,7 @@ return {
 
     #[test]
     fn non_table_return_cannot_send() {
-        let _e = isolate(&[
-            ("LUNAR_API_KEY", "env-key"),
-            ("LUNAR_BASE_URL", "https://api.x.ai/v1"),
-            ("LUNAR_MODEL", "grok-env"),
-        ]);
+        let _e = isolate(&[]);
         let loaded = load_path(&write_init(&scratch(), "return nil\n"));
         assert!(loaded.config.is_none());
         assert_eq!(
@@ -1281,12 +1237,8 @@ return {
     }
 
     #[test]
-    fn runtime_error_does_not_fall_back() {
-        let _e = isolate(&[
-            ("LUNAR_API_KEY", "env-key"),
-            ("LUNAR_BASE_URL", "https://api.x.ai/v1"),
-            ("LUNAR_MODEL", "grok-env"),
-        ]);
+    fn runtime_error_cannot_send() {
+        let _e = isolate(&[]);
         let path = write_init(&scratch(), "error('boom')\n");
         let loaded = load_path(&path);
         assert!(loaded.config.is_none());
