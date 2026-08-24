@@ -25,7 +25,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Language | Lua 5.5.1, vendored via `mlua` (`lua55` + `vendored`). Embed this slice |
 | Lua guest API | `init.lua` returns one table containing optional `models`, `providers`, and `defaults` tables. The registrar form does not exist. **No `lunar.on`** (hook bus is not v0) |
 | Model catalog | Top-level `models`: alias → `{ id, window?, api?, thinking? }`. `id` is the wire string; alias is a Lua name. Provider `models` is an ordered list: string = ref to a global alias, table = local `{ id, window?, api?, thinking? }`. Missing alias = notice, skip that entry. Missing `id`, unknown `api`, or unknown `thinking` = notice, skip that entry. `thinking` is `off` · `low` · `medium` · `high`; a model value overrides its provider default. Omitted values resolve to `off`. Omitted `api` is Completions |
-| Live model | Top-level `defaults = { provider, model }`. `provider` is a providers key; `model` matches that list as alias then wire `id`. Unknown provider or model is an error: notice, glass opens, cannot send. Omitted defaults = today’s env Config. Partial defaults (only one field) = present and invalid, no env fallback. On the Lua path the selected provider must have `url_cmd` or `base_url` unless `key_in = "auth"` and `auth_provider` is `xai` or `openai` (then `https://api.x.ai/v1` or `https://chatgpt.com/backend-api`). Plus `key_cmd` or `key_name` (`key_in = "env"`), or `auth_provider` (`key_in = "auth"`); missing the applicable source = notice, cannot send. `url_cmd` takes precedence over `base_url`, which takes precedence over an auth default. Live `api` `"messages"` is resolve-time refuse: notice, cannot send, entry stays in `/model`. Completions and Responses send. Live Config carries optional `auth_provider` from Lua `key_in = "auth"` (env path leaves it unset). `"openai"` means Codex Responses + JWT account header; Completions on that auth is refuse. Do not sniff `base_url`. Model `window` if set, else the Grok-id guess; `LUNAR_CONTEXT_WINDOW` is env-path only. Footer provider is the providers key |
+| Live model | Top-level `defaults = { provider, model }`. `provider` is a providers key; `model` matches that list as alias then wire `id`. Unknown provider or model is an error: notice, glass opens, cannot send. Omitted defaults = today’s env Config. Partial defaults (only one field) = present and invalid, no env fallback. On the Lua path the selected provider must have `base_url_cmd` or `base_url` unless `key_in = "auth"` and `auth_provider` is `xai` or `openai` (then `https://api.x.ai/v1` or `https://chatgpt.com/backend-api`). Plus `key_cmd` or `key_name` (`key_in = "env"`), or `auth_provider` (`key_in = "auth"`); missing the applicable source = notice, cannot send. `base_url_cmd` takes precedence over `base_url`, which takes precedence over an auth default. Live `api` `"messages"` is resolve-time refuse: notice, cannot send, entry stays in `/model`. Completions and Responses send. Live Config carries optional `auth_provider` from Lua `key_in = "auth"` (env path leaves it unset). `"openai"` means Codex Responses + JWT account header; Completions on that auth is refuse. Do not sniff `base_url`. Model `window` if set, else the Grok-id guess; `LUNAR_CONTEXT_WINDOW` is env-path only. Footer provider is the providers key |
 | Prompt conventions | CWD `AGENTS.md` + `CONTEXT.md` in full. Skill *summaries* from `.agents/skills/*/SKILL.md`. `~/.agents/skills` later |
 | System prompt | None. Context is a leading user message, snapshotted at each user submit, held for the tool loop, not persisted |
 | v0 goal | Daily driver for one user, not ecosystem parity |
@@ -87,7 +87,7 @@ return {
   providers = {
     xai = {
       base_url = "https://api.x.ai/v1",
-      -- url_cmd = "pass lunar/xai-url" -- shell command; takes precedence over base_url
+      -- base_url_cmd = "pass lunar/xai-url" -- shell command; takes precedence over base_url
       key_name = "XAI_API_KEY",
       -- key_cmd = "pass my_key" -- shell command; takes precedence over key_name
       -- key_in = "env", -- default if omitted
@@ -125,8 +125,8 @@ return {
 | Returned table omits `defaults` | Env Config (catalog unused) |
 | `defaults` contains only one field | Present and invalid: notice, cannot send |
 | Unknown provider or model | Notice, cannot send |
-| Selected provider missing both `url_cmd` and `base_url` (unless `key_in = "auth"` and `auth_provider` is `xai` or `openai`), both `key_cmd` and `key_name` (`env`), or `auth_provider` (`auth`) | Notice, cannot send |
-| `key_in` not `"env"` or `"auth"`, env lookup empty, `url_cmd` or `key_cmd` fails/returns no value, or no saved auth | Notice, cannot send |
+| Selected provider missing both `base_url_cmd` and `base_url` (unless `key_in = "auth"` and `auth_provider` is `xai` or `openai`), both `key_cmd` and `key_name` (`env`), or `auth_provider` (`auth`) | Notice, cannot send |
+| `key_in` not `"env"` or `"auth"`, env lookup empty, `base_url_cmd` or `key_cmd` fails/returns no value, or no saved auth | Notice, cannot send |
 | Defaults resolve | Live Config from Lua. Ignore `LUNAR_MODEL` / `LUNAR_BASE_URL` / `LUNAR_API_KEY` / `LUNAR_PROVIDER` / `LUNAR_CONTEXT_WINDOW` |
 | Live model `api` is `"messages"` | Resolve-time refuse: no live Config. Notice (`claude uses messages, not implemented`). Entry stays in `/model`, dimmed. Completions and Responses siblings stay pickable |
 | Lua `window` set | Use it |

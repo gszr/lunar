@@ -203,14 +203,14 @@ fn provider_config(
         }
         _ => return Err(format!("{provider_key} key_in is not env or auth")),
     };
-    let base_url = match provider.url_cmd.as_deref().filter(|s| !s.is_empty()) {
-        Some(command) => command_value(provider_key, "url_cmd", command)?,
+    let base_url = match provider.base_url_cmd.as_deref().filter(|s| !s.is_empty()) {
+        Some(command) => command_value(provider_key, "base_url_cmd", command)?,
         None => provider
             .base_url
             .as_deref()
             .filter(|s| !s.is_empty())
             .or_else(|| default_auth_base(auth_provider.as_deref()))
-            .ok_or_else(|| format!("{provider_key} has no base_url or url_cmd"))?
+            .ok_or_else(|| format!("{provider_key} has no base_url or base_url_cmd"))?
             .to_string(),
     };
     if model.api == Api::Messages
@@ -365,7 +365,7 @@ fn parse_providers(table: &Table) -> (BTreeMap<String, ProviderDef>, Vec<String>
             name,
             ProviderDef {
                 base_url: field_string(&t, "base_url"),
-                url_cmd: field_string(&t, "url_cmd"),
+                base_url_cmd: field_string(&t, "base_url_cmd"),
                 key_name: field_string(&t, "key_name"),
                 key_cmd: field_string(&t, "key_cmd"),
                 key_in,
@@ -547,7 +547,7 @@ struct ModelDef {
 
 struct ProviderDef {
     base_url: Option<String>,
-    url_cmd: Option<String>,
+    base_url_cmd: Option<String>,
     key_name: Option<String>,
     key_cmd: Option<String>,
     key_in: String,
@@ -1021,19 +1021,19 @@ return {
         assert!(loaded.config.is_none());
         assert_eq!(
             loaded.notice.as_deref(),
-            Some("xai has no base_url or url_cmd")
+            Some("xai has no base_url or base_url_cmd")
         );
     }
 
     #[test]
-    fn url_cmd_supplies_base_url_and_wins() {
+    fn base_url_cmd_supplies_base_url_and_wins() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
 return {
   providers = {
   xai = {
     base_url = "https://ignored.example",
-    url_cmd = "printf 'https://api.x.ai/v1\\n'",
+    base_url_cmd = "printf 'https://api.x.ai/v1\\n'",
     key_name = "XAI_API_KEY",
     models = { { id = "grok-4.6", api = "completions" } },
   },
@@ -1048,14 +1048,14 @@ return {
     }
 
     #[test]
-    fn failing_url_cmd_cannot_send() {
+    fn failing_base_url_cmd_cannot_send() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
 return {
   providers = {
   xai = {
     base_url = "https://api.x.ai/v1",
-    url_cmd = "exit 9",
+    base_url_cmd = "exit 9",
     key_name = "XAI_API_KEY",
     models = { { id = "grok-4.6", api = "completions" } },
   },
@@ -1067,7 +1067,7 @@ return {
         assert!(loaded.config.is_none());
         assert_eq!(
             loaded.notice.as_deref(),
-            Some("xai url_cmd failed with exit status: 9")
+            Some("xai base_url_cmd failed with exit status: 9")
         );
     }
 
