@@ -205,12 +205,16 @@ fn provider_config(
         }
         _ => return Err(format!("{provider_key} key_in is not env or auth")),
     };
-    let base_url = provider
-        .base_url
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .or_else(|| default_auth_base(auth_provider.as_deref()))
-        .ok_or_else(|| format!("{provider_key} has no base_url"))?;
+    let base_url = match provider.url_cmd.as_deref().filter(|s| !s.is_empty()) {
+        Some(command) => command_value(provider_key, "url_cmd", command)?,
+        None => provider
+            .base_url
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or_else(|| default_auth_base(auth_provider.as_deref()))
+            .ok_or_else(|| format!("{provider_key} has no base_url or url_cmd"))?
+            .to_string(),
+    };
     if model.api == Api::Messages
         || (auth_provider.as_deref() == Some("openai") && model.api != Api::Responses)
     {
@@ -222,7 +226,7 @@ fn provider_config(
     }
     let api_key = match provider.key_in.as_str() {
         "env" => match provider.key_cmd.as_deref().filter(|s| !s.is_empty()) {
-            Some(command) => command_key(provider_key, command)?,
+            Some(command) => command_value(provider_key, "key_cmd", command)?,
             None => {
                 let key_name = provider
                     .key_name
@@ -237,7 +241,7 @@ fn provider_config(
     };
     Ok(Config {
         api_key,
-        base_url: base_url.to_string(),
+        base_url,
         model: model.id.clone(),
         provider: provider_key.to_string(),
         window: model.window.or_else(|| protocol::guess_window(&model.id)),
@@ -359,6 +363,7 @@ fn parse_providers(table: &Table) -> (BTreeMap<String, ProviderDef>, Vec<String>
             name,
             ProviderDef {
                 base_url: field_string(&t, "base_url"),
+                url_cmd: field_string(&t, "url_cmd"),
                 key_name: field_string(&t, "key_name"),
                 key_cmd: field_string(&t, "key_cmd"),
                 key_in,
@@ -452,23 +457,23 @@ fn nonempty(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|s| !s.is_empty())
 }
 
-fn command_key(provider: &str, command: &str) -> Result<String, String> {
+fn command_value(provider: &str, field: &str, command: &str) -> Result<String, String> {
     let output = Command::new("sh")
         .arg("-c")
         .arg(command)
         .output()
-        .map_err(|err| format!("{provider} key_cmd: {err}"))?;
+        .map_err(|err| format!("{provider} {field}: {err}"))?;
     if !output.status.success() {
-        return Err(format!("{provider} key_cmd failed with {}", output.status));
+        return Err(format!("{provider} {field} failed with {}", output.status));
     }
-    let key = String::from_utf8(output.stdout)
-        .map_err(|_| format!("{provider} key_cmd output is not UTF-8"))?
+    let value = String::from_utf8(output.stdout)
+        .map_err(|_| format!("{provider} {field} output is not UTF-8"))?
         .trim_end()
         .to_string();
-    if key.is_empty() {
-        Err(format!("{provider} key_cmd returned an empty key"))
+    if value.is_empty() {
+        Err(format!("{provider} {field} returned an empty value"))
     } else {
-        Ok(key)
+        Ok(value)
     }
 }
 
@@ -500,6 +505,7 @@ struct ModelDef {
 
 struct ProviderDef {
     base_url: Option<String>,
+    url_cmd: Option<String>,
     key_name: Option<String>,
     key_cmd: Option<String>,
     key_in: String,
@@ -916,7 +922,52 @@ lunar.defaults { provider = "xai", model = "grok-4.6" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert!(loaded.config.is_none());
-        assert_eq!(loaded.notice.as_deref(), Some("xai has no base_url"));
+        assert_eq!(
+            loaded.notice.as_deref(),
+            Some("xai has no base_url or url_cmd")
+        );
+    }
+
+    #[test]
+    fn url_cmd_supplies_base_url_and_wins() {
+        let _e = isolate(&[("XAI_API_KEY", "k")]);
+        let src = r#"
+lunar.providers {
+  xai = {
+    base_url = "https://ignored.example",
+    url_cmd = "printf 'https://api.x.ai/v1\\n'",
+    key_name = "XAI_API_KEY",
+    models = { { id = "grok-4.6", api = "completions" } },
+  },
+}
+lunar.defaults { provider = "xai", model = "grok-4.6" }
+"#;
+        let loaded = load_path(&write_init(&scratch(), src));
+        let config = loaded.config.unwrap();
+        assert_eq!(config.base_url, "https://api.x.ai/v1");
+        assert_eq!(loaded.notice, None);
+    }
+
+    #[test]
+    fn failing_url_cmd_cannot_send() {
+        let _e = isolate(&[("XAI_API_KEY", "k")]);
+        let src = r#"
+lunar.providers {
+  xai = {
+    base_url = "https://api.x.ai/v1",
+    url_cmd = "exit 9",
+    key_name = "XAI_API_KEY",
+    models = { { id = "grok-4.6", api = "completions" } },
+  },
+}
+lunar.defaults { provider = "xai", model = "grok-4.6" }
+"#;
+        let loaded = load_path(&write_init(&scratch(), src));
+        assert!(loaded.config.is_none());
+        assert_eq!(
+            loaded.notice.as_deref(),
+            Some("xai url_cmd failed with exit status: 9")
+        );
     }
 
     #[test]

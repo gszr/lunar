@@ -63,6 +63,23 @@ lunar.defaults {
 export XAI_API_KEY=...
 ```
 
+Alternatively, obtain the key from a shell command:
+
+```lua
+lunar.providers {
+  xai = {
+    base_url = "https://api.x.ai/v1",
+    url_cmd = "pass lunar/xai-url",
+    key_cmd = "pass my_key",
+    models = {
+      "grok46"
+    },
+  },
+}
+```
+
+`url_cmd` and `key_cmd` run through `sh -c` before the TUI opens, so interactive credential helpers such as GPG pinentry work normally. Lunar trims trailing whitespace from stdout and uses the results as the base URL and key. `url_cmd` takes precedence over `base_url`; `key_cmd` takes precedence over `key_name`.
+
 Or let Lunar store the credential. Use `/login` in the TUI: xAI (subscription via device code, or a masked API key) or OpenAI (ChatGPT Plus/Pro via device code). `/logout xai` and `/logout openai` remove that credential.
 
 ```lua
