@@ -25,7 +25,8 @@ pub fn user_bar(text: &str, width: usize) -> Vec<Line<'static>> {
 const THINK_LINES: usize = 3;
 
 pub fn thinking_preview(text: &str, width: usize) -> Vec<Line<'static>> {
-    let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let plain = markdown_text(text);
+    let flat: String = plain.split_whitespace().collect::<Vec<_>>().join(" ");
     let wrapped = wrap(&flat, width);
     let truncated = wrapped.len() > THINK_LINES;
     let mut visible = if truncated {
@@ -50,6 +51,20 @@ pub fn thinking_preview(text: &str, width: usize) -> Vec<Line<'static>> {
 
 pub fn assistant(text: &str, width: usize) -> Vec<Line<'static>> {
     Markdown::new(width).render(text)
+}
+
+fn markdown_text(text: &str) -> String {
+    let mut plain = String::new();
+    for event in Parser::new_ext(text, Options::ENABLE_STRIKETHROUGH) {
+        match event {
+            Event::Text(text) | Event::Code(text) => plain.push_str(&text),
+            Event::SoftBreak | Event::HardBreak => plain.push(' '),
+            Event::End(TagEnd::Paragraph | TagEnd::Heading(_)) => plain.push(' '),
+            Event::Rule => plain.push_str(" — "),
+            _ => {}
+        }
+    }
+    plain
 }
 
 struct Markdown {
@@ -367,6 +382,18 @@ mod tests {
         let lines = thinking_preview("hello world", 20);
         assert_eq!(lines.len(), 1);
         assert_eq!(line_text(&lines[0]), "hello world");
+    }
+
+    #[test]
+    fn thinking_preview_strips_markdown_syntax() {
+        let lines = thinking_preview("## Result\n**bold** and `code`", 40);
+        assert_eq!(line_text(&lines[0]), "Result bold and code");
+        assert!(
+            lines[0].spans[0]
+                .style
+                .add_modifier
+                .contains(Modifier::ITALIC)
+        );
     }
 
     #[test]
