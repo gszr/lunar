@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{self, TryRecvError};
 
 use crate::app::{App, AuthEvent, AuthPrompt, Message, Mode};
-use crate::protocol::Usage;
+use crate::protocol::{Thinking, Usage};
 use crate::transcript::{invalidate_paint, jump_to_tail};
 use crate::turn::persist_value;
 use crate::view::draw;
@@ -146,9 +146,46 @@ fn logout_provider(app: &mut App, provider: &str, brand: &str) {
     }
 }
 
+pub(crate) fn open_thinking(app: &mut App) {
+    let Some(level) = app.config.as_ref().map(|config| config.thinking) else {
+        app.notice = Some("no model configured".into());
+        return;
+    };
+    app.mode = Mode::Thinking {
+        cursor: match level {
+            Thinking::Off => 0,
+            Thinking::Low => 1,
+            Thinking::Medium => 2,
+            Thinking::High => 3,
+        },
+    };
+}
+
+pub(crate) fn set_thinking(app: &mut App, level: Thinking) -> bool {
+    let Some(config) = &mut app.config else {
+        return false;
+    };
+    app.thinking_override = Some(level);
+    config.thinking = level;
+    if app.mission.is_some() {
+        persist_value(app, &mission::thinking_line(level));
+    }
+    true
+}
+
+fn with_thinking_override(
+    mut config: Option<crate::protocol::Config>,
+    level: Option<Thinking>,
+) -> Option<crate::protocol::Config> {
+    if let (Some(config), Some(level)) = (&mut config, level) {
+        config.thinking = level;
+    }
+    config
+}
+
 pub(crate) fn reload_config(app: &mut App) {
     let loaded = lua::load();
-    app.config = loaded.config.clone();
+    app.config = with_thinking_override(loaded.config.clone(), app.thinking_override);
     app.startup_config = loaded.config;
     app.models = loaded.models;
     if let Some(notice) = loaded.notice {
@@ -209,6 +246,7 @@ pub(crate) fn new_mission(app: &mut App) {
         return;
     }
     app.messages.clear();
+    app.thinking_override = None;
     app.config = app.startup_config.clone();
     invalidate_paint(app);
     app.mission = None;
@@ -265,10 +303,13 @@ pub(crate) fn open_model(app: &mut App) {
 }
 
 pub(crate) fn select_model(app: &mut App, item: lua::ModelChoice, persist: bool) {
-    let Some(config) = item.config else {
+    let Some(mut config) = item.config else {
         app.notice = Some(item.error.unwrap_or_else(|| "model is unavailable".into()));
         return;
     };
+    if let Some(level) = app.thinking_override {
+        config.thinking = level;
+    }
     app.config = Some(config);
     app.notice = Some(format!("model: {} / {}", item.provider, item.id));
     if persist {
@@ -323,7 +364,11 @@ pub(crate) fn resume_prefix(app: &mut App, prefix: &str) {
 pub(crate) fn load_mission(app: &mut App, path: &std::path::Path) {
     match mission::load(path) {
         Ok((loaded, saved)) => {
-            app.config = app.startup_config.clone();
+            app.thinking_override = saved.iter().rev().find_map(|s| match s {
+                mission::Saved::Thinking(level) => Some(*level),
+                _ => None,
+            });
+            app.config = with_thinking_override(app.startup_config.clone(), app.thinking_override);
             let persisted_model = saved.iter().rev().find_map(|s| match s {
                 mission::Saved::Model { provider, id } => Some((provider.clone(), id.clone())),
                 _ => None,
@@ -331,7 +376,7 @@ pub(crate) fn load_mission(app: &mut App, path: &std::path::Path) {
             app.messages = saved
                 .into_iter()
                 .filter_map(|s| match s {
-                    mission::Saved::Model { .. } => None,
+                    mission::Saved::Model { .. } | mission::Saved::Thinking(_) => None,
                     mission::Saved::User(text) => Some(Message::user(text)),
                     mission::Saved::Assistant { text, tool_calls } => {
                         let mut msg = Message::assistant();

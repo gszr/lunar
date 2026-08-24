@@ -9,8 +9,8 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, Ke
 
 use crate::actions::{
     drain_auth, edit_config, load_mission, logout_openai, logout_xai, name_mission, new_mission,
-    open_login, open_model, open_resume, open_xai_login, resume_prefix, save_api_key, select_model,
-    show_mission, start_openai_oauth, start_xai_oauth,
+    open_login, open_model, open_resume, open_thinking, open_xai_login, resume_prefix,
+    save_api_key, select_model, set_thinking, show_mission, start_openai_oauth, start_xai_oauth,
 };
 use crate::app::{App, Mode};
 use crate::history;
@@ -121,6 +121,34 @@ pub(crate) fn on_key(app: &mut App, key: KeyEvent) {
             }
             (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => {
                 insert_input(app, c)
+            }
+            _ => {}
+        }
+        return;
+    }
+    if let Mode::Thinking { cursor } = app.mode {
+        match key.code {
+            KeyCode::Esc => app.mode = Mode::Chat,
+            KeyCode::Left | KeyCode::Up | KeyCode::Char('h' | 'k') => {
+                app.mode = Mode::Thinking {
+                    cursor: cursor.saturating_sub(1),
+                };
+            }
+            KeyCode::Right | KeyCode::Down | KeyCode::Char('l' | 'j') => {
+                app.mode = Mode::Thinking {
+                    cursor: (cursor + 1).min(3),
+                };
+            }
+            KeyCode::Enter => {
+                let level = [
+                    crate::protocol::Thinking::Off,
+                    crate::protocol::Thinking::Low,
+                    crate::protocol::Thinking::Medium,
+                    crate::protocol::Thinking::High,
+                ][cursor];
+                app.mode = Mode::Chat;
+                set_thinking(app, level);
+                app.notice = Some(format!("thinking: {}", level.as_str()));
             }
             _ => {}
         }
@@ -296,7 +324,7 @@ pub(crate) fn submit(app: &mut App) {
         "/quit" | "/q" => app.quit = true,
         "/help" => {
             app.notice = Some(
-                "/quit /new /resume /model /config /login /logout /name /mission /context /help    tab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits"
+                "/quit /new /resume /model /thinking /config /login /logout /name /mission /context /help    tab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits"
                     .into(),
             );
         }
@@ -310,6 +338,19 @@ pub(crate) fn submit(app: &mut App) {
         "/logout openai" => logout_openai(app),
         "/resume" => open_resume(app),
         "/model" => open_model(app),
+        "/thinking" => open_thinking(app),
+        cmd if let Some(raw) = cmd.strip_prefix("/thinking ") => {
+            match crate::protocol::Thinking::parse(raw.trim()) {
+                Some(level) => {
+                    if set_thinking(app, level) {
+                        app.notice = Some(format!("thinking: {}", level.as_str()));
+                    } else {
+                        app.notice = Some("no model configured".into());
+                    }
+                }
+                None => app.notice = Some("usage: /thinking off|low|medium|high".into()),
+            }
+        }
         "/mission" => show_mission(app),
         "/context" => app.notice = Some(prompt::summary()),
         cmd if let Some(name) = cmd.strip_prefix("/name ") => name_mission(app, name),

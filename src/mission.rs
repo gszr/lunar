@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::protocol::ToolCall;
+use crate::protocol::{Thinking, ToolCall};
 
 pub struct Mission {
     pub path: PathBuf,
@@ -112,6 +112,7 @@ pub enum Saved {
         provider: String,
         id: String,
     },
+    Thinking(Thinking),
     User(String),
     Assistant {
         text: String,
@@ -287,6 +288,15 @@ pub fn load(path: &Path) -> io::Result<(Mission, Vec<Saved>)> {
                     });
                 }
             }
+            Some("thinking") => {
+                if let Some(level) = value
+                    .get("level")
+                    .and_then(Value::as_str)
+                    .and_then(Thinking::parse)
+                {
+                    saved.push(Saved::Thinking(level));
+                }
+            }
             Some("user") => {
                 if let Some(text) = value.get("text").and_then(Value::as_str) {
                     saved.push(Saved::User(text.to_string()));
@@ -336,6 +346,10 @@ pub fn load(path: &Path) -> io::Result<(Mission, Vec<Saved>)> {
 
 pub fn model_line(provider: &str, id: &str) -> Value {
     json!({ "type": "model", "provider": provider, "id": id })
+}
+
+pub fn thinking_line(level: Thinking) -> Value {
+    json!({ "type": "thinking", "level": level.as_str() })
 }
 
 pub fn user_line(text: &str) -> Value {
@@ -405,7 +419,7 @@ fn read_meta(path: &Path) -> io::Result<Meta> {
                     .and_then(Value::as_str)
                     .map(str::to_string);
             }
-            Some("user" | "assistant" | "tool" | "model") => break,
+            Some("user" | "assistant" | "tool" | "model" | "thinking") => break,
             _ => {}
         }
     }
@@ -522,6 +536,35 @@ mod tests {
             name: name.map(str::to_string),
             cwd: Some("/work".into()),
         }
+    }
+
+    #[test]
+    fn thinking_round_trips() {
+        let dir = std::env::temp_dir().join(format!(
+            "lunar-mission-thinking-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("2026-08-19-1.jsonl");
+        fs::write(
+            &path,
+            format!(
+                "{}\n{}\n",
+                json!({"type":"header","id":"2026-08-19-1","name":"Thinking"}),
+                thinking_line(Thinking::High)
+            ),
+        )
+        .unwrap();
+        let (_, saved) = load(&path).unwrap();
+        assert!(matches!(
+            saved.as_slice(),
+            [Saved::Thinking(Thinking::High)]
+        ));
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -94,6 +94,7 @@ pub(crate) fn model_picker_height(app: &App) -> u16 {
         Mode::Model { items, .. } => items.len().saturating_add(1).min(u16::MAX as usize) as u16,
         Mode::LoginProvider { .. } => 3,
         Mode::LoginMethod { .. } => 3,
+        Mode::Thinking { .. } => 1,
         _ => 0,
     }
 }
@@ -409,6 +410,10 @@ pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
         );
         return;
     }
+    if let Mode::Thinking { cursor } = app.mode {
+        draw_thinking_editor(frame, area, app, cursor);
+        return;
+    }
     if let Mode::Model { items, cursor } = &app.mode {
         let block = Block::default()
             .borders(Borders::TOP | Borders::BOTTOM)
@@ -464,6 +469,35 @@ pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
     }
 
     draw_editor_input(frame, inner, app);
+}
+
+pub(crate) fn draw_thinking_editor(frame: &mut Frame, area: Rect, app: &App, cursor: usize) {
+    let block = Block::default()
+        .borders(Borders::TOP | Borders::BOTTOM)
+        .border_style(Style::default().fg(splash::DUST));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+    draw_editor_input(frame, chunks[0], app);
+    let mut spans = vec![Span::styled("<-  ", Style::default().fg(splash::ASH))];
+    for (i, level) in ["off", "low", "medium", "high"].iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::raw("   "));
+        }
+        spans.push(Span::styled(
+            *level,
+            Style::default().fg(if i == cursor {
+                splash::GOLD
+            } else {
+                splash::BONE
+            }),
+        ));
+    }
+    spans.push(Span::styled("  ->", Style::default().fg(splash::ASH)));
+    frame.render_widget(Paragraph::new(Line::from(spans)), chunks[1]);
 }
 
 pub(crate) fn draw_auth_editor(frame: &mut Frame, area: Rect, app: &App) {
@@ -552,7 +586,12 @@ pub(crate) fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
     let cwd = Line::from(Span::styled(cwd_label(), Style::default().fg(splash::DUST)));
     let stats = stats_line(app);
     let model = match &app.config {
-        Some(cfg) => format!("({}) {} • {}", cfg.provider(), cfg.model, "off"),
+        Some(cfg) => format!(
+            "({}) {} • {}",
+            cfg.provider(),
+            cfg.model,
+            cfg.thinking.as_str()
+        ),
         None => "no model".into(),
     };
     let stats_row = spread(

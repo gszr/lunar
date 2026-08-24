@@ -16,6 +16,7 @@ pub(crate) struct App {
     pub(crate) messages: Vec<Message>,
     pub(crate) config: Option<Config>,
     pub(crate) startup_config: Option<Config>,
+    pub(crate) thinking_override: Option<crate::protocol::Thinking>,
     pub(crate) models: Vec<lua::ModelChoice>,
     pub(crate) stream_rx: Option<Receiver<StreamEvent>>,
     pub(crate) cancel: Option<Arc<AtomicBool>>,
@@ -86,6 +87,9 @@ pub(crate) enum Mode {
         items: Vec<lua::ModelChoice>,
         cursor: usize,
     },
+    Thinking {
+        cursor: usize,
+    },
 }
 
 pub(crate) struct Message {
@@ -113,6 +117,7 @@ impl App {
             messages: Vec::new(),
             config: loaded.config,
             startup_config,
+            thinking_override: None,
             models: loaded.models,
             stream_rx: None,
             cancel: None,

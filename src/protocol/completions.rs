@@ -13,7 +13,7 @@ use crate::tools;
 use super::http::{collect_tail, parse_usage, post_retry};
 use super::{ChatMessage, Config, StreamEvent, ToolCall};
 
-/// Hard cap on reasoning + answer. grok-4.6 ignores thinking level.
+/// Hard cap on reasoning + answer.
 pub const MAX_TOKENS: u32 = 32_768;
 
 impl ChatMessage {
@@ -179,9 +179,11 @@ fn body(cfg: &Config, messages: &[ChatMessage]) -> String {
     });
     if is_openai_url(&cfg.base_url) {
         body["max_completion_tokens"] = json!(MAX_TOKENS);
-        body["reasoning_effort"] = json!("none");
     } else {
         body["max_tokens"] = json!(MAX_TOKENS);
+    }
+    if cfg.thinking != super::Thinking::Off {
+        body["reasoning_effort"] = json!(cfg.thinking.as_str());
     }
     body.to_string()
 }
@@ -214,11 +216,28 @@ mod tests {
             window: Some(500_000),
             api: Api::Completions,
             auth_provider: None,
+            thinking: super::super::Thinking::Off,
         };
         let body: Value = serde_json::from_str(&body(&cfg, &[])).unwrap();
         assert_eq!(body["max_tokens"], MAX_TOKENS);
         assert_eq!(body["stream"], true);
         assert_eq!(body["model"], "grok-4.6");
+    }
+
+    #[test]
+    fn configured_thinking_sets_reasoning_effort() {
+        let cfg = Config {
+            api_key: "k".into(),
+            base_url: "https://api.x.ai/v1".into(),
+            model: "grok-4.6".into(),
+            provider: "xai".into(),
+            window: None,
+            api: Api::Completions,
+            auth_provider: None,
+            thinking: super::super::Thinking::High,
+        };
+        let parsed: Value = serde_json::from_str(&body(&cfg, &[])).unwrap();
+        assert_eq!(parsed["reasoning_effort"], "high");
     }
 
     #[test]
@@ -231,10 +250,11 @@ mod tests {
             window: None,
             api: Api::Completions,
             auth_provider: None,
+            thinking: super::super::Thinking::Off,
         };
         let parsed: Value = serde_json::from_str(&body(&cfg, &[])).unwrap();
         assert_eq!(parsed["max_completion_tokens"], MAX_TOKENS);
-        assert_eq!(parsed["reasoning_effort"], "none");
+        assert!(parsed.get("reasoning_effort").is_none());
         assert!(parsed.get("max_tokens").is_none());
     }
 }

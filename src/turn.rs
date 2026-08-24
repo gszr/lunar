@@ -202,6 +202,7 @@ pub(crate) fn apply_tool_results(app: &mut App, results: Vec<ToolResult>) {
 }
 
 pub(crate) fn persist_value(app: &mut App, value: &serde_json::Value) {
+    let mut created = false;
     if app.mission.is_none() {
         let name = value
             .get("text")
@@ -209,17 +210,28 @@ pub(crate) fn persist_value(app: &mut App, value: &serde_json::Value) {
             .map(mission::semantic_name)
             .unwrap_or_else(|| "Untitled Mission".into());
         match mission::create(&name) {
-            Ok(m) => app.mission = Some(m),
+            Ok(m) => {
+                app.mission = Some(m);
+                created = true;
+            }
             Err(err) => {
                 app.notice = Some(format!("mission: {err}"));
                 return;
             }
         }
     }
-    if let Some(m) = &app.mission
-        && let Err(err) = mission::append(m, value)
-    {
-        app.notice = Some(format!("mission: {err}"));
+    if let Some(m) = &app.mission {
+        if created
+            && value.get("type").and_then(serde_json::Value::as_str) != Some("thinking")
+            && let Some(level) = app.thinking_override
+            && let Err(err) = mission::append(m, &mission::thinking_line(level))
+        {
+            app.notice = Some(format!("mission: {err}"));
+            return;
+        }
+        if let Err(err) = mission::append(m, value) {
+            app.notice = Some(format!("mission: {err}"));
+        }
     }
 }
 

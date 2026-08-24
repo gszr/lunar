@@ -170,10 +170,20 @@ fn body(cfg: &Config, messages: &[ChatMessage], cache_key: Option<&str>) -> Stri
         "model": cfg.model,
         "stream": true,
         "store": false,
-        "reasoning": { "summary": "auto" },
+        "reasoning": {
+            "summary": "auto",
+            "effort": if cfg.thinking == super::Thinking::Off {
+                Value::Null
+            } else {
+                json!(cfg.thinking.as_str())
+            },
+        },
         "tools": tools::responses_definitions(),
         "input": flatten_input(messages),
     });
+    if cfg.thinking == super::Thinking::Off {
+        value["reasoning"].as_object_mut().unwrap().remove("effort");
+    }
     if let Some(key) = cache_key {
         value["prompt_cache_key"] = json!(key);
     }
@@ -309,6 +319,7 @@ mod tests {
             window: None,
             api: Api::Responses,
             auth_provider: None,
+            thinking: super::super::Thinking::Off,
         }
     }
 
@@ -326,6 +337,14 @@ mod tests {
             responses_url(&cfg),
             "https://chatgpt.com/backend-api/responses"
         );
+    }
+
+    #[test]
+    fn configured_thinking_sets_reasoning_effort() {
+        let mut cfg = sample_cfg();
+        cfg.thinking = super::super::Thinking::Medium;
+        let parsed: Value = serde_json::from_str(&body(&cfg, &[], None)).unwrap();
+        assert_eq!(parsed["reasoning"]["effort"], "medium");
     }
 
     #[test]

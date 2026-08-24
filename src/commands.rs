@@ -44,6 +44,10 @@ pub const COMMANDS: &[Command] = &[
         description: "quit",
     },
     Command {
+        name: "thinking",
+        description: "set reasoning effort: off, low, medium, high",
+    },
+    Command {
         name: "resume",
         description: "pick a mission in this directory",
     },

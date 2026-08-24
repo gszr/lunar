@@ -24,7 +24,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Trust | Project Lua runs only after an explicit trust decision (`trust.json`) |
 | Language | Lua 5.5.1, vendored via `mlua` (`lua55` + `vendored`). Embed this slice |
 | Lua guest API | Host injects `lunar`. `lunar.models { }`, `lunar.providers { }`, and `lunar.defaults { }` are dump-table registrars; last call wins, no merge. **No `lunar.on`** (hook bus is not v0) |
-| Model catalog | Global `lunar.models`: alias → `{ id, window?, api? }`. `id` is the wire string; alias is a Lua name. Provider `models` is an ordered list: string = ref to a global alias, table = local `{ id, window?, api? }`. Missing alias = notice, skip that entry. Missing `id` or unknown `api` = notice, skip that entry. This slice reads **id**, optional **window**, and optional **api**. Omitted `api` is Completions |
+| Model catalog | Global `lunar.models`: alias → `{ id, window?, api?, thinking? }`. `id` is the wire string; alias is a Lua name. Provider `models` is an ordered list: string = ref to a global alias, table = local `{ id, window?, api?, thinking? }`. Missing alias = notice, skip that entry. Missing `id`, unknown `api`, or unknown `thinking` = notice, skip that entry. `thinking` is `off` · `low` · `medium` · `high`; a model value overrides its provider default. Omitted values resolve to `off`. Omitted `api` is Completions |
 | Live model | `lunar.defaults { provider, model }`. `provider` is a providers key; `model` matches that list as alias then wire `id`. Unknown provider or model is an error: notice, glass opens, cannot send. Omitted defaults = today’s env Config. Partial defaults (only one field) = present and invalid, no env fallback. On the Lua path the selected provider must have `url_cmd` or `base_url` unless `key_in = "auth"` and `auth_provider` is `xai` or `openai` (then `https://api.x.ai/v1` or `https://chatgpt.com/backend-api`). Plus `key_cmd` or `key_name` (`key_in = "env"`), or `auth_provider` (`key_in = "auth"`); missing the applicable source = notice, cannot send. `url_cmd` takes precedence over `base_url`, which takes precedence over an auth default. Live `api` `"messages"` is resolve-time refuse: notice, cannot send, entry stays in `/model`. Completions and Responses send. Live Config carries optional `auth_provider` from Lua `key_in = "auth"` (env path leaves it unset). `"openai"` means Codex Responses + JWT account header; Completions on that auth is refuse. Do not sniff `base_url`. Model `window` if set, else the Grok-id guess; `LUNAR_CONTEXT_WINDOW` is env-path only. Footer provider is the providers key |
 | Prompt conventions | CWD `AGENTS.md` + `CONTEXT.md` in full. Skill *summaries* from `.agents/skills/*/SKILL.md`. `~/.agents/skills` later |
 | System prompt | None. Context is a leading user message, snapshotted at each user submit, held for the tool loop, not persisted |
@@ -32,6 +32,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Model protocol | Completions, Responses, and Messages. Selected by model `api`: `"completions"` · `"responses"` · `"messages"`. Case-sensitive, no aliases. Omitted `api` is Completions. Completions and Responses send. Responses stays `store: false`, requests an automatic reasoning summary for the thinking preview, and replays the full converted history each round. When a mission exists, Responses also sends `prompt_cache_key` (mission id, 64 chars max) and Pi affinity headers `session_id` / `x-client-request-id`. No `previous_response_id`. ChatGPT Plus (`auth_provider = "openai"`) is Responses-only: POST `{base_url}/codex/responses` (not `{base_url}/responses`), plus `chatgpt-account-id` decoded from the access JWT at send and refresh (`https://api.openai.com/auth` → `chatgpt_account_id`; missing or empty = notice, cannot send) and `originator: lunar`. No extra `auth.json` field. Completions on that auth is resolve-time refuse. No websocket and no zstd this slice. Messages is not implemented. Env path stays Completions until that path is removed |
 | First brand | xAI. Config is env, not a compiled-in brand |
 | Auth | Env, shell command, or Lunar-managed auth. With `key_in = "env"`, `key_cmd` runs through `sh -c` and supplies the secret, otherwise `key_name` names an env secret. `key_in = "auth"` names a canonical built-in integration with `auth_provider` (`xai` or `openai`) and resolves API-key or OAuth credentials from `~/.lunar/auth.json`. `/login` is a provider picker (`xAI`, `OpenAI`). Enter on xAI opens the existing method picker. Enter on OpenAI starts device-code immediately. `/login xai` opens the xAI method picker. `/login openai` is ChatGPT Plus/Pro subscription OAuth only (no stored platform API key this slice): device-code, same glass as xAI (open URL, show user code, poll, Esc cancels). No browser PKCE and no localhost callback this slice. `/logout xai` / `/logout openai` remove that credential; `/logout` with no argument notices usage. The xAI device flow uses the public client ID distributed by Pi. The OpenAI device flow uses the public Codex client ID distributed by Pi. `LUNAR_API_KEY` / `LUNAR_BASE_URL` / `LUNAR_MODEL` remain the no-Lua path |
+| Thinking | `off` · `low` · `medium` · `high`. `/thinking` opens a one-line `<- off low medium high ->` picker; left/right selects and Enter applies. `/thinking <level>` applies directly. It changes the running Config for the current mission and is appended to that mission’s JSONL; reopening the mission restores its last level. Before the first prompt it is held in memory and written when the mission is created. `/new` returns to the configured default. Lua model value overrides provider default; omitted resolves to `off`. Completions sends `reasoning_effort`, Responses sends `reasoning.effort`; `off` omits effort. Footer shows the live level |
 | TUI | `ratatui` + `crossterm` |
 | Transcript | The current mission. Scrollable: every message in that mission is reachable as painted (tool cards stay 8 lines, thinking stays a 3-line preview). Not a tail-only view. `/resume` switches missions; there is no Session history object |
 | Tools | `read` / `write` / `edit` (`old_string`/`new_string`) / `bash`. Gate = allow. Bash timeout 60s, Esc kills the process group. Bash stdin is null; on Unix the child is a new session so a nested TUI cannot take the glass. Tool results cap 50KB or 2000 lines per result. `read` keeps the head and gives the next offset. `bash` keeps the tail; truncated bash output is saved under `~/.lunar/tool-output/` and the path is included in the result. Files older than seven days are deleted at startup. `finish_reason=length` does not execute tool calls. Calls in one assistant turn run in parallel. Tool loops pause after 50 rounds; submitting `continue` starts a fresh turn |
@@ -90,9 +91,10 @@ lunar.providers {
     -- key_cmd = "pass my_key" -- shell command; takes precedence over key_name
     -- key_in = "env"  -- default if omitted
     -- key_in = "auth", auth_provider = "xai"  -- ~/.lunar/auth.json via /login
+    thinking = "low", -- optional provider default
     models = {
       "grok46",            -- ref: alias → global catalog
-      { id = "grok-4.5", api = "completions" }, -- local def
+      { id = "grok-4.5", api = "completions", thinking = "high" }, -- local def
     },
   },
 }
@@ -105,8 +107,8 @@ lunar.defaults {
 
 - **Provider name** is the table key, not a `name` field.
 - **Alias** is a Lua name (`grok46`). **`id`** is the wire string (`grok-4.6`). Every model def requires `id`; skip that entry if missing. `api` is `"completions"` · `"responses"` · `"messages"`; unknown value = notice, skip that entry (same as missing `id`). Omitted `api` is Completions, not an error.
-- Provider `models` is an **ordered list**. String = ref to a global alias (missing alias = notice, skip). Table = local `{ id, window?, api? }`.
-- This slice honors **`id`**, optional **`window`**, and optional **`api`**. `api` is only on a model def (global catalog or a local listed table). Provider tables and `lunar.defaults` have no `api`. A string ref inherits the alias’s `api`. Omitted `api` is Completions. xAI models set `api` explicitly.
+- Provider `models` is an **ordered list**. String = ref to a global alias (missing alias = notice, skip). Table = local `{ id, window?, api?, thinking? }`.
+- This slice honors **`id`**, optional **`window`**, optional **`api`**, and optional **`thinking`**. `api` is only on a model def. `thinking` may be `off`, `low`, `medium`, or `high` on a model def or provider; the model overrides the provider, and omission resolves to `off`. A string ref inherits the alias’s values. Omitted `api` is Completions. xAI models set `api` explicitly.
 - **`key_name`** is the env var to read when `key_in` is `"env"`. Token never sits in Lua.
 - **`key_cmd`** is an alternative when `key_in` is `"env"`. It runs through `sh -c` at config resolution, before Lunar enters TUI mode, so interactive credential helpers such as GPG pinentry can use the terminal; trailing whitespace is trimmed. Non-zero exit, non-UTF-8 output, or an empty key = notice, cannot send. When both are set, `key_cmd` wins.
 - **`key_in`** defaults to `"env"`. `"env"` reads `key_cmd` or `key_name`; `"auth"` reads `~/.lunar/auth.json` for `auth_provider` (`xai` or `openai`). Any other value = notice, cannot send.
@@ -162,15 +164,15 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 - Missions: `/new` `/resume` `/name` `/mission`, `-c`
 - Token stats + refuse submit when last prompt ≥ window
 - CWD `AGENTS.md` / `CONTEXT.md` + `.agents/skills` summaries as a leading user message, snapshotted per user turn
-- Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/model` `/login` `/logout` `/name` `/mission` `/context`
+- Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/model` `/thinking` `/login` `/logout` `/name` `/mission` `/context`
 - Lua 5.5 embed; user `~/.lunar/init.lua` (`lunar.models` / `lunar.providers` / `lunar.defaults`)
+- Thinking levels: `/thinking off|low|medium|high`; Lua model value overrides provider default; Completions and Responses wire mappings; live level in footer
 
 **Not shipped (still v0 intent)**
 
 - Walk-up discovery, `~/.agents/skills`, skill bodies (only summaries ship)
 - `/reload` `/trust`
 - Messages API (catalog accepts `api`; Completions and Responses send)
-- Thinking level (footer says `off` and it is not wired). grok-4.6 ignores `reasoning_effort`; the `max_tokens` cap is the bound
 - Cost in the footer, git branch, `$` prices
 - `/compact`
 

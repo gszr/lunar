@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use mlua::{Lua, Table, Value};
 
-use crate::protocol::{self, Api, Config};
+use crate::protocol::{self, Api, Config, Thinking};
 
 pub(crate) struct Loaded {
     pub config: Option<Config>,
@@ -247,6 +247,7 @@ fn provider_config(
         window: model.window.or_else(|| protocol::guess_window(&model.id)),
         api: model.api,
         auth_provider,
+        thinking: model.thinking.or(provider.thinking).unwrap_or_default(),
     })
 }
 
@@ -290,6 +291,7 @@ fn resolve_listed(
                     id: def.id.clone(),
                     window: def.window,
                     api: def.api,
+                    thinking: def.thinking,
                 }),
                 None => notices.push(format!("unknown alias: {alias}")),
             },
@@ -298,6 +300,7 @@ fn resolve_listed(
                 id: def.id.clone(),
                 window: def.window,
                 api: def.api,
+                thinking: def.thinking,
             }),
         }
     }
@@ -359,6 +362,7 @@ fn parse_providers(table: &Table) -> (BTreeMap<String, ProviderDef>, Vec<String>
         };
         notices.extend(extra);
         let key_in = field_string(&t, "key_in").unwrap_or_else(|| "env".into());
+        let thinking = parse_thinking(&t, "thinking", &format!("provider {name}"), &mut notices);
         providers.insert(
             name,
             ProviderDef {
@@ -368,6 +372,7 @@ fn parse_providers(table: &Table) -> (BTreeMap<String, ProviderDef>, Vec<String>
                 key_cmd: field_string(&t, "key_cmd"),
                 key_in,
                 auth_provider: field_string(&t, "auth_provider"),
+                thinking,
                 models,
             },
         );
@@ -408,7 +413,40 @@ fn model_def(table: &Table) -> Result<ModelDef, DefError> {
             None => return Err(DefError::UnknownApi(None)),
         },
     };
-    Ok(ModelDef { id, window, api })
+    let thinking = match table.get::<Value>("thinking") {
+        Ok(Value::Nil) | Err(_) => None,
+        Ok(v) => match value_string(&v).and_then(|raw| Thinking::parse(&raw)) {
+            Some(level) => Some(level),
+            None => return Err(DefError::UnknownThinking(value_string(&v))),
+        },
+    };
+    Ok(ModelDef {
+        id,
+        window,
+        api,
+        thinking,
+    })
+}
+
+fn parse_thinking(
+    table: &Table,
+    key: &str,
+    prefix: &str,
+    notices: &mut Vec<String>,
+) -> Option<Thinking> {
+    match table.get::<Value>(key) {
+        Ok(Value::Nil) | Err(_) => None,
+        Ok(value) => match value_string(&value).and_then(|raw| Thinking::parse(&raw)) {
+            Some(level) => Some(level),
+            None => {
+                notices.push(match value_string(&value) {
+                    Some(raw) => format!("{prefix} has unknown thinking: {raw}"),
+                    None => format!("{prefix} has unknown thinking"),
+                });
+                None
+            }
+        },
+    }
 }
 
 fn def_error(prefix: &str, err: DefError) -> String {
@@ -416,6 +454,10 @@ fn def_error(prefix: &str, err: DefError) -> String {
         DefError::NoId => format!("{prefix} has no id"),
         DefError::UnknownApi(Some(raw)) => format!("{prefix} has unknown api: {raw}"),
         DefError::UnknownApi(None) => format!("{prefix} has unknown api"),
+        DefError::UnknownThinking(Some(raw)) => {
+            format!("{prefix} has unknown thinking: {raw}")
+        }
+        DefError::UnknownThinking(None) => format!("{prefix} has unknown thinking"),
     }
 }
 
@@ -494,6 +536,7 @@ struct RawDefaults {
 enum DefError {
     NoId,
     UnknownApi(Option<String>),
+    UnknownThinking(Option<String>),
 }
 
 #[derive(Clone)]
@@ -501,6 +544,7 @@ struct ModelDef {
     id: String,
     window: Option<u32>,
     api: Api,
+    thinking: Option<Thinking>,
 }
 
 struct ProviderDef {
@@ -510,6 +554,7 @@ struct ProviderDef {
     key_cmd: Option<String>,
     key_in: String,
     auth_provider: Option<String>,
+    thinking: Option<Thinking>,
     models: Vec<Listed>,
 }
 
@@ -523,6 +568,7 @@ struct ResolvedModel {
     id: String,
     window: Option<u32>,
     api: Api,
+    thinking: Option<Thinking>,
 }
 
 fn default_auth_base(auth_provider: Option<&str>) -> Option<&'static str> {
@@ -710,6 +756,33 @@ lunar.defaults { provider = "xai", model = "grok-4.5" }
         let cfg = loaded.config.unwrap();
         assert_eq!(cfg.model, "grok-4.5");
         assert_eq!(cfg.window, Some(500_000));
+    }
+
+    #[test]
+    fn model_thinking_overrides_provider_thinking() {
+        let _env = isolate(&[("XAI_API_KEY", "key")]);
+        let dir = scratch();
+        let path = write_init(
+            &dir,
+            r#"
+lunar.models {
+  grok = { id = "grok", thinking = "high" },
+}
+lunar.providers {
+  xai = {
+    base_url = "https://api.x.ai/v1",
+    key_name = "XAI_API_KEY",
+    thinking = "low",
+    models = { "grok", { id = "other" } },
+  },
+}
+lunar.defaults { provider = "xai", model = "grok" }
+"#,
+        );
+        let loaded = load_path(&path);
+        assert_eq!(loaded.config.unwrap().thinking, Thinking::High);
+        let other = loaded.models.iter().find(|m| m.id == "other").unwrap();
+        assert_eq!(other.config.as_ref().unwrap().thinking, Thinking::Low);
     }
 
     #[test]

@@ -88,7 +88,7 @@ mod tests {
     use super::*;
     use crate::app::{Message, Mode};
     use crate::event::{on_key, on_paste};
-    use crate::protocol::{ToolCall, Usage};
+    use crate::protocol::{Api, Config, Thinking, ToolCall, Usage};
     use crate::transcript::painted_lines;
     use crate::transcript::{jump_to_tail, on_mouse};
     use crate::turn::{run_tools_parallel, skipped_truncated};
@@ -106,6 +106,7 @@ mod tests {
             messages: Vec::new(),
             config: None,
             startup_config: None,
+            thinking_override: None,
             models: Vec::new(),
             stream_rx: None,
             cancel: None,
@@ -136,8 +137,79 @@ mod tests {
         }
     }
 
+    fn configured_app() -> App {
+        let mut app = test_app();
+        let config = Config {
+            api_key: "k".into(),
+            base_url: "https://api.x.ai/v1".into(),
+            model: "grok".into(),
+            provider: "xai".into(),
+            window: None,
+            api: Api::Completions,
+            auth_provider: None,
+            thinking: Thinking::Off,
+        };
+        app.config = Some(config.clone());
+        app.startup_config = Some(config);
+        app
+    }
+
     fn key(modifiers: KeyModifiers, code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, modifiers)
+    }
+
+    #[test]
+    fn thinking_without_value_opens_picker_and_selects_with_arrows() {
+        let mut app = configured_app();
+        app.input = "/thinking".into();
+        app.cursor = app.input.len();
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Enter));
+        assert!(matches!(app.mode, Mode::Thinking { cursor: 0 }));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Right));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Right));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Enter));
+        assert!(matches!(app.mode, Mode::Chat));
+        assert_eq!(app.config.unwrap().thinking, Thinking::Medium);
+        assert_eq!(app.thinking_override, Some(Thinking::Medium));
+    }
+
+    #[test]
+    fn reopening_mission_restores_thinking() {
+        let mut app = configured_app();
+        let dir = std::env::temp_dir().join(format!(
+            "lunar-thinking-resume-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("2026-08-19-1.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"header\",\"id\":\"2026-08-19-1\",\"name\":\"Thinking\"}\n",
+                "{\"type\":\"thinking\",\"level\":\"high\"}\n"
+            ),
+        )
+        .unwrap();
+        crate::actions::load_mission(&mut app, &path);
+        assert_eq!(app.thinking_override, Some(Thinking::High));
+        assert_eq!(app.config.unwrap().thinking, Thinking::High);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn thinking_override_does_not_carry_to_new_mission() {
+        let mut app = configured_app();
+        app.input = "/thinking high".into();
+        app.cursor = app.input.len();
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Enter));
+        assert_eq!(app.thinking_override, Some(Thinking::High));
+        crate::actions::new_mission(&mut app);
+        assert_eq!(app.thinking_override, None);
+        assert_eq!(app.config.unwrap().thinking, Thinking::Off);
     }
 
     #[test]
