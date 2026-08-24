@@ -92,6 +92,38 @@ pub(crate) fn history_down(app: &mut App) {
     app.cursor = app.input.len();
 }
 
+pub(crate) fn line_up(s: &str, cursor: usize) -> usize {
+    let cursor = cursor.min(s.len());
+    let line_start = s[..cursor].rfind('\n').map_or(0, |i| i + 1);
+    if line_start == 0 {
+        return cursor;
+    }
+    let column = s[line_start..cursor].chars().count();
+    let previous_end = line_start - 1;
+    let previous_start = s[..previous_end].rfind('\n').map_or(0, |i| i + 1);
+    char_offset(s, previous_start, previous_end, column)
+}
+
+pub(crate) fn line_down(s: &str, cursor: usize) -> usize {
+    let cursor = cursor.min(s.len());
+    let line_start = s[..cursor].rfind('\n').map_or(0, |i| i + 1);
+    let Some(next_start) = s[cursor..].find('\n').map(|i| cursor + i + 1) else {
+        return cursor;
+    };
+    let column = s[line_start..cursor].chars().count();
+    let next_end = s[next_start..]
+        .find('\n')
+        .map_or(s.len(), |i| next_start + i);
+    char_offset(s, next_start, next_end, column)
+}
+
+fn char_offset(s: &str, start: usize, end: usize, column: usize) -> usize {
+    s[start..end]
+        .char_indices()
+        .nth(column)
+        .map_or(end, |(i, _)| start + i)
+}
+
 pub(crate) fn reset_history_navigation(app: &mut App) {
     app.history_cursor = None;
     app.history_draft.clear();

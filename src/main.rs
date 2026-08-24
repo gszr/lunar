@@ -312,6 +312,23 @@ mod tests {
     }
 
     #[test]
+    fn multiline_arrows_move_cursor_in_buffer() {
+        let mut app = test_app();
+        app.history = vec!["previous prompt".into()];
+        app.input = "first\nxy\nthird".into();
+        app.cursor = 8;
+
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Up));
+        assert_eq!(app.input, "first\nxy\nthird");
+        assert_eq!(app.cursor, 2);
+
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Down));
+        assert_eq!(app.cursor, 8);
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Down));
+        assert_eq!(app.cursor, 11);
+    }
+
+    #[test]
     fn up_from_typed_command_walks_history() {
         let mut app = test_app();
         app.history = vec!["previous prompt".into()];

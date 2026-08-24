@@ -15,8 +15,8 @@ use crate::actions::{
 use crate::app::{App, Mode};
 use crate::history;
 use crate::input::{
-    history_down, history_up, insert_input, next_char, on_complete_key, on_search_key, prev_char,
-    reset_history_navigation, start_search, word_left, word_right,
+    history_down, history_up, insert_input, line_down, line_up, next_char, on_complete_key,
+    on_search_key, prev_char, reset_history_navigation, start_search, word_left, word_right,
 };
 use crate::prompt;
 use crate::transcript::{jump_to_tail, on_mouse, page_delta, scroll_by, scroll_home};
@@ -281,6 +281,12 @@ pub(crate) fn on_key(app: &mut App, key: KeyEvent) {
         }
         (_, KeyCode::Home) => app.cursor = 0,
         (_, KeyCode::End) => app.cursor = app.input.len(),
+        (_, KeyCode::Up) if app.input.contains('\n') => {
+            app.cursor = line_up(&app.input, app.cursor);
+        }
+        (_, KeyCode::Down) if app.input.contains('\n') => {
+            app.cursor = line_down(&app.input, app.cursor);
+        }
         (_, KeyCode::Up) => history_up(app),
         (_, KeyCode::Down) => history_down(app),
         (_, KeyCode::Backspace) => {
