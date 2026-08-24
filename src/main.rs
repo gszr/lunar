@@ -201,6 +201,37 @@ mod tests {
     }
 
     #[test]
+    fn reopening_mission_restores_usage() {
+        let mut app = configured_app();
+        let dir = std::env::temp_dir().join(format!(
+            "lunar-usage-resume-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("2026-08-19-1.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"header\",\"id\":\"2026-08-19-1\",\"name\":\"Usage\"}\n",
+                "{\"type\":\"usage\",\"input\":100,\"output\":20,\"cache_read\":80,\"cache_write\":5}\n",
+                "{\"type\":\"usage\",\"input\":30,\"output\":10,\"cache_read\":20,\"cache_write\":2}\n"
+            ),
+        )
+        .unwrap();
+        crate::actions::load_mission(&mut app, &path);
+        assert_eq!(app.usage.input, 130);
+        assert_eq!(app.usage.output, 30);
+        assert_eq!(app.usage.cache_read, 100);
+        assert_eq!(app.usage.cache_write, 7);
+        assert_eq!(app.last_prompt, 52);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn thinking_override_does_not_carry_to_new_mission() {
         let mut app = configured_app();
         app.input = "/thinking high".into();

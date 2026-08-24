@@ -373,10 +373,20 @@ pub(crate) fn load_mission(app: &mut App, path: &std::path::Path) {
                 mission::Saved::Model { provider, id } => Some((provider.clone(), id.clone())),
                 _ => None,
             });
+            let mut usage = Usage::default();
+            let mut last_prompt = 0;
+            for item in &saved {
+                if let mission::Saved::Usage(item_usage) = item {
+                    usage.add(*item_usage);
+                    last_prompt = item_usage.prompt();
+                }
+            }
             app.messages = saved
                 .into_iter()
                 .filter_map(|s| match s {
-                    mission::Saved::Model { .. } | mission::Saved::Thinking(_) => None,
+                    mission::Saved::Model { .. }
+                    | mission::Saved::Thinking(_)
+                    | mission::Saved::Usage(_) => None,
                     mission::Saved::User(text) => Some(Message::user(text)),
                     mission::Saved::Assistant { text, tool_calls } => {
                         let mut msg = Message::assistant();
@@ -391,8 +401,8 @@ pub(crate) fn load_mission(app: &mut App, path: &std::path::Path) {
                 .collect();
             app.mission = Some(loaded);
             invalidate_paint(app);
-            app.usage = Usage::default();
-            app.last_prompt = 0;
+            app.usage = usage;
+            app.last_prompt = last_prompt;
             app.notice = None;
             if let Some((provider, id)) = persisted_model
                 && !restore_model(app, &provider, &id)

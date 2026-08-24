@@ -35,6 +35,11 @@ pub(crate) fn drain_stream(app: &mut App) {
             Ok(StreamEvent::Usage(usage)) => {
                 app.usage.add(usage);
                 app.last_prompt = usage.prompt();
+                if let Some(m) = &app.mission
+                    && let Err(err) = mission::append(m, &mission::usage_line(usage))
+                {
+                    app.notice = Some(format!("mission: {err}"));
+                }
             }
             Ok(other) => {
                 end = Some(other);

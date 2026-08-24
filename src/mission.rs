@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::protocol::{Thinking, ToolCall};
+use crate::protocol::{Thinking, ToolCall, Usage};
 
 pub struct Mission {
     pub path: PathBuf,
@@ -113,6 +113,7 @@ pub enum Saved {
         id: String,
     },
     Thinking(Thinking),
+    Usage(Usage),
     User(String),
     Assistant {
         text: String,
@@ -297,6 +298,14 @@ pub fn load(path: &Path) -> io::Result<(Mission, Vec<Saved>)> {
                     saved.push(Saved::Thinking(level));
                 }
             }
+            Some("usage") => {
+                saved.push(Saved::Usage(Usage {
+                    input: number(&value, "input"),
+                    output: number(&value, "output"),
+                    cache_read: number(&value, "cache_read"),
+                    cache_write: number(&value, "cache_write"),
+                }));
+            }
             Some("user") => {
                 if let Some(text) = value.get("text").and_then(Value::as_str) {
                     saved.push(Saved::User(text.to_string()));
@@ -350,6 +359,16 @@ pub fn model_line(provider: &str, id: &str) -> Value {
 
 pub fn thinking_line(level: Thinking) -> Value {
     json!({ "type": "thinking", "level": level.as_str() })
+}
+
+pub fn usage_line(usage: Usage) -> Value {
+    json!({
+        "type": "usage",
+        "input": usage.input,
+        "output": usage.output,
+        "cache_read": usage.cache_read,
+        "cache_write": usage.cache_write,
+    })
 }
 
 pub fn user_line(text: &str) -> Value {
@@ -429,6 +448,14 @@ fn read_meta(path: &Path) -> io::Result<Meta> {
         name,
         cwd,
     })
+}
+
+fn number(value: &Value, name: &str) -> u32 {
+    value
+        .get(name)
+        .and_then(Value::as_u64)
+        .and_then(|value| value.try_into().ok())
+        .unwrap_or(0)
 }
 
 fn parse_tool_calls(value: &Value) -> Vec<ToolCall> {
