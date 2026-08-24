@@ -34,7 +34,7 @@ export LUNAR_MODEL=grok-4.6
 
 Any OpenAI Chat Completions-compatible endpoint should work.
 
-For lasting configuration, create `~/.lunar/init.lua`. From Lunar, `/config` opens this file with `$VISUAL` or `$EDITOR`, then reloads it when the editor exits:
+For lasting configuration, create `~/.lunar/init.lua`. Copy an example from [`examples/`](examples/), or from Lunar, `/config` opens this file with `$VISUAL` or `$EDITOR`, then reloads it when the editor exits:
 
 ```lua
 return {
