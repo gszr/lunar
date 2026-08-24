@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{self, TryRecvError};
 
-use crate::app::{App, AuthEvent, AuthPrompt, Message, Mode};
+use crate::app::{App, AuthEvent, AuthPrompt, Mode};
 use crate::protocol::{Thinking, Usage};
 use crate::transcript::{invalidate_paint, jump_to_tail};
 use crate::turn::persist_value;
@@ -363,48 +363,16 @@ pub(crate) fn resume_prefix(app: &mut App, prefix: &str) {
 
 pub(crate) fn load_mission(app: &mut App, path: &std::path::Path) {
     match mission::load(path) {
-        Ok((loaded, saved)) => {
-            app.thinking_override = saved.iter().rev().find_map(|s| match s {
-                mission::Saved::Thinking(level) => Some(*level),
-                _ => None,
-            });
-            app.config = with_thinking_override(app.startup_config.clone(), app.thinking_override);
-            let persisted_model = saved.iter().rev().find_map(|s| match s {
-                mission::Saved::Model { provider, id } => Some((provider.clone(), id.clone())),
-                _ => None,
-            });
-            let mut usage = Usage::default();
-            let mut last_prompt = 0;
-            for item in &saved {
-                if let mission::Saved::Usage(item_usage) = item {
-                    usage.add(*item_usage);
-                    last_prompt = item_usage.prompt();
-                }
-            }
-            app.messages = saved
-                .into_iter()
-                .filter_map(|s| match s {
-                    mission::Saved::Model { .. }
-                    | mission::Saved::Thinking(_)
-                    | mission::Saved::Usage(_) => None,
-                    mission::Saved::User(text) => Some(Message::user(text)),
-                    mission::Saved::Assistant { text, tool_calls } => {
-                        let mut msg = Message::assistant();
-                        msg.text = text;
-                        msg.tool_calls = tool_calls;
-                        Some(msg)
-                    }
-                    mission::Saved::Tool { id, title, content } => {
-                        Some(Message::tool(id, title, content))
-                    }
-                })
-                .collect();
-            app.mission = Some(loaded);
+        Ok(loaded) => {
+            app.thinking_override = loaded.thinking;
+            app.config = with_thinking_override(app.startup_config.clone(), loaded.thinking);
+            app.messages = loaded.messages;
+            app.mission = Some(loaded.mission);
             invalidate_paint(app);
-            app.usage = usage;
-            app.last_prompt = last_prompt;
+            app.usage = loaded.usage;
+            app.last_prompt = loaded.last_prompt;
             app.notice = None;
-            if let Some((provider, id)) = persisted_model
+            if let Some((provider, id)) = loaded.model
                 && !restore_model(app, &provider, &id)
             {
                 app.notice = Some(format!(

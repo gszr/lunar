@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
+use crate::app::Message;
 use crate::protocol::{Thinking, ToolCall, Usage};
 
 pub struct Mission {
@@ -107,23 +108,13 @@ fn is_date(value: &str) -> bool {
             .all(|(i, byte)| i == 4 || i == 7 || byte.is_ascii_digit())
 }
 
-pub enum Saved {
-    Model {
-        provider: String,
-        id: String,
-    },
-    Thinking(Thinking),
-    Usage(Usage),
-    User(String),
-    Assistant {
-        text: String,
-        tool_calls: Vec<ToolCall>,
-    },
-    Tool {
-        id: String,
-        title: String,
-        content: String,
-    },
+pub struct Loaded {
+    pub mission: Mission,
+    pub messages: Vec<Message>,
+    pub model: Option<(String, String)>,
+    pub thinking: Option<Thinking>,
+    pub usage: Usage,
+    pub last_prompt: u32,
 }
 
 pub fn home() -> PathBuf {
@@ -246,7 +237,7 @@ pub fn list() -> io::Result<Vec<Meta>> {
     Ok(items)
 }
 
-pub fn load(path: &Path) -> io::Result<(Mission, Vec<Saved>)> {
+pub fn load(path: &Path) -> io::Result<Loaded> {
     let file = File::open(path)?;
     let mut id = path
         .file_stem()
@@ -254,7 +245,11 @@ pub fn load(path: &Path) -> io::Result<(Mission, Vec<Saved>)> {
         .unwrap_or("mission")
         .to_string();
     let mut name = None;
-    let mut saved = Vec::new();
+    let mut messages = Vec::new();
+    let mut model = None;
+    let mut thinking = None;
+    let mut usage = Usage::default();
+    let mut last_prompt = 0;
     for line in BufReader::new(file).lines() {
         let line = line?;
         if line.trim().is_empty() {
@@ -283,10 +278,7 @@ pub fn load(path: &Path) -> io::Result<(Mission, Vec<Saved>)> {
                     value.get("provider").and_then(Value::as_str),
                     value.get("id").and_then(Value::as_str),
                 ) {
-                    saved.push(Saved::Model {
-                        provider: provider.to_string(),
-                        id: id.to_string(),
-                    });
+                    model = Some((provider.to_string(), id.to_string()));
                 }
             }
             Some("thinking") => {
@@ -295,62 +287,68 @@ pub fn load(path: &Path) -> io::Result<(Mission, Vec<Saved>)> {
                     .and_then(Value::as_str)
                     .and_then(Thinking::parse)
                 {
-                    saved.push(Saved::Thinking(level));
+                    thinking = Some(level);
                 }
             }
             Some("usage") => {
-                saved.push(Saved::Usage(Usage {
+                let item = Usage {
                     input: number(&value, "input"),
                     output: number(&value, "output"),
                     cache_read: number(&value, "cache_read"),
                     cache_write: number(&value, "cache_write"),
-                }));
+                };
+                usage.add(item);
+                last_prompt = item.prompt();
             }
             Some("user") => {
                 if let Some(text) = value.get("text").and_then(Value::as_str) {
-                    saved.push(Saved::User(text.to_string()));
+                    messages.push(Message::user(text.to_string()));
                 }
             }
             Some("assistant") => {
-                saved.push(Saved::Assistant {
-                    text: value
-                        .get("text")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string(),
-                    tool_calls: parse_tool_calls(&value["tool_calls"]),
-                });
+                let mut message = Message::assistant();
+                message.text = value
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                message.tool_calls = parse_tool_calls(&value["tool_calls"]);
+                messages.push(message);
             }
             Some("tool") => {
-                saved.push(Saved::Tool {
-                    id: value
+                messages.push(Message::tool(
+                    value
                         .get("id")
                         .and_then(Value::as_str)
                         .unwrap_or("")
                         .to_string(),
-                    title: value
+                    value
                         .get("title")
                         .and_then(Value::as_str)
                         .unwrap_or("tool")
                         .to_string(),
-                    content: value
+                    value
                         .get("content")
                         .and_then(Value::as_str)
                         .unwrap_or("")
                         .to_string(),
-                });
+                ));
             }
             _ => {}
         }
     }
-    Ok((
-        Mission {
+    Ok(Loaded {
+        mission: Mission {
             path: path.to_path_buf(),
             id,
             name,
         },
-        saved,
-    ))
+        messages,
+        model,
+        thinking,
+        usage,
+        last_prompt,
+    })
 }
 
 pub fn model_line(provider: &str, id: &str) -> Value {
@@ -586,11 +584,70 @@ mod tests {
             ),
         )
         .unwrap();
-        let (_, saved) = load(&path).unwrap();
-        assert!(matches!(
-            saved.as_slice(),
-            [Saved::Thinking(Thinking::High)]
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded.thinking, Some(Thinking::High));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn load_replays_runtime_state() {
+        let dir = std::env::temp_dir().join(format!(
+            "lunar-mission-load-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("2026-08-19-1.jsonl");
+        let lines = [
+            json!({"type":"header","id":"2026-08-19-1","name":"Loaded"}),
+            model_line("xai", "grok-old"),
+            thinking_line(Thinking::Low),
+            user_line("hello"),
+            assistant_line("hi", &[]),
+            tool_line("call-1", "read", "contents"),
+            usage_line(Usage {
+                input: 10,
+                output: 2,
+                cache_read: 3,
+                cache_write: 1,
+            }),
+            model_line("openai", "gpt-current"),
+            thinking_line(Thinking::High),
+            usage_line(Usage {
+                input: 20,
+                output: 4,
+                cache_read: 5,
+                cache_write: 2,
+            }),
+        ];
+        fs::write(
+            &path,
+            lines
+                .iter()
+                .map(Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n",
+        )
+        .unwrap();
+
+        let loaded = load(&path).unwrap();
+
+        assert_eq!(loaded.model, Some(("openai".into(), "gpt-current".into())));
+        assert_eq!(loaded.thinking, Some(Thinking::High));
+        assert_eq!(loaded.usage.input, 30);
+        assert_eq!(loaded.usage.output, 6);
+        assert_eq!(loaded.usage.cache_read, 8);
+        assert_eq!(loaded.usage.cache_write, 3);
+        assert_eq!(loaded.last_prompt, 27);
+        assert_eq!(loaded.messages.len(), 3);
+        assert_eq!(loaded.messages[0].text, "hello");
+        assert_eq!(loaded.messages[1].text, "hi");
+        assert_eq!(loaded.messages[2].tool_title, "read");
+        assert_eq!(loaded.messages[2].text, "contents");
         fs::remove_dir_all(dir).unwrap();
     }
 
