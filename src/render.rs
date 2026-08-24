@@ -1,11 +1,12 @@
-//! Transcript paint. User bar, tool cards, light markdown.
+//! Transcript paint. User bar, tool cards, terminal CommonMark.
 
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
 
 use crate::splash;
+
+mod markdown;
 
 const TOOL_PREVIEW: usize = 8;
 
@@ -25,7 +26,7 @@ pub fn user_bar(text: &str, width: usize) -> Vec<Line<'static>> {
 const THINK_LINES: usize = 3;
 
 pub fn thinking_preview(text: &str, width: usize) -> Vec<Line<'static>> {
-    let plain = markdown_text(text);
+    let plain = markdown::plain(text);
     let flat: String = plain.split_whitespace().collect::<Vec<_>>().join(" ");
     let wrapped = wrap(&flat, width);
     let truncated = wrapped.len() > THINK_LINES;
@@ -37,7 +38,7 @@ pub fn thinking_preview(text: &str, width: usize) -> Vec<Line<'static>> {
     if truncated && let Some(first) = visible.first_mut() {
         const ELLIP: &str = "...";
         let max = width.saturating_sub(ELLIP.len());
-        let cut: String = first.chars().take(max).collect();
+        let cut = take_width(first, max);
         *first = format!("{ELLIP}{cut}");
     }
     let style = Style::default()
@@ -50,193 +51,7 @@ pub fn thinking_preview(text: &str, width: usize) -> Vec<Line<'static>> {
 }
 
 pub fn assistant(text: &str, width: usize) -> Vec<Line<'static>> {
-    Markdown::new(width).render(text)
-}
-
-fn markdown_text(text: &str) -> String {
-    let mut plain = String::new();
-    for event in Parser::new_ext(text, Options::ENABLE_STRIKETHROUGH) {
-        match event {
-            Event::Text(text) | Event::Code(text) => plain.push_str(&text),
-            Event::SoftBreak | Event::HardBreak => plain.push(' '),
-            Event::End(TagEnd::Paragraph | TagEnd::Heading(_)) => plain.push(' '),
-            Event::Rule => plain.push_str(" — "),
-            _ => {}
-        }
-    }
-    plain
-}
-
-struct Markdown {
-    width: usize,
-    lines: Vec<Line<'static>>,
-    spans: Vec<Span<'static>>,
-    style: Style,
-    quote_depth: usize,
-    list: Vec<Option<u64>>,
-    link: Vec<String>,
-    code: bool,
-}
-
-impl Markdown {
-    fn new(width: usize) -> Self {
-        Self {
-            width,
-            lines: Vec::new(),
-            spans: Vec::new(),
-            style: Style::default().fg(splash::BONE),
-            quote_depth: 0,
-            list: Vec::new(),
-            link: Vec::new(),
-            code: false,
-        }
-    }
-
-    fn render(mut self, text: &str) -> Vec<Line<'static>> {
-        let parser = Parser::new_ext(text, Options::ENABLE_STRIKETHROUGH);
-        for event in parser {
-            match event {
-                Event::Start(tag) => self.start(tag),
-                Event::End(tag) => self.end(tag),
-                Event::Text(text) => self.text(&text),
-                Event::Code(text) => self.spans.push(Span::styled(
-                    text.into_string(),
-                    self.style.fg(splash::CODE_FG).bg(splash::CODE_BG),
-                )),
-                Event::SoftBreak => self.text(" "),
-                Event::HardBreak => self.flush(),
-                Event::Rule => {
-                    self.flush();
-                    self.text(&"─".repeat(self.width));
-                    self.flush();
-                }
-                _ => {}
-            }
-        }
-        self.flush();
-        self.lines
-    }
-
-    fn start(&mut self, tag: Tag<'_>) {
-        match tag {
-            Tag::Heading { .. } => self.style = self.style.fg(splash::GOLD).bold(),
-            Tag::Emphasis => self.style = self.style.italic(),
-            Tag::Strong => self.style = self.style.bold(),
-            Tag::Strikethrough => self.style = self.style.crossed_out(),
-            Tag::BlockQuote(_) => self.quote_depth += 1,
-            Tag::List(start) => self.list.push(start),
-            Tag::Item => {
-                self.flush();
-                let marker = match self.list.last_mut() {
-                    Some(Some(n)) => {
-                        let marker = format!("{n}. ");
-                        *n += 1;
-                        marker
-                    }
-                    _ => "• ".into(),
-                };
-                self.text(&format!(
-                    "{}{}",
-                    "  ".repeat(self.list.len().saturating_sub(1)),
-                    marker
-                ));
-            }
-            Tag::CodeBlock(_) => {
-                self.flush();
-                self.code = true;
-            }
-            Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. } => {
-                self.link.push(dest_url.into_string())
-            }
-            _ => {}
-        }
-    }
-
-    fn end(&mut self, tag: TagEnd) {
-        match tag {
-            TagEnd::Heading(_) => {
-                self.flush();
-                self.style = Style::default().fg(splash::BONE);
-            }
-            TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => {
-                self.style = Style::default().fg(splash::BONE)
-            }
-            TagEnd::Paragraph | TagEnd::Item => self.flush(),
-            TagEnd::BlockQuote(_) => {
-                self.flush();
-                self.quote_depth = self.quote_depth.saturating_sub(1);
-            }
-            TagEnd::List(_) => {
-                self.flush();
-                self.list.pop();
-            }
-            TagEnd::CodeBlock => {
-                self.flush();
-                self.code = false;
-            }
-            TagEnd::Link | TagEnd::Image => {
-                if let Some(url) = self.link.pop() {
-                    self.spans.push(Span::styled(
-                        format!(" ({url})"),
-                        Style::default().fg(splash::ASH),
-                    ));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn text(&mut self, text: &str) {
-        let style = if self.code {
-            self.style.fg(splash::CODE_FG).bg(splash::CODE_BG)
-        } else if !self.link.is_empty() {
-            self.style.fg(splash::GOLD).underlined()
-        } else {
-            self.style
-        };
-        self.spans.push(Span::styled(text.to_string(), style));
-    }
-
-    fn flush(&mut self) {
-        if self.spans.is_empty() {
-            return;
-        }
-        let prefix = if self.quote_depth > 0 { "│ " } else { "" };
-        let mut pending = vec![Span::styled(
-            prefix.to_string(),
-            Style::default().fg(splash::ASH),
-        )];
-        let mut used = prefix.chars().count();
-        for span in std::mem::take(&mut self.spans) {
-            for word in span.content.split_inclusive(' ') {
-                let len = word.chars().count();
-                if used > prefix.len() && used + len > self.width {
-                    self.push_line(std::mem::take(&mut pending));
-                    pending.push(Span::styled(
-                        prefix.to_string(),
-                        Style::default().fg(splash::ASH),
-                    ));
-                    used = prefix.chars().count();
-                }
-                pending.push(Span::styled(word.to_string(), span.style));
-                used += len;
-            }
-        }
-        if pending.len() > 1 {
-            self.push_line(pending);
-        }
-    }
-
-    fn push_line(&mut self, mut spans: Vec<Span<'static>>) {
-        if self.code {
-            let used: usize = spans.iter().map(|span| display_width(&span.content)).sum();
-            spans.push(Span::styled(
-                " ".repeat(self.width.saturating_sub(used)),
-                Style::default().bg(splash::CODE_BG),
-            ));
-        }
-        self.lines.push(Line::from(spans));
-    }
+    markdown::render(text, width)
 }
 
 pub fn tool_card(title: &str, body: &str, width: usize) -> Vec<Line<'static>> {
@@ -292,6 +107,18 @@ fn pad_spans(mut spans: Vec<Span<'static>>, width: usize, bg: Color) -> Line<'st
 
 fn display_width(text: &str) -> usize {
     UnicodeWidthStr::width(text)
+}
+
+fn take_width(text: &str, width: usize) -> String {
+    text.chars()
+        .scan(0, |used, ch| {
+            let next = *used + unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+            (next <= width).then(|| {
+                *used = next;
+                ch
+            })
+        })
+        .collect()
 }
 
 pub fn wrap(text: &str, width: usize) -> Vec<String> {
@@ -354,6 +181,80 @@ mod tests {
     fn assistant_shows_link_destination() {
         let lines = assistant("read [the docs](https://example.com)", 80);
         assert_eq!(line_text(&lines[0]), "read the docs (https://example.com)");
+    }
+
+    #[test]
+    fn assistant_renders_aligned_tables() {
+        let markdown = "| Name | Count |\n|:-----|------:|\n| 月 | 12 |";
+        let lines = assistant(markdown, 40);
+        let got: Vec<String> = lines.iter().map(line_text).collect();
+        assert_eq!(
+            got,
+            vec![
+                "┌──────┬───────┐",
+                "│ Name │ Count │",
+                "├──────┼───────┤",
+                "│ 月   │    12 │",
+                "└──────┴───────┘",
+            ]
+        );
+        assert!(lines[1].spans.iter().any(|span| {
+            span.style.fg == Some(splash::GOLD) && span.style.add_modifier.contains(Modifier::BOLD)
+        }));
+    }
+
+    #[test]
+    fn assistant_wraps_table_cells_to_fit() {
+        let markdown = "| First | Second |\n|---|---|\n| alpha beta | gamma delta |";
+        let lines = assistant(markdown, 17);
+        assert!(
+            lines
+                .iter()
+                .all(|line| display_width(&line_text(line)) <= 17)
+        );
+        let text = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
+        assert!(text.contains("alph"), "{text}");
+        assert!(text.contains("beta"));
+        assert!(text.contains("gamma"));
+        assert!(text.contains("delta"));
+    }
+
+    #[test]
+    fn assistant_keeps_nested_inline_styles() {
+        let lines = assistant("**bold *both* bold** plain", 80);
+        let spans = &lines[0].spans;
+        let both = spans.iter().find(|span| span.content == "both").unwrap();
+        assert!(both.style.add_modifier.contains(Modifier::BOLD));
+        assert!(both.style.add_modifier.contains(Modifier::ITALIC));
+        let trailing_bold = spans
+            .iter()
+            .rev()
+            .find(|span| span.content.contains("bold"))
+            .unwrap();
+        assert!(trailing_bold.style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn assistant_wraps_wide_and_unbroken_text() {
+        let lines = assistant("日本語 abcdefghij", 6);
+        let got: Vec<String> = lines.iter().map(line_text).collect();
+        assert_eq!(got, vec!["日本語", "abcdef", "ghij"]);
+        assert!(got.iter().all(|line| display_width(line) <= 6));
+    }
+
+    #[test]
+    fn assistant_renders_tasks_images_and_nested_quotes() {
+        let markdown = "- [x] done\n\n> > ![moon](moon.png)";
+        let lines = assistant(markdown, 80);
+        let got: Vec<String> = lines.iter().map(line_text).collect();
+        assert_eq!(got, vec!["• [x] done", "│ │ moon (moon.png)"]);
+    }
+
+    #[test]
+    fn assistant_preserves_fenced_code_lines() {
+        let lines = assistant("```\none\ntwo\n```", 20);
+        let got: Vec<String> = lines.iter().map(line_text).collect();
+        assert_eq!(got, vec!["one                 ", "two                 "]);
     }
 
     #[test]
