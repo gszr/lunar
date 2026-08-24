@@ -34,30 +34,30 @@ export LUNAR_MODEL=grok-4.6
 
 Any OpenAI Chat Completions-compatible endpoint should work.
 
-For lasting configuration, create `~/.lunar/init.lua`. From Lunar, `/config` opens this file with `$VISUAL` or `$EDITOR`, then reloads it when the editor exits. Read the key from the environment:
+For lasting configuration, create `~/.lunar/init.lua`. From Lunar, `/config` opens this file with `$VISUAL` or `$EDITOR`, then reloads it when the editor exits:
 
 ```lua
-lunar.models {
-  grok46 = {
-    id = "grok-4.6",
-    window = 500000,
-    api = "completions",
-  },
-}
-
-lunar.providers {
-  xai = {
-    base_url = "https://api.x.ai/v1",
-    key_name = "XAI_API_KEY",
-    models = {
-      "grok46"
+return {
+  models = {
+    grok46 = {
+      id = "grok-4.6",
+      window = 500000,
+      api = "completions",
     },
   },
-}
 
-lunar.defaults {
-  provider = "xai",
-  model = "grok46",
+  providers = {
+    xai = {
+      base_url = "https://api.x.ai/v1",
+      key_name = "XAI_API_KEY",
+      models = { "grok46" },
+    },
+  },
+
+  defaults = {
+    provider = "xai",
+    model = "grok46",
+  },
 }
 ```
 
@@ -65,67 +65,27 @@ lunar.defaults {
 export XAI_API_KEY=...
 ```
 
-Alternatively, obtain the key from a shell command:
+A provider can use `url_cmd = "pass lunar/xai-url"` instead of `base_url`, and `key_cmd = "pass my_key"` instead of `key_name`. Commands run through `sh -c` before the TUI opens, so interactive credential helpers such as GPG pinentry work normally. Lunar trims trailing whitespace from stdout. `url_cmd` takes precedence over `base_url`; `key_cmd` takes precedence over `key_name`.
+
+Alternatively, let Lunar store the credential. Use `/login` in the TUI: xAI (subscription via device code, or a masked API key) or OpenAI (ChatGPT Plus/Pro via device code). Set `key_in = "auth"` and `auth_provider = "xai"` or `"openai"` on the provider. `/logout xai` and `/logout openai` remove the credential.
+
+ChatGPT Plus/Pro models must set `api = "responses"`. Omitted `base_url` is `https://chatgpt.com/backend-api`; Lunar posts to `{base_url}/codex/responses`:
 
 ```lua
-lunar.providers {
-  xai = {
-    base_url = "https://api.x.ai/v1",
-    url_cmd = "pass lunar/xai-url",
-    key_cmd = "pass my_key",
-    models = {
-      "grok46"
+return {
+  providers = {
+    openai = {
+      key_in = "auth",
+      auth_provider = "openai",
+      models = {
+        { id = "gpt-5.4", api = "responses" },
+      },
     },
   },
-}
-```
-
-`url_cmd` and `key_cmd` run through `sh -c` before the TUI opens, so interactive credential helpers such as GPG pinentry work normally. Lunar trims trailing whitespace from stdout and uses the results as the base URL and key. `url_cmd` takes precedence over `base_url`; `key_cmd` takes precedence over `key_name`.
-
-Or let Lunar store the credential. Use `/login` in the TUI: xAI (subscription via device code, or a masked API key) or OpenAI (ChatGPT Plus/Pro via device code). `/logout xai` and `/logout openai` remove that credential.
-
-```lua
-lunar.models {
-  grok46 = {
-    id = "grok-4.6",
-    window = 500000,
-    api = "completions",
+  defaults = {
+    provider = "openai",
+    model = "gpt-5.4",
   },
-}
-
-lunar.providers {
-  xai = {
-    base_url = "https://api.x.ai/v1",
-    key_in = "auth",
-    auth_provider = "xai",
-    models = {
-      "grok46"
-    },
-  },
-}
-
-lunar.defaults {
-  provider = "xai",
-  model = "grok46",
-}
-```
-
-ChatGPT Plus/Pro uses the same `key_in = "auth"` path with `auth_provider = "openai"`. Models must set `api = "responses"`. Omitted `base_url` is `https://chatgpt.com/backend-api`; Lunar posts to `{base_url}/codex/responses`:
-
-```lua
-lunar.providers {
-  openai = {
-    key_in = "auth",
-    auth_provider = "openai",
-    models = {
-      { id = "gpt-5.4", api = "responses" },
-    },
-  },
-}
-
-lunar.defaults {
-  provider = "openai",
-  model = "gpt-5.4",
 }
 ```
 

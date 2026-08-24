@@ -23,9 +23,9 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Lua load | `~/.lunar/init.lua` this slice (or `$LUNAR_HOME/init.lua`). Trusted `.lunar/init.lua` later. No auto-load directories. Syntax/runtime error = notice, glass opens, no env fallback |
 | Trust | Project Lua runs only after an explicit trust decision (`trust.json`) |
 | Language | Lua 5.5.1, vendored via `mlua` (`lua55` + `vendored`). Embed this slice |
-| Lua guest API | Host injects `lunar`. `lunar.models { }`, `lunar.providers { }`, and `lunar.defaults { }` are dump-table registrars; last call wins, no merge. **No `lunar.on`** (hook bus is not v0) |
-| Model catalog | Global `lunar.models`: alias → `{ id, window?, api?, thinking? }`. `id` is the wire string; alias is a Lua name. Provider `models` is an ordered list: string = ref to a global alias, table = local `{ id, window?, api?, thinking? }`. Missing alias = notice, skip that entry. Missing `id`, unknown `api`, or unknown `thinking` = notice, skip that entry. `thinking` is `off` · `low` · `medium` · `high`; a model value overrides its provider default. Omitted values resolve to `off`. Omitted `api` is Completions |
-| Live model | `lunar.defaults { provider, model }`. `provider` is a providers key; `model` matches that list as alias then wire `id`. Unknown provider or model is an error: notice, glass opens, cannot send. Omitted defaults = today’s env Config. Partial defaults (only one field) = present and invalid, no env fallback. On the Lua path the selected provider must have `url_cmd` or `base_url` unless `key_in = "auth"` and `auth_provider` is `xai` or `openai` (then `https://api.x.ai/v1` or `https://chatgpt.com/backend-api`). Plus `key_cmd` or `key_name` (`key_in = "env"`), or `auth_provider` (`key_in = "auth"`); missing the applicable source = notice, cannot send. `url_cmd` takes precedence over `base_url`, which takes precedence over an auth default. Live `api` `"messages"` is resolve-time refuse: notice, cannot send, entry stays in `/model`. Completions and Responses send. Live Config carries optional `auth_provider` from Lua `key_in = "auth"` (env path leaves it unset). `"openai"` means Codex Responses + JWT account header; Completions on that auth is refuse. Do not sniff `base_url`. Model `window` if set, else the Grok-id guess; `LUNAR_CONTEXT_WINDOW` is env-path only. Footer provider is the providers key |
+| Lua guest API | `init.lua` returns one table containing optional `models`, `providers`, and `defaults` tables. The registrar form does not exist. **No `lunar.on`** (hook bus is not v0) |
+| Model catalog | Top-level `models`: alias → `{ id, window?, api?, thinking? }`. `id` is the wire string; alias is a Lua name. Provider `models` is an ordered list: string = ref to a global alias, table = local `{ id, window?, api?, thinking? }`. Missing alias = notice, skip that entry. Missing `id`, unknown `api`, or unknown `thinking` = notice, skip that entry. `thinking` is `off` · `low` · `medium` · `high`; a model value overrides its provider default. Omitted values resolve to `off`. Omitted `api` is Completions |
+| Live model | Top-level `defaults = { provider, model }`. `provider` is a providers key; `model` matches that list as alias then wire `id`. Unknown provider or model is an error: notice, glass opens, cannot send. Omitted defaults = today’s env Config. Partial defaults (only one field) = present and invalid, no env fallback. On the Lua path the selected provider must have `url_cmd` or `base_url` unless `key_in = "auth"` and `auth_provider` is `xai` or `openai` (then `https://api.x.ai/v1` or `https://chatgpt.com/backend-api`). Plus `key_cmd` or `key_name` (`key_in = "env"`), or `auth_provider` (`key_in = "auth"`); missing the applicable source = notice, cannot send. `url_cmd` takes precedence over `base_url`, which takes precedence over an auth default. Live `api` `"messages"` is resolve-time refuse: notice, cannot send, entry stays in `/model`. Completions and Responses send. Live Config carries optional `auth_provider` from Lua `key_in = "auth"` (env path leaves it unset). `"openai"` means Codex Responses + JWT account header; Completions on that auth is refuse. Do not sniff `base_url`. Model `window` if set, else the Grok-id guess; `LUNAR_CONTEXT_WINDOW` is env-path only. Footer provider is the providers key |
 | Prompt conventions | CWD `AGENTS.md` + `CONTEXT.md` in full. Skill *summaries* from `.agents/skills/*/SKILL.md`. `~/.agents/skills` later |
 | System prompt | None. Context is a leading user message, snapshotted at each user submit, held for the tool loop, not persisted |
 | v0 goal | Daily driver for one user, not ecosystem parity |
@@ -62,7 +62,7 @@ Mission headers persist a short semantic `name` derived locally from the first u
 
 ## Env (no-Lua path)
 
-Used when `~/.lunar/init.lua` is missing, or the file loaded and `lunar.defaults` was never called. Not mixed with a resolved Lua Config.
+Used when `~/.lunar/init.lua` is missing, or the returned table omitted `defaults`. Not mixed with a resolved Lua Config.
 
 | | |
 |---|---|
@@ -76,32 +76,34 @@ Used when `~/.lunar/init.lua` is missing, or the file loaded and `lunar.defaults
 
 ## User `init.lua` (this slice)
 
-Host injects `lunar` and runs `~/.lunar/init.lua` (or `$LUNAR_HOME/init.lua`) once at startup. No project file, no `trust.json`, no `/reload`. `lunar.models { }`, `lunar.providers { }`, and `lunar.defaults { }` are dump-table functions: last call replaces the whole table, no merge. **No `lunar.on`.**
+Host runs `~/.lunar/init.lua` (or `$LUNAR_HOME/init.lua`) once at startup and reads its returned table. No project file, no `trust.json`. The optional top-level fields are `models`, `providers`, and `defaults`; the old registrar form does not exist. **No `lunar.on`.**
 
 ```lua
-lunar.models {
-  grok46 = { id = "grok-4.6", window = 500000, api = "completions" },
-}
+return {
+  models = {
+    grok46 = { id = "grok-4.6", window = 500000, api = "completions" },
+  },
 
-lunar.providers {
-  xai = {
-    base_url = "https://api.x.ai/v1",
-    -- url_cmd = "pass lunar/xai-url" -- shell command; takes precedence over base_url
-    key_name = "XAI_API_KEY",
-    -- key_cmd = "pass my_key" -- shell command; takes precedence over key_name
-    -- key_in = "env"  -- default if omitted
-    -- key_in = "auth", auth_provider = "xai"  -- ~/.lunar/auth.json via /login
-    thinking = "low", -- optional provider default
-    models = {
-      "grok46",            -- ref: alias → global catalog
-      { id = "grok-4.5", api = "completions", thinking = "high" }, -- local def
+  providers = {
+    xai = {
+      base_url = "https://api.x.ai/v1",
+      -- url_cmd = "pass lunar/xai-url" -- shell command; takes precedence over base_url
+      key_name = "XAI_API_KEY",
+      -- key_cmd = "pass my_key" -- shell command; takes precedence over key_name
+      -- key_in = "env", -- default if omitted
+      -- key_in = "auth", auth_provider = "xai", -- ~/.lunar/auth.json via /login
+      thinking = "low", -- optional provider default
+      models = {
+        "grok46", -- ref: alias → global catalog
+        { id = "grok-4.5", api = "completions", thinking = "high" },
+      },
     },
   },
-}
 
-lunar.defaults {
-  provider = "xai",
-  model = "grok46",        -- alias, else wire id in that provider's list
+  defaults = {
+    provider = "xai",
+    model = "grok46", -- alias, else wire id in that provider's list
+  },
 }
 ```
 
@@ -112,7 +114,7 @@ lunar.defaults {
 - **`key_name`** is the env var to read when `key_in` is `"env"`. Token never sits in Lua.
 - **`key_cmd`** is an alternative when `key_in` is `"env"`. It runs through `sh -c` at config resolution, before Lunar enters TUI mode, so interactive credential helpers such as GPG pinentry can use the terminal; trailing whitespace is trimmed. Non-zero exit, non-UTF-8 output, or an empty key = notice, cannot send. When both are set, `key_cmd` wins.
 - **`key_in`** defaults to `"env"`. `"env"` reads `key_cmd` or `key_name`; `"auth"` reads `~/.lunar/auth.json` for `auth_provider` (`xai` or `openai`). Any other value = notice, cannot send.
-- **`lunar.defaults`**: both `provider` and `model` required when the call is present. `model` matches that provider's list as alias, then as wire `id`.
+- **`defaults`**: both `provider` and `model` are required when the table is present. `model` matches that provider's list as alias, then as wire `id`.
 
 **Resolve Config**
 
@@ -120,8 +122,8 @@ lunar.defaults {
 |---|---|
 | No `init.lua` | Env path |
 | File exists, syntax or runtime error | Notice, glass opens, **no env fallback** |
-| File loaded, `lunar.defaults` never called | Env Config (catalog unused) |
-| `lunar.defaults` present, only one field | Present and invalid: notice, cannot send |
+| Returned table omits `defaults` | Env Config (catalog unused) |
+| `defaults` contains only one field | Present and invalid: notice, cannot send |
 | Unknown provider or model | Notice, cannot send |
 | Selected provider missing both `url_cmd` and `base_url` (unless `key_in = "auth"` and `auth_provider` is `xai` or `openai`), both `key_cmd` and `key_name` (`env`), or `auth_provider` (`auth`) | Notice, cannot send |
 | `key_in` not `"env"` or `"auth"`, env lookup empty, `url_cmd` or `key_cmd` fails/returns no value, or no saved auth | Notice, cannot send |
@@ -165,7 +167,7 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 - Token stats + refuse submit when last prompt ≥ window
 - CWD `AGENTS.md` / `CONTEXT.md` + `.agents/skills` summaries as a leading user message, snapshotted per user turn
 - Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/model` `/thinking` `/login` `/logout` `/name` `/mission` `/context`
-- Lua 5.5 embed; user `~/.lunar/init.lua` (`lunar.models` / `lunar.providers` / `lunar.defaults`)
+- Lua 5.5 embed; user `~/.lunar/init.lua` returns `{ models, providers, defaults }`
 - Thinking levels: `/thinking off|low|medium|high`; Lua model value overrides provider default; Completions and Responses wire mappings; live level in footer
 
 **Not shipped (still v0 intent)**

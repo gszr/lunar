@@ -1,10 +1,8 @@
-//! User `~/.lunar/init.lua`. Dump-table registrars; last call wins.
+//! User `~/.lunar/init.lua`. The returned table is the configuration.
 
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
-use std::rc::Rc;
 
 use mlua::{Lua, Table, Value};
 
@@ -48,64 +46,64 @@ fn load_path(path: &Path) -> Loaded {
 }
 
 fn run(path: &Path, src: &str) -> Loaded {
-    let guest = Rc::new(RefCell::new(Guest::default()));
     let lua = Lua::new();
-    if let Err(err) = inject(&lua, &guest).and_then(|()| {
-        lua.load(src)
-            .set_name(format!("@{}", path.display()))
-            .exec()
-    }) {
+    let value = match lua
+        .load(src)
+        .set_name(format!("@{}", path.display()))
+        .eval::<Value>()
+    {
+        Ok(value) => value,
+        Err(err) => {
+            return Loaded {
+                config: None,
+                models: Vec::new(),
+                notice: Some(format!("init.lua: {err}")),
+            };
+        }
+    };
+    let Value::Table(table) = value else {
         return Loaded {
             config: None,
             models: Vec::new(),
-            notice: Some(format!("init.lua: {err}")),
+            notice: Some("init.lua must return a table".into()),
         };
+    };
+    match parse_guest(&table) {
+        Ok(guest) => resolve(&guest),
+        Err(notice) => Loaded {
+            config: None,
+            models: Vec::new(),
+            notice: Some(notice),
+        },
     }
-    resolve(&guest.borrow())
 }
 
-fn inject(lua: &Lua, guest: &Rc<RefCell<Guest>>) -> mlua::Result<()> {
-    let lunar = lua.create_table()?;
-    {
-        let guest = guest.clone();
-        lunar.set(
-            "models",
-            lua.create_function(move |_, table: Table| {
-                let (models, notices) = parse_models(&table);
-                let mut g = guest.borrow_mut();
-                g.models = models;
-                g.model_notices = notices;
-                Ok(())
-            })?,
-        )?;
-    }
-    {
-        let guest = guest.clone();
-        lunar.set(
-            "providers",
-            lua.create_function(move |_, table: Table| {
-                let (providers, notices) = parse_providers(&table);
-                let mut g = guest.borrow_mut();
-                g.providers = providers;
-                g.provider_notices = notices;
-                Ok(())
-            })?,
-        )?;
-    }
-    {
-        let guest = guest.clone();
-        lunar.set(
-            "defaults",
-            lua.create_function(move |_, table: Table| {
-                guest.borrow_mut().defaults = Some(RawDefaults {
-                    provider: field_string(&table, "provider"),
-                    model: field_string(&table, "model"),
-                });
-                Ok(())
-            })?,
-        )?;
-    }
-    lua.globals().set("lunar", lunar)
+fn parse_guest(table: &Table) -> Result<Guest, String> {
+    let (models, model_notices) = match table.get::<Value>("models") {
+        Ok(Value::Table(models)) => parse_models(&models),
+        Ok(Value::Nil) => (BTreeMap::new(), Vec::new()),
+        _ => return Err("init.lua models is not a table".into()),
+    };
+    let (providers, provider_notices) = match table.get::<Value>("providers") {
+        Ok(Value::Table(providers)) => parse_providers(&providers),
+        Ok(Value::Nil) => (BTreeMap::new(), Vec::new()),
+        _ => return Err("init.lua providers is not a table".into()),
+    };
+    let defaults = match table.get::<Value>("defaults") {
+        Ok(Value::Table(defaults)) => Some(RawDefaults {
+            provider: field_string(&defaults, "provider"),
+            model: field_string(&defaults, "model"),
+        }),
+        Ok(Value::Nil) => None,
+        _ => return Err("init.lua defaults is not a table".into()),
+    };
+    Ok(Guest {
+        models,
+        providers,
+        defaults,
+        model_notices,
+        provider_notices,
+    })
 }
 
 fn resolve(guest: &Guest) -> Loaded {
@@ -256,12 +254,12 @@ fn config_from_lua(guest: &Guest, defaults: &RawDefaults) -> Result<(Config, Vec
         .provider
         .as_deref()
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| "lunar.defaults needs provider and model".to_string())?;
+        .ok_or_else(|| "defaults needs provider and model".to_string())?;
     let model_key = defaults
         .model
         .as_deref()
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| "lunar.defaults needs provider and model".to_string())?;
+        .ok_or_else(|| "defaults needs provider and model".to_string())?;
     let provider = guest
         .providers
         .get(provider_key)
@@ -653,11 +651,11 @@ mod tests {
     }
 
     const SAMPLE: &str = r#"
-lunar.models {
+return {
+  models = {
   grok46 = { id = "grok-4.6", window = 500000, api = "completions" },
-}
-
-lunar.providers {
+},
+  providers = {
   xai = {
     base_url = "https://api.x.ai/v1",
     key_name = "XAI_API_KEY",
@@ -666,11 +664,11 @@ lunar.providers {
       { id = "grok-4.5", api = "completions" },
     },
   },
-}
-
-lunar.defaults {
+},
+  defaults = {
   provider = "xai",
   model = "grok46",
+},
 }
 "#;
 
@@ -712,7 +710,9 @@ lunar.defaults {
         ]);
         let path = write_init(
             &scratch(),
-            "lunar.models { grok46 = { id = \"grok-4.6\" } }\n",
+            r#"return {
+  models = { grok46 = { id = "grok-4.6" } },
+}"#,
         );
         let loaded = load_path(&path);
         assert_eq!(loaded.config.unwrap().model, "grok-env");
@@ -743,14 +743,16 @@ lunar.defaults {
     fn model_matches_wire_id() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
-lunar.providers {
+return {
+  providers = {
   xai = {
     base_url = "https://api.x.ai/v1",
     key_name = "XAI_API_KEY",
     models = { { id = "grok-4.5", api = "completions" } },
   },
+},
+  defaults = { provider = "xai", model = "grok-4.5" },
 }
-lunar.defaults { provider = "xai", model = "grok-4.5" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         let cfg = loaded.config.unwrap();
@@ -765,18 +767,20 @@ lunar.defaults { provider = "xai", model = "grok-4.5" }
         let path = write_init(
             &dir,
             r#"
-lunar.models {
+return {
+  models = {
   grok = { id = "grok", thinking = "high" },
-}
-lunar.providers {
+},
+  providers = {
   xai = {
     base_url = "https://api.x.ai/v1",
     key_name = "XAI_API_KEY",
     thinking = "low",
     models = { "grok", { id = "other" } },
   },
+},
+  defaults = { provider = "xai", model = "grok" },
 }
-lunar.defaults { provider = "xai", model = "grok" }
 "#,
         );
         let loaded = load_path(&path);
@@ -789,14 +793,16 @@ lunar.defaults { provider = "xai", model = "grok" }
     fn omitted_api_is_completions_and_can_send() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
-lunar.providers {
+return {
+  providers = {
   xai = {
     base_url = "https://api.x.ai/v1",
     key_name = "XAI_API_KEY",
     models = { { id = "grok-4.5" } },
   },
+},
+  defaults = { provider = "xai", model = "grok-4.5" },
 }
-lunar.defaults { provider = "xai", model = "grok-4.5" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         let cfg = loaded.config.unwrap();
@@ -810,17 +816,19 @@ lunar.defaults { provider = "xai", model = "grok-4.5" }
     fn unknown_api_skips_entry() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
-lunar.models {
+return {
+  models = {
   grok46 = { id = "grok-4.6", api = "chat" },
-}
-lunar.providers {
+},
+  providers = {
   xai = {
     base_url = "https://api.x.ai/v1",
     key_name = "XAI_API_KEY",
     models = { "grok46", { id = "grok-4.5", api = "completions" } },
   },
+},
+  defaults = { provider = "xai", model = "grok46" },
 }
-lunar.defaults { provider = "xai", model = "grok46" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert!(loaded.config.is_none());
@@ -839,18 +847,20 @@ lunar.defaults { provider = "xai", model = "grok46" }
     fn responses_default_resolves() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
-lunar.models {
+return {
+  models = {
   gpt = { id = "gpt-5", api = "responses" },
   grok46 = { id = "grok-4.6", api = "completions" },
-}
-lunar.providers {
+},
+  providers = {
   openai = {
     base_url = "https://api.openai.com/v1",
     key_name = "XAI_API_KEY",
     models = { "gpt", "grok46" },
   },
+},
+  defaults = { provider = "openai", model = "gpt" },
 }
-lunar.defaults { provider = "openai", model = "gpt" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         let cfg = loaded.config.unwrap();
@@ -864,14 +874,16 @@ lunar.defaults { provider = "openai", model = "gpt" }
     fn messages_api_cannot_send() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
-lunar.providers {
+return {
+  providers = {
   anthropic = {
     base_url = "https://api.anthropic.com",
     key_name = "XAI_API_KEY",
     models = { { id = "claude-opus-4", api = "messages" } },
   },
+},
+  defaults = { provider = "anthropic", model = "claude-opus-4" },
 }
-lunar.defaults { provider = "anthropic", model = "claude-opus-4" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert!(loaded.config.is_none());
@@ -885,17 +897,19 @@ lunar.defaults { provider = "anthropic", model = "claude-opus-4" }
     fn string_ref_inherits_catalog_api() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
-lunar.models {
+return {
+  models = {
   grok46 = { id = "grok-4.6", api = "completions" },
-}
-lunar.providers {
+},
+  providers = {
   xai = {
     base_url = "https://api.x.ai/v1",
     key_name = "XAI_API_KEY",
     models = { "grok46" },
   },
+},
+  defaults = { provider = "xai", model = "grok46" },
 }
-lunar.defaults { provider = "xai", model = "grok46" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert_eq!(loaded.config.unwrap().model, "grok-4.6");
@@ -906,10 +920,11 @@ lunar.defaults { provider = "xai", model = "grok46" }
     fn local_def_can_differ_from_catalog() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
-lunar.models {
+return {
+  models = {
   gpt = { id = "gpt-5", api = "responses" },
-}
-lunar.providers {
+},
+  providers = {
   openai = {
     base_url = "https://api.openai.com/v1",
     key_name = "XAI_API_KEY",
@@ -920,8 +935,9 @@ lunar.providers {
     key_name = "XAI_API_KEY",
     models = { { id = "gpt-5", api = "completions" } },
   },
+},
+  defaults = { provider = "proxy", model = "gpt-5" },
 }
-lunar.defaults { provider = "proxy", model = "gpt-5" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         let cfg = loaded.config.unwrap();
@@ -946,16 +962,18 @@ lunar.defaults { provider = "proxy", model = "gpt-5" }
             ("XAI_API_KEY", "k"),
         ]);
         let src = r#"
-lunar.providers {
+return {
+  providers = {
   xai = { base_url = "https://api.x.ai/v1", key_name = "XAI_API_KEY", models = { { id = "grok-4.6", api = "completions" } } },
+},
+  defaults = { provider = "xai" },
 }
-lunar.defaults { provider = "xai" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert!(loaded.config.is_none());
         assert_eq!(
             loaded.notice.as_deref(),
-            Some("lunar.defaults needs provider and model")
+            Some("defaults needs provider and model")
         );
     }
 
@@ -963,7 +981,9 @@ lunar.defaults { provider = "xai" }
     fn unknown_provider() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
-lunar.defaults { provider = "nope", model = "grok-4.6" }
+return {
+  defaults = { provider = "nope", model = "grok-4.6" },
+}
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert!(loaded.config.is_none());
@@ -974,10 +994,12 @@ lunar.defaults { provider = "nope", model = "grok-4.6" }
     fn unknown_model() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
-lunar.providers {
+return {
+  providers = {
   xai = { base_url = "https://api.x.ai/v1", key_name = "XAI_API_KEY", models = { { id = "grok-4.6", api = "completions" } } },
+},
+  defaults = { provider = "xai", model = "missing" },
 }
-lunar.defaults { provider = "xai", model = "missing" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert!(loaded.config.is_none());
@@ -988,10 +1010,12 @@ lunar.defaults { provider = "xai", model = "missing" }
     fn missing_base_url() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
-lunar.providers {
+return {
+  providers = {
   xai = { key_name = "XAI_API_KEY", models = { { id = "grok-4.6", api = "completions" } } },
+},
+  defaults = { provider = "xai", model = "grok-4.6" },
 }
-lunar.defaults { provider = "xai", model = "grok-4.6" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert!(loaded.config.is_none());
@@ -1005,15 +1029,17 @@ lunar.defaults { provider = "xai", model = "grok-4.6" }
     fn url_cmd_supplies_base_url_and_wins() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
-lunar.providers {
+return {
+  providers = {
   xai = {
     base_url = "https://ignored.example",
     url_cmd = "printf 'https://api.x.ai/v1\\n'",
     key_name = "XAI_API_KEY",
     models = { { id = "grok-4.6", api = "completions" } },
   },
+},
+  defaults = { provider = "xai", model = "grok-4.6" },
 }
-lunar.defaults { provider = "xai", model = "grok-4.6" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         let config = loaded.config.unwrap();
@@ -1025,15 +1051,17 @@ lunar.defaults { provider = "xai", model = "grok-4.6" }
     fn failing_url_cmd_cannot_send() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
-lunar.providers {
+return {
+  providers = {
   xai = {
     base_url = "https://api.x.ai/v1",
     url_cmd = "exit 9",
     key_name = "XAI_API_KEY",
     models = { { id = "grok-4.6", api = "completions" } },
   },
+},
+  defaults = { provider = "xai", model = "grok-4.6" },
 }
-lunar.defaults { provider = "xai", model = "grok-4.6" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert!(loaded.config.is_none());
@@ -1047,14 +1075,16 @@ lunar.defaults { provider = "xai", model = "grok-4.6" }
     fn key_cmd_supplies_secret() {
         let _e = isolate(&[]);
         let src = r#"
-lunar.providers {
+return {
+  providers = {
   xai = {
     base_url = "https://api.x.ai/v1",
     key_cmd = "printf 'command-key\\n'",
     models = { { id = "grok-4.6", api = "completions" } },
   },
+},
+  defaults = { provider = "xai", model = "grok-4.6" },
 }
-lunar.defaults { provider = "xai", model = "grok-4.6" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert_eq!(loaded.config.unwrap().api_key, "command-key");
@@ -1065,14 +1095,16 @@ lunar.defaults { provider = "xai", model = "grok-4.6" }
     fn failing_key_cmd_cannot_send() {
         let _e = isolate(&[]);
         let src = r#"
-lunar.providers {
+return {
+  providers = {
   xai = {
     base_url = "https://api.x.ai/v1",
     key_cmd = "exit 7",
     models = { { id = "grok-4.6", api = "completions" } },
   },
+},
+  defaults = { provider = "xai", model = "grok-4.6" },
 }
-lunar.defaults { provider = "xai", model = "grok-4.6" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert!(loaded.config.is_none());
@@ -1086,10 +1118,12 @@ lunar.defaults { provider = "xai", model = "grok-4.6" }
     fn missing_secret() {
         let _e = isolate(&[]);
         let src = r#"
-lunar.providers {
+return {
+  providers = {
   xai = { base_url = "https://api.x.ai/v1", key_name = "XAI_API_KEY", models = { { id = "grok-4.6", api = "completions" } } },
+},
+  defaults = { provider = "xai", model = "grok-4.6" },
 }
-lunar.defaults { provider = "xai", model = "grok-4.6" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert!(loaded.config.is_none());
@@ -1100,15 +1134,17 @@ lunar.defaults { provider = "xai", model = "grok-4.6" }
     fn key_in_must_be_env() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
-lunar.providers {
+return {
+  providers = {
   xai = {
     base_url = "https://api.x.ai/v1",
     key_name = "XAI_API_KEY",
     key_in = "file",
     models = { { id = "grok-4.6", api = "completions" } },
   },
+},
+  defaults = { provider = "xai", model = "grok-4.6" },
 }
-lunar.defaults { provider = "xai", model = "grok-4.6" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert!(loaded.config.is_none());
@@ -1122,14 +1158,16 @@ lunar.defaults { provider = "xai", model = "grok-4.6" }
     fn auth_provider_must_be_builtin() {
         let _e = isolate(&[]);
         let src = r#"
-lunar.providers {
+return {
+  providers = {
   typo = {
     key_in = "auth",
     auth_provider = "opneai",
     models = { { id = "gpt-5.4", api = "responses" } },
   },
+},
+  defaults = { provider = "typo", model = "gpt-5.4" },
 }
-lunar.defaults { provider = "typo", model = "gpt-5.4" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert!(loaded.config.is_none());
@@ -1143,17 +1181,19 @@ lunar.defaults { provider = "typo", model = "gpt-5.4" }
     fn missing_alias_is_skipped() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
-lunar.models {
+return {
+  models = {
   grok46 = { id = "grok-4.6", api = "completions" },
-}
-lunar.providers {
+},
+  providers = {
   xai = {
     base_url = "https://api.x.ai/v1",
     key_name = "XAI_API_KEY",
     models = { "nope", "grok46" },
   },
+},
+  defaults = { provider = "xai", model = "grok46" },
 }
-lunar.defaults { provider = "xai", model = "grok46" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         let cfg = loaded.config.unwrap();
@@ -1162,16 +1202,18 @@ lunar.defaults { provider = "xai", model = "grok46" }
     }
 
     #[test]
-    fn last_call_wins() {
+    fn duplicate_table_keys_use_the_last_value() {
         let _e = isolate(&[("XAI_API_KEY", "k")]);
         let src = r#"
-lunar.models { grok46 = { id = "grok-4.6", api = "completions" } }
-lunar.models { grok45 = { id = "grok-4.5", api = "completions" } }
-lunar.providers {
+return {
+  models = { grok46 = { id = "grok-4.6", api = "completions" } },
+  models = { grok45 = { id = "grok-4.5", api = "completions" } },
+  providers = {
   xai = { base_url = "https://api.x.ai/v1", key_name = "XAI_API_KEY", models = { "grok45" } },
+},
+  defaults = { provider = "xai", model = "grok46" },
+  defaults = { provider = "xai", model = "grok45" },
 }
-lunar.defaults { provider = "xai", model = "grok46" }
-lunar.defaults { provider = "xai", model = "grok45" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert_eq!(loaded.config.unwrap().model, "grok-4.5");
@@ -1192,15 +1234,17 @@ lunar.defaults { provider = "xai", model = "grok45" }
     fn openai_auth_completions_cannot_send() {
         let _e = isolate(&[]);
         let src = r#"
-lunar.providers {
+return {
+  providers = {
   openai = {
     base_url = "https://chatgpt.com/backend-api",
     key_in = "auth",
     auth_provider = "openai",
     models = { { id = "gpt-5.4", api = "completions" } },
   },
+},
+  defaults = { provider = "openai", model = "gpt-5.4" },
 }
-lunar.defaults { provider = "openai", model = "gpt-5.4" }
 "#;
         let loaded = load_path(&write_init(&scratch(), src));
         assert!(loaded.config.is_none());
@@ -1208,6 +1252,32 @@ lunar.defaults { provider = "openai", model = "gpt-5.4" }
             loaded.notice.as_deref(),
             Some("gpt-5.4 uses completions, not implemented")
         );
+    }
+
+    #[test]
+    fn non_table_return_cannot_send() {
+        let _e = isolate(&[
+            ("LUNAR_API_KEY", "env-key"),
+            ("LUNAR_BASE_URL", "https://api.x.ai/v1"),
+            ("LUNAR_MODEL", "grok-env"),
+        ]);
+        let loaded = load_path(&write_init(&scratch(), "return nil\n"));
+        assert!(loaded.config.is_none());
+        assert_eq!(
+            loaded.notice.as_deref(),
+            Some("init.lua must return a table")
+        );
+    }
+
+    #[test]
+    fn registrar_form_is_not_supported() {
+        let _e = isolate(&[]);
+        let loaded = load_path(&write_init(
+            &scratch(),
+            "lunar.models { grok = { id = 'grok' } }\n",
+        ));
+        assert!(loaded.config.is_none());
+        assert!(loaded.notice.unwrap().contains("global 'lunar'"));
     }
 
     #[test]
