@@ -174,7 +174,7 @@ fn body(cfg: &Config, messages: &[ChatMessage]) -> String {
         "model": cfg.model,
         "stream": true,
         "stream_options": { "include_usage": true },
-        "tools": tools::definitions(),
+        "tools": tools::completions_definitions(),
         "messages": messages.iter().map(ChatMessage::to_completions).collect::<Vec<_>>(),
     });
     if is_openai_url(&cfg.base_url) {

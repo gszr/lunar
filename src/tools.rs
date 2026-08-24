@@ -15,9 +15,37 @@ const DEFAULT_READ_LIMIT: usize = MAX_TOOL_LINES;
 const DEFAULT_BASH_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub fn responses_definitions() -> Value {
-    json!([
-        {
-            "type": "function",
+    Value::Array(
+        definitions_list()
+            .into_iter()
+            .map(|mut definition| {
+                definition
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("type".into(), json!("function"));
+                definition
+            })
+            .collect(),
+    )
+}
+
+pub fn completions_definitions() -> Value {
+    Value::Array(
+        definitions_list()
+            .into_iter()
+            .map(|definition| {
+                json!({
+                    "type": "function",
+                    "function": definition,
+                })
+            })
+            .collect(),
+    )
+}
+
+fn definitions_list() -> Vec<Value> {
+    vec![
+        json!({
             "name": "read",
             "description": "Read file contents. Use this instead of cat or sed.",
             "parameters": {
@@ -29,9 +57,8 @@ pub fn responses_definitions() -> Value {
                 },
                 "required": ["path"]
             }
-        },
-        {
-            "type": "function",
+        }),
+        json!({
             "name": "write",
             "description": "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
             "parameters": {
@@ -42,9 +69,8 @@ pub fn responses_definitions() -> Value {
                 },
                 "required": ["path", "content"]
             }
-        },
-        {
-            "type": "function",
+        }),
+        json!({
             "name": "edit",
             "description": "Edit a file by replacing one unique string with another.",
             "parameters": {
@@ -56,9 +82,8 @@ pub fn responses_definitions() -> Value {
                 },
                 "required": ["path", "old_string", "new_string"]
             }
-        },
-        {
-            "type": "function",
+        }),
+        json!({
             "name": "bash",
             "description": "Execute a bash command in the current working directory. Returns stdout and stderr.",
             "parameters": {
@@ -69,75 +94,8 @@ pub fn responses_definitions() -> Value {
                 },
                 "required": ["command"]
             }
-        }
-    ])
-}
-
-pub fn definitions() -> Value {
-    json!([
-        {
-            "type": "function",
-            "function": {
-                "name": "read",
-                "description": "Read file contents. Use this instead of cat or sed.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "Path to the file to read (relative or absolute)" },
-                        "offset": { "type": "integer", "description": "Line number to start reading from (1-indexed)" },
-                        "limit": { "type": "integer", "description": "Maximum number of lines to read" }
-                    },
-                    "required": ["path"]
-                }
-            }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "write",
-                "description": "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "Path to the file to write (relative or absolute)" },
-                        "content": { "type": "string", "description": "Content to write to the file" }
-                    },
-                    "required": ["path", "content"]
-                }
-            }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "edit",
-                "description": "Edit a file by replacing one unique string with another.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "Path to the file to edit (relative or absolute)" },
-                        "old_string": { "type": "string", "description": "Exact text to find. Must appear exactly once." },
-                        "new_string": { "type": "string", "description": "Replacement text." }
-                    },
-                    "required": ["path", "old_string", "new_string"]
-                }
-            }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "bash",
-                "description": "Execute a bash command in the current working directory. Returns stdout and stderr.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "command": { "type": "string", "description": "Bash command to execute" },
-                        "timeout": { "type": "integer", "description": "Timeout in seconds (optional)" }
-                    },
-                    "required": ["command"]
-                }
-            }
-        }
-    ])
+        }),
+    ]
 }
 
 pub struct ToolOut {
@@ -554,6 +512,28 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::thread;
+
+    #[test]
+    fn protocol_definitions_share_the_same_tools() {
+        let completions = completions_definitions();
+        let responses = responses_definitions();
+        let completions = completions.as_array().unwrap();
+        let responses = responses.as_array().unwrap();
+
+        assert_eq!(completions.len(), 4);
+        assert_eq!(responses.len(), 4);
+        for (completion, response) in completions.iter().zip(responses) {
+            assert_eq!(completion["type"], "function");
+            assert_eq!(response["type"], "function");
+            assert_eq!(completion["function"]["name"], response["name"]);
+            assert_eq!(
+                completion["function"]["description"],
+                response["description"]
+            );
+            assert_eq!(completion["function"]["parameters"], response["parameters"]);
+            assert!(response.get("function").is_none());
+        }
+    }
 
     #[test]
     fn bash_stdin_is_not_a_tty() {
