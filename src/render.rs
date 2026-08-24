@@ -55,7 +55,9 @@ pub fn assistant(text: &str, width: usize) -> Vec<Line<'static>> {
 }
 
 pub fn tool_card(title: &str, body: &str, width: usize) -> Vec<Line<'static>> {
-    let (name, rest) = title.split_once(' ').unwrap_or((title, ""));
+    let title = strip_ansi(title);
+    let body = strip_ansi(body);
+    let (name, rest) = title.split_once(' ').unwrap_or((&title, ""));
     let mut lines = Vec::new();
     lines.push(title_line(name, rest, width));
 
@@ -107,6 +109,37 @@ fn pad_spans(mut spans: Vec<Span<'static>>, width: usize, bg: Color) -> Line<'st
 
 fn display_width(text: &str) -> usize {
     UnicodeWidthStr::width(text)
+}
+
+fn strip_ansi(text: &str) -> String {
+    let mut clean = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\u{1b}' {
+            clean.push(ch);
+            continue;
+        }
+        match chars.next() {
+            Some('[') => {
+                for ch in chars.by_ref() {
+                    if ('@'..='~').contains(&ch) {
+                        break;
+                    }
+                }
+            }
+            Some(']') => {
+                let mut esc = false;
+                for ch in chars.by_ref() {
+                    if ch == '\u{7}' || (esc && ch == '\\') {
+                        break;
+                    }
+                    esc = ch == '\u{1b}';
+                }
+            }
+            Some(_) | None => {}
+        }
+    }
+    clean
 }
 
 fn take_width(text: &str, width: usize) -> String {
@@ -268,6 +301,25 @@ mod tests {
                 .sum();
             assert_eq!(width, 12);
         }
+    }
+
+    #[test]
+    fn tool_card_strips_ansi_sequences_before_painting() {
+        let lines = tool_card(
+            "bash printf color",
+            "\u{1b}[36;1mcolored\u{1b}[0m plain\n\u{1b}]8;;https://example.com\u{7}link\u{1b}]8;;\u{7}",
+            20,
+        );
+        let got: Vec<String> = lines.iter().map(line_text).collect();
+        assert_eq!(got[1].trim_end(), "colored plain");
+        assert_eq!(got[2].trim_end(), "link");
+        assert!(got.iter().all(|line| !line.contains('\u{1b}')));
+        assert!(
+            lines
+                .iter()
+                .flat_map(|line| &line.spans)
+                .all(|span| { span.style.bg == Some(splash::TOOL_BG) })
+        );
     }
 
     #[test]
