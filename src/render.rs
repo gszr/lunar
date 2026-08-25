@@ -55,8 +55,8 @@ pub fn assistant(text: &str, width: usize) -> Vec<Line<'static>> {
 }
 
 pub fn tool_card(title: &str, body: &str, width: usize) -> Vec<Line<'static>> {
-    let title = strip_ansi(title);
-    let body = strip_ansi(body);
+    let title = sanitize_terminal_text(title);
+    let body = sanitize_terminal_text(body);
     let (name, rest) = title.split_once(' ').unwrap_or((&title, ""));
     let mut lines = Vec::new();
     lines.push(title_line(name, rest, width));
@@ -111,35 +111,58 @@ fn display_width(text: &str) -> usize {
     UnicodeWidthStr::width(text)
 }
 
-fn strip_ansi(text: &str) -> String {
+fn sanitize_terminal_text(text: &str) -> String {
     let mut clean = String::with_capacity(text.len());
-    let mut chars = text.chars();
+    let mut chars = text.chars().peekable();
     while let Some(ch) = chars.next() {
-        if ch != '\u{1b}' {
-            clean.push(ch);
-            continue;
-        }
-        match chars.next() {
-            Some('[') => {
-                for ch in chars.by_ref() {
-                    if ('@'..='~').contains(&ch) {
-                        break;
-                    }
+        match ch {
+            '\u{1b}' => match chars.next() {
+                Some('[') => skip_csi(&mut chars),
+                Some(']') | Some('P') | Some('X') | Some('^') | Some('_') => {
+                    skip_string_escape(&mut chars)
+                }
+                Some(_) | None => {}
+            },
+            '\u{9b}' => skip_csi(&mut chars),
+            '\u{90}' | '\u{98}' | '\u{9d}' | '\u{9e}' | '\u{9f}' => skip_string_escape(&mut chars),
+            // GitHub logs and similar output sometimes escape ESC as the literal
+            // characters "^[[" instead of preserving the control byte.
+            '^' if chars.peek() == Some(&'[') => {
+                chars.next();
+                if chars.peek() == Some(&'[') {
+                    chars.next();
+                    skip_csi(&mut chars);
+                } else {
+                    clean.push('^');
+                    clean.push('[');
                 }
             }
-            Some(']') => {
-                let mut esc = false;
-                for ch in chars.by_ref() {
-                    if ch == '\u{7}' || (esc && ch == '\\') {
-                        break;
-                    }
-                    esc = ch == '\u{1b}';
-                }
-            }
-            Some(_) | None => {}
+            '\u{feff}' => {}
+            '\n' => clean.push('\n'),
+            '\t' => clean.push_str("    "),
+            ch if ch.is_control() => {}
+            _ => clean.push(ch),
         }
     }
     clean
+}
+
+fn skip_csi(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+    for ch in chars.by_ref() {
+        if ('@'..='~').contains(&ch) {
+            break;
+        }
+    }
+}
+
+fn skip_string_escape(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+    let mut esc = false;
+    for ch in chars.by_ref() {
+        if ch == '\u{7}' || (esc && ch == '\\') {
+            break;
+        }
+        esc = ch == '\u{1b}';
+    }
 }
 
 fn take_width(text: &str, width: usize) -> String {
@@ -342,16 +365,20 @@ mod tests {
     }
 
     #[test]
-    fn tool_card_strips_ansi_sequences_before_painting() {
+    fn tool_card_sanitizes_terminal_sequences_before_painting() {
         let lines = tool_card(
             "bash printf color",
-            "\u{1b}[36;1mcolored\u{1b}[0m plain\n\u{1b}]8;;https://example.com\u{7}link\u{1b}]8;;\u{7}",
+            "\u{feff}\u{1b}[36;1mcolored\u{1b}[0m plain\n^[[36;1mliteral color^[[0m\n\u{9b}31mC1 color\u{9b}0m\n\u{1b}]8;;https://example.com\u{7}link\u{1b}]8;;\u{7}",
             20,
         );
         let got: Vec<String> = lines.iter().map(line_text).collect();
         assert_eq!(got[1].trim_end(), "colored plain");
-        assert_eq!(got[2].trim_end(), "link");
+        assert_eq!(got[2].trim_end(), "literal color");
+        assert_eq!(got[3].trim_end(), "C1 color");
+        assert_eq!(got[4].trim_end(), "link");
         assert!(got.iter().all(|line| !line.contains('\u{1b}')));
+        assert!(got.iter().all(|line| !line.contains("^[[")));
+        assert!(got.iter().all(|line| !line.contains('\u{feff}')));
         assert!(
             lines
                 .iter()
