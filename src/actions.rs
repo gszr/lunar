@@ -207,7 +207,7 @@ pub(crate) fn edit_config(app: &mut App) {
         return;
     };
 
-    let path = mission::home().join("init.lua");
+    let path = crate::storage::control("init.lua");
     if let Some(parent) = path.parent()
         && let Err(err) = std::fs::create_dir_all(parent)
     {

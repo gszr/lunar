@@ -13,6 +13,7 @@ mod prompt;
 mod protocol;
 mod render;
 mod splash;
+mod storage;
 mod terminal;
 mod tool_output;
 mod tools;
@@ -37,10 +38,17 @@ fn main() -> io::Result<()> {
             std::process::exit(2);
         }
     };
+    let migration_errors = storage::migrate();
     tool_output::cleanup();
     let loaded = lua::load();
     let mut terminal = terminal::Terminal::init();
     let mut app = App::new(loaded);
+    if app.notice.is_none() && !migration_errors.is_empty() {
+        app.notice = Some(format!(
+            "storage migration: {}",
+            migration_errors.join("; ")
+        ));
+    }
     if open.debug
         && let Err(err) = debug::enable()
     {

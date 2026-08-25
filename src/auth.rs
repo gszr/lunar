@@ -1,4 +1,4 @@
-//! Lunar-managed credentials in `$LUNAR_HOME/auth.json`.
+//! Lunar-managed credentials in `$LUNAR_HOME/recorder/auth.json`.
 
 mod http;
 mod openai;

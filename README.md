@@ -24,7 +24,7 @@ cargo install --git https://github.com/gszr/lunar
 
 ## Configure
 
-Configure Lunar with `~/.lunar/init.lua`. A project can override model aliases and providers by key, and optionally replace `defaults`, in `.lunar/init.lua`. Copy an example from [`examples/`](examples/), or from Lunar, `/config` opens the user file with `$VISUAL` or `$EDITOR`, then reloads both files when the editor exits:
+Configure Lunar with `~/.lunar/control/init.lua`. A project can override model aliases and providers by key, and optionally replace `defaults`, in `.lunar/init.lua`. Copy an example from [`examples/`](examples/), or from Lunar, `/config` opens the user file with `$VISUAL` or `$EDITOR`, then reloads both files when the editor exits:
 
 ```lua
 return {

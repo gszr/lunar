@@ -19,8 +19,8 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Product shape | Pi-shaped: Rust is the program, Lua is a guest |
 | Workflow in the binary | None |
 | Extension model | Slots (replaceable parts). Hook bus does **not** ship in v0. S only for now |
-| Config | User `~/.lunar/init.lua`, overridden by CWD `.lunar/init.lua`. No model configuration via `LUNAR_*`. `LUNAR_HOME` and `LUNAR_PROMPT_BUDGET` stay env |
-| Lua load | `~/.lunar/init.lua`, then CWD `.lunar/init.lua` (or `$LUNAR_HOME/init.lua` for user config). No auto-load directories. Syntax/runtime error in either = notice, glass opens, cannot send |
+| Config | User `~/.lunar/control/init.lua`, overridden by CWD `.lunar/init.lua`. No model configuration via `LUNAR_*`. `LUNAR_HOME` and `LUNAR_PROMPT_BUDGET` stay env. On startup, legacy root files move into `control/` and `recorder/`; existing destinations are not overwritten, directory contents merge around conflicts, and unresolved legacy paths remain readable |
+| Lua load | `~/.lunar/control/init.lua`, then CWD `.lunar/init.lua` (or `$LUNAR_HOME/control/init.lua` for user config). No auto-load directories. Syntax/runtime error in either = notice, glass opens, cannot send |
 | Trust | Not implemented. Project `.lunar/init.lua` runs automatically this slice |
 | Language | Lua 5.5.1, vendored via `mlua` (`lua55` + `vendored`). Embed this slice |
 | Lua guest API | `init.lua` returns one table containing optional `models`, `providers`, and `defaults` tables. The registrar form does not exist. **No `lunar.on`** (hook bus is not v0) |
@@ -31,11 +31,11 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | v0 goal | Daily driver for one user, not ecosystem parity |
 | Model protocol | Completions, Responses, and Messages. Selected by model `api`: `"completions"` · `"responses"` · `"messages"`. Case-sensitive, no aliases. Omitted `api` is Completions. Completions and Responses send. Responses stays `store: false`, requests an automatic reasoning summary for the thinking preview, and replays the full converted history each round. When a mission exists, Responses also sends `prompt_cache_key` (mission id, 64 chars max) and Pi affinity headers `session_id` / `x-client-request-id`. No `previous_response_id`. ChatGPT Plus (`auth_provider = "openai"`) is Responses-only: POST `{base_url}/codex/responses` (not `{base_url}/responses`), plus `chatgpt-account-id` decoded from the access JWT at send and refresh (`https://api.openai.com/auth` → `chatgpt_account_id`; missing or empty = notice, cannot send) and `originator: lunar`. No extra `auth.json` field. Completions on that auth is resolve-time refuse. No websocket and no zstd this slice. Messages is not implemented |
 | First brand | xAI. No provider is compiled into configuration |
-| Auth | Env named by Lua, shell command, Lunar-managed auth, or none. With `key_in = "env"`, `key_cmd` runs through `sh -c` and supplies the secret, otherwise `key_name` names an env secret. `key_in = "auth"` names a canonical built-in integration with `auth_provider` (`xai` or `openai`) and resolves API-key or OAuth credentials from `~/.lunar/auth.json`. `key_in = "none"` sends no Authorization header and requires an explicit `base_url`; `key_name`, `key_cmd`, and `auth_provider` are ignored. `/login` is a provider picker (`xAI`, `OpenAI`). Enter on xAI opens the existing method picker. Enter on OpenAI starts device-code immediately. `/login xai` opens the xAI method picker. `/login openai` is ChatGPT Plus/Pro subscription OAuth only (no stored platform API key this slice): device-code, same glass as xAI (open URL, show user code, poll, Esc cancels). No browser PKCE and no localhost callback this slice. `/logout xai` / `/logout openai` remove that credential; `/logout` with no argument notices usage. The xAI device flow uses the public client ID distributed by Pi. The OpenAI device flow uses the public Codex client ID distributed by Pi |
+| Auth | Env named by Lua, shell command, Lunar-managed auth, or none. With `key_in = "env"`, `key_cmd` runs through `sh -c` and supplies the secret, otherwise `key_name` names an env secret. `key_in = "auth"` names a canonical built-in integration with `auth_provider` (`xai` or `openai`) and resolves API-key or OAuth credentials from `~/.lunar/recorder/auth.json`. `key_in = "none"` sends no Authorization header and requires an explicit `base_url`; `key_name`, `key_cmd`, and `auth_provider` are ignored. `/login` is a provider picker (`xAI`, `OpenAI`). Enter on xAI opens the existing method picker. Enter on OpenAI starts device-code immediately. `/login xai` opens the xAI method picker. `/login openai` is ChatGPT Plus/Pro subscription OAuth only (no stored platform API key this slice): device-code, same glass as xAI (open URL, show user code, poll, Esc cancels). No browser PKCE and no localhost callback this slice. `/logout xai` / `/logout openai` remove that credential; `/logout` with no argument notices usage. The xAI device flow uses the public client ID distributed by Pi. The OpenAI device flow uses the public Codex client ID distributed by Pi |
 | Thinking | `off` · `low` · `medium` · `high`. `/thinking` opens a one-line `<- off low medium high ->` picker; left/right selects and Enter applies. `/thinking <level>` applies directly. It changes the running Config for the current mission and is appended to that mission’s JSONL; reopening the mission restores its last level. Before the first prompt it is held in memory and written when the mission is created. `/new` returns to the configured default. Lua model value overrides provider default; omitted resolves to `off`. Completions sends `reasoning_effort`, Responses sends `reasoning.effort`; `off` omits effort. Footer shows the live level |
 | TUI | `ratatui` + `crossterm` |
 | Transcript | The current mission. Scrollable: every message in that mission is reachable as painted (tool cards stay 8 lines, thinking stays a 3-line preview). Not a tail-only view. `/resume` switches missions; there is no Session history object |
-| Tools | `read` / `write` / `edit` (`old_string`/`new_string`) / `bash`. Gate = allow. Bash timeout 60s, Esc kills the process group. Bash stdin is null; on Unix the child is a new session so a nested TUI cannot take the glass. Tool results cap 50KB or 2000 lines per result. `read` keeps the head and gives the next offset. `bash` keeps the tail; truncated bash output is saved under `~/.lunar/tool-output/` and the path is included in the result. Files older than seven days are deleted at startup. `finish_reason=length` does not execute tool calls. Calls in one assistant turn run in parallel. Tool loops pause after 50 rounds; submitting `continue` starts a fresh turn |
+| Tools | `read` / `write` / `edit` (`old_string`/`new_string`) / `bash`. Gate = allow. Bash timeout 60s, Esc kills the process group. Bash stdin is null; on Unix the child is a new session so a nested TUI cannot take the glass. Tool results cap 50KB or 2000 lines per result. `read` keeps the head and gives the next offset. `bash` keeps the tail; truncated bash output is saved under `~/.lunar/recorder/tool-output/` and the path is included in the result. Files older than seven days are deleted at startup. `finish_reason=length` does not execute tool calls. Calls in one assistant turn run in parallel. Tool loops pause after 50 rounds; submitting `continue` starts a fresh turn |
 | Missions | Linear append-only jsonl. Not a tree. Not Pi-compatible. Each model usage result is appended; reopening sums the mission totals for the footer and restores the latest prompt size |
 | Full context | Warn and refuse submit. No auto-compact. `/compact` only after this hurts |
 | Entry | `lunar` always opens the TUI. No print mode in v0 |
@@ -45,14 +45,17 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 
 ```
 ~/.lunar/                    # or $LUNAR_HOME
-  missions/                  # flat; cwd is in the jsonl header
-    2026-08-19-1.jsonl       # date-local N, monotonic for the day
-  init.lua                   # user setup; this slice
-  lua/
-  trust.json                 # not used yet
-  auth.json                  # Lunar-managed API keys and OAuth tokens
-  debug.log                  # model HTTP traffic when started with --debug
-  tool-output/               # full truncated bash output; 7-day startup cleanup
+  control/                   # user-authored Lua
+    init.lua                 # user setup; this slice
+    lua/
+  recorder/                  # Lunar-owned files
+    missions/                # flat; cwd is in the jsonl header
+      2026-08-19-1.jsonl     # date-local N, monotonic for the day
+    trust.json               # not used yet
+    auth.json                # Lunar-managed API keys and OAuth tokens
+    debug.log                # model HTTP traffic when started with --debug
+    history.jsonl            # submitted-line history
+    tool-output/             # full truncated bash output; 7-day startup cleanup
 
 .lunar/
   init.lua                   # project config overrides
@@ -71,7 +74,7 @@ Model configuration lives in `init.lua`. These host settings remain environment 
 
 ## User and project `init.lua`
 
-Host runs `~/.lunar/init.lua` (or `$LUNAR_HOME/init.lua`) and then CWD `.lunar/init.lua` once at startup. Both return the same shape. Project `models` and `providers` replace matching user entries by key while unmatched user entries remain. Project `defaults`, when present, replaces user `defaults`; when omitted, user defaults remain. There is no trust check this slice. The optional top-level fields are `models`, `providers`, and `defaults`; the old registrar form does not exist. **No `lunar.on`.**
+Host runs `~/.lunar/control/init.lua` (or `$LUNAR_HOME/control/init.lua`) and then CWD `.lunar/init.lua` once at startup. Both return the same shape. Project `models` and `providers` replace matching user entries by key while unmatched user entries remain. Project `defaults`, when present, replaces user `defaults`; when omitted, user defaults remain. There is no trust check this slice. The optional top-level fields are `models`, `providers`, and `defaults`; the old registrar form does not exist. **No `lunar.on`.**
 
 ```lua
 return {
@@ -86,7 +89,7 @@ return {
       key_name = "XAI_API_KEY",
       -- key_cmd = "pass my_key" -- shell command; takes precedence over key_name
       -- key_in = "env", -- default if omitted
-      -- key_in = "auth", auth_provider = "xai", -- ~/.lunar/auth.json via /login
+      -- key_in = "auth", auth_provider = "xai", -- ~/.lunar/recorder/auth.json via /login
       thinking = "low", -- optional provider default
       models = {
         "grok46", -- ref: alias → global catalog
@@ -108,7 +111,7 @@ return {
 - This slice honors **`id`**, optional **`window`**, optional **`api`**, and optional **`thinking`**. `api` is only on a model def. `thinking` may be `off`, `low`, `medium`, or `high` on a model def or provider; the model overrides the provider, and omission resolves to `off`. A string ref inherits the alias’s values. Omitted `api` is Completions. xAI models set `api` explicitly.
 - **`key_name`** is the env var to read when `key_in` is `"env"`. Token never sits in Lua.
 - **`key_cmd`** is an alternative when `key_in` is `"env"`. It runs through `sh -c` at config resolution, before Lunar enters TUI mode, so interactive credential helpers such as GPG pinentry can use the terminal; trailing whitespace is trimmed. Non-zero exit, non-UTF-8 output, or an empty key = notice, cannot send. When both are set, `key_cmd` wins.
-- **`key_in`** defaults to `"env"`. `"env"` reads `key_cmd` or `key_name`; `"auth"` reads `~/.lunar/auth.json` for `auth_provider` (`xai` or `openai`); `"none"` sends no Authorization header, ignores credential fields, and requires an explicit `base_url`. Any other value = notice, cannot send.
+- **`key_in`** defaults to `"env"`. `"env"` reads `key_cmd` or `key_name`; `"auth"` reads `~/.lunar/recorder/auth.json` for `auth_provider` (`xai` or `openai`); `"none"` sends no Authorization header, ignores credential fields, and requires an explicit `base_url`. Any other value = notice, cannot send.
 - **`defaults`**: both `provider` and `model` are required when the table is present. `model` matches that provider's list as alias, then as wire `id`.
 
 **Resolve Config**
@@ -157,12 +160,12 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 **Shipped**
 
 - Glass, Completions and Responses streams, reused HTTP agent, no global timeout. Completions `max_tokens` 32768 (reasoning + answer). POST retries 429/5xx/reset (3 times, 0.5s…8s, Esc cancels the wait). Completions `finish_reason` / Responses `response.completed` ends the turn; leftover Completions SSE is drained for usage (1s cap) and `[DONE]` in the background so the socket can return to the pool. Transcript scroll: PageUp / PageDown, wheel, Ctrl+Home / Ctrl+End; follow only at the tail. History paint is cached; only the streaming tail is re-wrapped
-- Four tools + continue-after-tools (50-round cap; submit `continue` to proceed). Tools in one round run in parallel. Results cap 50KB or 2000 lines; truncated bash output is saved under `~/.lunar/tool-output/`. Truncated completions do not run tool calls
+- Four tools + continue-after-tools (50-round cap; submit `continue` to proceed). Tools in one round run in parallel. Results cap 50KB or 2000 lines; truncated bash output is saved under `~/.lunar/recorder/tool-output/`. Truncated completions do not run tool calls
 - Missions: `/new` `/resume` `/name` `/mission`, `-c`
 - Token stats + refuse submit when last prompt ≥ window
 - CWD `AGENTS.md` / `CONTEXT.md` + `.agents/skills` summaries as a leading user message, snapshotted per user turn
 - Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/model` `/thinking` `/login` `/logout` `/name` `/mission` `/context`
-- Lua 5.5 embed; user `~/.lunar/init.lua` returns `{ models, providers, defaults }`
+- Lua 5.5 embed; user `~/.lunar/control/init.lua` returns `{ models, providers, defaults }`
 - Thinking levels: `/thinking off|low|medium|high`; Lua model value overrides provider default; Completions and Responses wire mappings; live level in footer
 
 **Not shipped (still v0 intent)**

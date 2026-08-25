@@ -1,14 +1,12 @@
-//! Global submitted-line history under $LUNAR_HOME/history.jsonl.
+//! Global submitted-line history under $LUNAR_HOME/recorder/history.jsonl.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 
 use serde_json::{Value, json};
 
-use crate::mission;
-
 pub fn load() -> io::Result<Vec<String>> {
-    let path = mission::home().join("history.jsonl");
+    let path = crate::storage::recorder("history.jsonl");
     let Ok(file) = File::open(path) else {
         return Ok(Vec::new());
     };
@@ -26,11 +24,10 @@ pub fn load() -> io::Result<Vec<String>> {
 }
 
 pub fn append(text: &str) -> io::Result<()> {
-    let home = mission::home();
-    fs::create_dir_all(&home)?;
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(home.join("history.jsonl"))?;
+    let path = crate::storage::recorder("history.jsonl");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     writeln!(file, "{}", json!({ "text": text }))
 }

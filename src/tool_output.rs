@@ -1,4 +1,4 @@
-//! Bounded tool output retained under `$LUNAR_HOME/tool-output`.
+//! Bounded tool output retained under `$LUNAR_HOME/recorder/tool-output`.
 
 use std::fs;
 use std::io;
@@ -12,7 +12,7 @@ const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) fn save(content: &str) -> io::Result<PathBuf> {
-    save_in(&crate::mission::home().join("tool-output"), content)
+    save_in(&crate::storage::recorder("tool-output"), content)
 }
 
 fn save_in(dir: &Path, content: &str) -> io::Result<PathBuf> {
@@ -28,10 +28,7 @@ fn save_in(dir: &Path, content: &str) -> io::Result<PathBuf> {
 }
 
 pub(crate) fn cleanup() {
-    cleanup_in(
-        &crate::mission::home().join("tool-output"),
-        SystemTime::now(),
-    );
+    cleanup_in(&crate::storage::recorder("tool-output"), SystemTime::now());
 }
 
 fn cleanup_in(dir: &Path, now: SystemTime) {

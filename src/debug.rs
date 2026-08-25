@@ -1,4 +1,4 @@
-//! Append-only model HTTP debug log under `$LUNAR_HOME/debug.log`.
+//! Append-only model HTTP debug log under `$LUNAR_HOME/recorder/debug.log`.
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
@@ -10,12 +10,11 @@ use serde_json::{Value, json};
 static LOG: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
 
 pub(crate) fn enable() -> io::Result<()> {
-    let home = crate::mission::home();
-    fs::create_dir_all(&home)?;
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(home.join("debug.log"))?;
+    let path = crate::storage::recorder("debug.log");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let file = OpenOptions::new().create(true).append(true).open(path)?;
     LOG.set(Mutex::new(file))
         .map_err(|_| io::Error::new(io::ErrorKind::AlreadyExists, "debug log already enabled"))
 }

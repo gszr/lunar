@@ -61,7 +61,7 @@ pub const HELP: &str = concat!(
     "Options:\n",
     "  -c, --continue           Continue the latest mission for the current directory\n",
     "  -m, --mission [MISSION]  Open the mission log, or resume by filename or label\n",
-    "      --debug              Log model HTTP requests and responses to $LUNAR_HOME/debug.log\n",
+    "      --debug              Log model HTTP requests and responses to $LUNAR_HOME/recorder/debug.log\n",
     "  -h, --help               Print help\n\n",
     "Running lunar without options opens the TUI.\n",
 );

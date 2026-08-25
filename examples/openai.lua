@@ -1,5 +1,5 @@
 -- ChatGPT Plus/Pro via /login openai (device-code OAuth).
--- Copy to ~/.lunar/init.lua (or $LUNAR_HOME/init.lua).
+-- Copy to ~/.lunar/control/init.lua (or $LUNAR_HOME/control/init.lua).
 -- Models on this auth must set api = "responses".
 -- Omitted base_url is https://chatgpt.com/backend-api.
 

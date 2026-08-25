@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use super::Credential;
 
 pub(super) fn path() -> PathBuf {
-    crate::mission::home().join("auth.json")
+    crate::storage::recorder("auth.json")
 }
 
 pub(super) fn insert(provider: &str, credential: Credential) -> Result<(), String> {

@@ -1,4 +1,4 @@
-//! Linear jsonl missions under $LUNAR_HOME/missions/ as YYYY-MM-DD-N.jsonl.
+//! Linear jsonl missions under $LUNAR_HOME/recorder/missions/ as YYYY-MM-DD-N.jsonl.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
@@ -117,21 +117,9 @@ pub struct Loaded {
     pub last_prompt: u32,
 }
 
-pub fn home() -> PathBuf {
-    if let Ok(dir) = std::env::var("LUNAR_HOME")
-        && !dir.is_empty()
-    {
-        return PathBuf::from(dir);
-    }
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
-    home.join(".lunar")
-}
-
 pub fn create(name: &str) -> io::Result<Mission> {
     let cwd = std::env::current_dir()?;
-    let dir = home().join("missions");
+    let dir = crate::storage::recorder("missions");
     fs::create_dir_all(&dir)?;
     let id = next_id(&dir)?;
     let path = dir.join(format!("{id}.jsonl"));
@@ -208,7 +196,7 @@ fn rewrite_header_name(path: &Path, name: &str) -> io::Result<()> {
 
 pub fn list() -> io::Result<Vec<Meta>> {
     let cwd = std::env::current_dir()?;
-    let dir = home().join("missions");
+    let dir = crate::storage::recorder("missions");
     let mut items = Vec::new();
     let Ok(entries) = fs::read_dir(&dir) else {
         return Ok(items);

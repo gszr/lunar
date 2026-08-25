@@ -1,4 +1,4 @@
--- Copy to ~/.lunar/init.lua (or $LUNAR_HOME/init.lua).
+-- Copy to ~/.lunar/control/init.lua (or $LUNAR_HOME/control/init.lua).
 -- Then: export XAI_API_KEY=...
 --
 -- key_cmd / base_url_cmd run through sh -c before the TUI opens.

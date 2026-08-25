@@ -25,7 +25,7 @@ pub struct ModelChoice {
 
 pub fn load() -> Loaded {
     load_paths(
-        &crate::mission::home().join("init.lua"),
+        &crate::storage::control("init.lua"),
         &std::env::current_dir()
             .unwrap_or_default()
             .join(".lunar/init.lua"),
