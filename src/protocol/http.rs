@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 use ureq::Agent;
 
-use super::Usage;
+use super::{RequestAudit, StreamEvent, Usage};
 
 const MAX_RETRIES: u32 = 3;
 
@@ -21,7 +21,9 @@ pub(super) fn post_retry(
     cancel: &AtomicBool,
     session: Option<&str>,
     account: Option<&str>,
+    audit: (&RequestAudit, &mpsc::Sender<StreamEvent>),
 ) -> Result<ureq::http::Response<ureq::Body>, String> {
+    let (audit, tx) = audit;
     let mut attempt = 0;
     loop {
         if cancel.load(Ordering::Relaxed) {
@@ -42,10 +44,15 @@ pub(super) fn post_retry(
             headers["originator"] = json!("lunar");
             headers["openai-beta"] = json!("responses=experimental");
         }
+        let request_attempt = attempt + 1;
+        let _ = tx.send(StreamEvent::Request {
+            audit: audit.clone(),
+            attempt: request_attempt,
+        });
         crate::debug::event(
             "request",
             json!({
-                "attempt": attempt + 1,
+                "attempt": request_attempt,
                 "method": "POST",
                 "url": url,
                 "headers": headers,
@@ -70,17 +77,26 @@ pub(super) fn post_retry(
         let response = request.send(body);
         match response {
             Ok(response) if response.status().is_success() => {
+                let status = response.status().as_u16();
+                let _ = tx.send(StreamEvent::Response {
+                    status,
+                    attempt: request_attempt,
+                });
                 crate::debug::event(
                     "response_start",
                     json!({
-                        "attempt": attempt + 1,
-                        "status": response.status().as_u16(),
+                        "attempt": request_attempt,
+                        "status": status,
                     }),
                 );
                 return Ok(response);
             }
             Ok(response) => {
                 let status = response.status().as_u16();
+                let _ = tx.send(StreamEvent::Response {
+                    status,
+                    attempt: request_attempt,
+                });
                 let retry = attempt < MAX_RETRIES && should_retry_status(status);
                 let delay = retry.then(|| retry_delay(attempt));
                 let body = response.into_body().read_to_string().unwrap_or_default();
@@ -320,15 +336,16 @@ mod tests {
                 .unwrap();
         });
         let cancel = AtomicBool::new(false);
-        post_retry(
-            &format!("http://{address}/chat/completions"),
-            "",
-            "{}",
-            &cancel,
-            None,
-            None,
-        )
-        .unwrap();
+        let (tx, _rx) = mpsc::channel();
+        let audit = RequestAudit {
+            provider: "local".into(),
+            model: "test".into(),
+            api: crate::protocol::Api::Completions,
+            url: format!("http://{address}/chat/completions"),
+            input_items: 0,
+            input_bytes: 2,
+        };
+        post_retry(&audit.url, "", "{}", &cancel, None, None, (&audit, &tx)).unwrap();
         server.join().unwrap();
     }
 

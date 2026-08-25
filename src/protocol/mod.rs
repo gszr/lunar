@@ -144,7 +144,25 @@ impl Usage {
     }
 }
 
+#[derive(Clone)]
+pub struct RequestAudit {
+    pub provider: String,
+    pub model: String,
+    pub api: Api,
+    pub url: String,
+    pub input_items: usize,
+    pub input_bytes: usize,
+}
+
 pub enum StreamEvent {
+    Request {
+        audit: RequestAudit,
+        attempt: u32,
+    },
+    Response {
+        status: u16,
+        attempt: u32,
+    },
     Delta(String),
     Think(String),
     Usage(Usage),

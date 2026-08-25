@@ -347,6 +347,23 @@ pub fn thinking_line(level: Thinking) -> Value {
     json!({ "type": "thinking", "level": level.as_str() })
 }
 
+pub fn request_line(audit: &crate::protocol::RequestAudit, attempt: u32) -> Value {
+    json!({
+        "type": "request",
+        "provider": audit.provider,
+        "model": audit.model,
+        "api": audit.api.as_str(),
+        "url": audit.url,
+        "input_items": audit.input_items,
+        "input_bytes": audit.input_bytes,
+        "attempt": attempt,
+    })
+}
+
+pub fn response_line(status: u16, attempt: u32) -> Value {
+    json!({ "type": "response", "status": status, "attempt": attempt })
+}
+
 pub fn usage_line(usage: Usage) -> Value {
     json!({
         "type": "usage",
