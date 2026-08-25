@@ -99,7 +99,7 @@ mod tests {
     use crate::protocol::{Api, Config, Thinking, ToolCall, Usage};
     use crate::transcript::painted_lines;
     use crate::transcript::{jump_to_tail, on_mouse};
-    use crate::turn::{run_tools_parallel, skipped_truncated};
+    use crate::turn::{abort_turn, run_tools_parallel, skipped_truncated};
     use crate::view::{char_wrap, cursor_xy, working_text};
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
@@ -471,6 +471,62 @@ mod tests {
         assert!(app.stream_rx.is_none());
         assert!(app.messages.is_empty());
         assert_eq!(app.notice.as_deref(), Some("aborted"));
+    }
+
+    #[test]
+    fn abort_after_tool_calls_adds_matching_outputs_without_duplicate_assistant() {
+        let mut app = test_app();
+        let dir = std::env::temp_dir().join(format!("lunar-abort-tools-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        app.mission = Some(crate::mission::Mission {
+            path: dir.join("mission.jsonl"),
+            id: "mission".into(),
+            name: None,
+        });
+        app.cancel = Some(Arc::new(AtomicBool::new(false)));
+        let (_tx, rx) = mpsc::channel();
+        app.stream_rx = Some(rx);
+        let mut assistant = Message::assistant();
+        assistant.text = "calling".into();
+        assistant.tool_calls = vec![
+            ToolCall {
+                id: "call_1".into(),
+                name: "read".into(),
+                arguments: "{}".into(),
+            },
+            ToolCall {
+                id: "call_2".into(),
+                name: "bash".into(),
+                arguments: "{}".into(),
+            },
+        ];
+        app.messages.push(assistant);
+        crate::mission::append(
+            app.mission.as_ref().unwrap(),
+            &crate::mission::assistant_line("calling", &app.messages.last().unwrap().tool_calls),
+        )
+        .unwrap();
+
+        abort_turn(&mut app);
+
+        assert_eq!(app.messages.len(), 3);
+        assert!(matches!(app.messages[0].role, crate::app::Role::Assistant));
+        assert!(matches!(app.messages[1].role, crate::app::Role::Tool));
+        assert!(matches!(app.messages[2].role, crate::app::Role::Tool));
+        assert_eq!(app.messages[1].tool_id, "call_1");
+        assert_eq!(app.messages[2].tool_id, "call_2");
+        assert_eq!(app.messages[1].text, "aborted");
+        assert_eq!(app.messages[2].text, "aborted");
+        let lines: Vec<serde_json::Value> = std::fs::read_to_string(dir.join("mission.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0]["type"], "assistant");
+        assert_eq!(lines[1]["id"], "call_1");
+        assert_eq!(lines[2]["id"], "call_2");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     fn tall_app() -> App {

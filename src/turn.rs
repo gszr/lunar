@@ -68,7 +68,7 @@ pub(crate) fn finish_stream(app: &mut App, end: StreamEvent) {
             pop_empty_assistant(app);
         }
         StreamEvent::Failed(err) => {
-            persist_last_assistant(app);
+            finish_failed(app, &err);
             app.stream_rx = None;
             app.cancel = None;
             pop_empty_assistant(app);
@@ -82,11 +82,28 @@ pub(crate) fn abort_turn(app: &mut App) {
     if let Some(flag) = &app.cancel {
         flag.store(true, Ordering::Relaxed);
     }
-    persist_last_assistant(app);
+    finish_failed(app, "aborted");
     app.stream_rx = None;
     app.cancel = None;
     pop_empty_assistant(app);
     app.notice = Some("aborted".into());
+}
+
+fn finish_failed(app: &mut App, reason: &str) {
+    let calls = app
+        .messages
+        .last()
+        .filter(|message| matches!(message.role, Role::Assistant))
+        .map(|message| message.tool_calls.clone())
+        .unwrap_or_default();
+    if calls.is_empty() {
+        persist_last_assistant(app);
+    }
+    for call in calls {
+        persist_value(app, &mission::tool_line(&call.id, &call.name, reason));
+        app.messages
+            .push(Message::tool(call.id, call.name, reason.to_string()));
+    }
 }
 
 pub(crate) fn pop_empty_assistant(app: &mut App) {
