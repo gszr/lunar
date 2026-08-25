@@ -115,6 +115,10 @@ end
 
 Lunar is early software for macOS and Linux. Model `api` selects Completions, Responses, or Messages; Completions and Responses send. Lua extensions are not implemented yet.
 
+## Design notes
+
+- [Issue #25: investigating Lunar's "Thinking..." stalls](docs/issue-25-thinking-loop-investigation.md)
+
 ## License
 
 [MIT](LICENSE)
