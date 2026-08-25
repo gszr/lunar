@@ -1,6 +1,6 @@
 //! Terminal CommonMark rendering.
 
-use pulldown_cmark::{Alignment, Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthChar;
@@ -46,6 +46,7 @@ struct Markdown {
     link: Vec<String>,
     image_depth: usize,
     code: bool,
+    json: bool,
     table: Option<Table>,
 }
 
@@ -70,6 +71,7 @@ impl Markdown {
             link: Vec::new(),
             image_depth: 0,
             code: false,
+            json: false,
             table: None,
         }
     }
@@ -79,7 +81,13 @@ impl Markdown {
             match event {
                 Event::Start(tag) => self.start(tag),
                 Event::End(tag) => self.end(tag),
-                Event::Text(text) if self.code => self.code_text(&text),
+                Event::Text(text) if self.code => {
+                    if self.json {
+                        self.json_text(&text);
+                    } else {
+                        self.code_text(&text);
+                    }
+                }
                 Event::Text(text) => self.text(&text),
                 Event::Code(text) => {
                     let style = self.style().fg(splash::CODE_FG).bg(splash::CODE_BG);
@@ -126,9 +134,11 @@ impl Markdown {
                     marker
                 ));
             }
-            Tag::CodeBlock(_) => {
+            Tag::CodeBlock(kind) => {
                 self.flush();
                 self.code = true;
+                self.json =
+                    matches!(kind, CodeBlockKind::Fenced(language) if language.as_ref() == "json");
             }
             Tag::Link { dest_url, .. } => self.link.push(dest_url.into_string()),
             Tag::Image { dest_url, .. } => {
@@ -174,6 +184,7 @@ impl Markdown {
             TagEnd::CodeBlock => {
                 self.flush();
                 self.code = false;
+                self.json = false;
             }
             TagEnd::Link | TagEnd::Image => {
                 if let Some(url) = self.link.pop() {
@@ -229,13 +240,25 @@ impl Markdown {
         style
     }
 
+    fn json_text(&mut self, text: &str) {
+        let formatted = serde_json::from_str::<serde_json::Value>(text)
+            .and_then(|value| serde_json::to_string_pretty(&value))
+            .unwrap_or_else(|_| text.to_string());
+        self.code_text(&formatted);
+    }
+
     fn code_text(&mut self, text: &str) {
-        for (index, line) in text.split('\n').enumerate() {
-            if index > 0 {
-                self.flush();
+        let style = self.style().fg(splash::CODE_FG).bg(splash::CODE_BG);
+        for line in text.lines() {
+            if line.is_empty() {
+                self.push_line(Vec::new());
+                continue;
             }
-            if !line.is_empty() {
-                self.text(line);
+            let mut rest = line;
+            while !rest.is_empty() {
+                let (part, tail) = split_width(rest, self.width.max(1));
+                self.push_line(vec![Span::styled(part.to_string(), style)]);
+                rest = tail;
             }
         }
     }

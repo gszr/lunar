@@ -284,6 +284,44 @@ mod tests {
     }
 
     #[test]
+    fn assistant_formats_fenced_json() {
+        let lines = assistant(
+            "```json\n{\"data\":[{\"id\":\"model-name\",\"owned_by\":\"provider\"}]}\n```",
+            80,
+        );
+        let got: Vec<String> = lines
+            .iter()
+            .map(line_text)
+            .map(|line| line.trim_end().to_string())
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                "{",
+                "  \"data\": [",
+                "    {",
+                "      \"id\": \"model-name\",",
+                "      \"owned_by\": \"provider\"",
+                "    }",
+                "  ]",
+                "}",
+            ]
+        );
+    }
+
+    #[test]
+    fn assistant_preserves_invalid_fenced_json() {
+        let lines = assistant("```json\n{not json}\n```", 20);
+        assert_eq!(line_text(&lines[0]).trim_end(), "{not json}");
+    }
+
+    #[test]
+    fn assistant_does_not_format_unlabelled_json() {
+        let lines = assistant("```\n{\"a\":1}\n```", 20);
+        assert_eq!(line_text(&lines[0]).trim_end(), "{\"a\":1}");
+    }
+
+    #[test]
     fn assistant_preserves_fenced_code_lines() {
         let lines = assistant("```\none\ntwo\n```", 20);
         let got: Vec<String> = lines.iter().map(line_text).collect();
