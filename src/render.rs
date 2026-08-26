@@ -51,7 +51,7 @@ pub fn thinking_preview(text: &str, width: usize) -> Vec<Line<'static>> {
 }
 
 pub fn assistant(text: &str, width: usize) -> Vec<Line<'static>> {
-    markdown::render(text, width)
+    markdown::render(&sanitize_terminal_text(text), width)
 }
 
 pub fn tool_card(title: &str, body: &str, width: usize) -> Vec<Line<'static>> {
@@ -218,7 +218,7 @@ mod tests {
     fn assistant_renders_common_mark() {
         let lines = assistant("# Gold\n\n**bold** and `code`\n\n- one\n- two", 40);
         let got: Vec<String> = lines.iter().map(line_text).collect();
-        assert_eq!(got, vec!["Gold", "bold and code", "• one", "• two"]);
+        assert_eq!(got, vec!["Gold", "", "bold and code", "", "• one", "• two"]);
         assert!(
             lines[0].spans[1]
                 .style
@@ -226,7 +226,7 @@ mod tests {
                 .contains(Modifier::BOLD)
         );
         assert!(
-            lines[1]
+            lines[2]
                 .spans
                 .iter()
                 .any(|span| span.style.bg == Some(splash::CODE_BG))
@@ -276,6 +276,41 @@ mod tests {
     }
 
     #[test]
+    fn assistant_wraps_list_items_with_a_hanging_indent() {
+        let lines = assistant("- alpha beta gamma", 10);
+        let got: Vec<String> = lines.iter().map(line_text).collect();
+        assert_eq!(got, vec!["• alpha", "  beta", "  gamma"]);
+    }
+
+    #[test]
+    fn assistant_indents_code_blocks_inside_numbered_items() {
+        let markdown =
+            "1. Streaming bootstrap:\n\n   ```http\n   POST /connect\n   ```\n\n2. WebSocket URL";
+        let lines = assistant(markdown, 40);
+        let got: Vec<String> = lines
+            .iter()
+            .map(line_text)
+            .map(|line| line.trim_end().to_string())
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                "1. Streaming bootstrap:",
+                "",
+                "   POST /connect",
+                "",
+                "2. WebSocket URL",
+            ]
+        );
+    }
+
+    #[test]
+    fn assistant_sanitizes_terminal_sequences() {
+        let lines = assistant("safe \u{1b}[31mred\u{1b}[0m text", 40);
+        assert_eq!(line_text(&lines[0]), "safe red text");
+    }
+
+    #[test]
     fn assistant_keeps_nested_inline_styles() {
         let lines = assistant("**bold *both* bold** plain", 80);
         let spans = &lines[0].spans;
@@ -303,7 +338,7 @@ mod tests {
         let markdown = "- [x] done\n\n> > ![moon](moon.png)";
         let lines = assistant(markdown, 80);
         let got: Vec<String> = lines.iter().map(line_text).collect();
-        assert_eq!(got, vec!["• [x] done", "│ │ moon (moon.png)"]);
+        assert_eq!(got, vec!["• [x] done", "", "│ │ moon (moon.png)"]);
     }
 
     #[test]
