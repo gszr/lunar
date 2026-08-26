@@ -164,7 +164,7 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 - Missions: `/new` `/resume` `/name` `/mission`, `-c`
 - Token stats + refuse submit when last prompt ≥ window
 - CWD `AGENTS.md` / `CONTEXT.md` + `.agents/skills` summaries as a leading user message, snapshotted per user turn
-- Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/model` `/thinking` `/login` `/logout` `/name` `/mission` `/context`
+- Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/model` `/thinking` `/login` `/logout` `/name` `/mission` `/context`. `/context` opens a component summary of the live preamble and current history, with count and estimated-token breakdowns for user messages, assistant messages, tool calls, and tool results, plus a preamble + history total; `/context raw` shows their full contents, including tool calls and results. Both use a pager: PageUp/PageDown, j/k, wheel, and Ctrl+Home/End scroll, while Esc or q closes it
 - Lua 5.5 embed; user `~/.lunar/control/init.lua` returns `{ models, providers, defaults }`
 - Thinking levels: `/thinking off|low|medium|high`; Lua model value overrides provider default; Completions and Responses wire mappings; live level in footer
 

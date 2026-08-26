@@ -3,6 +3,7 @@ mod app;
 mod auth;
 mod cli;
 mod commands;
+mod context;
 mod debug;
 mod event;
 mod history;
@@ -164,6 +165,19 @@ mod tests {
 
     fn key(modifiers: KeyModifiers, code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, modifiers)
+    }
+
+    #[test]
+    fn context_pager_closes_with_escape_or_q() {
+        for code in [KeyCode::Esc, KeyCode::Char('q')] {
+            let mut app = test_app();
+            app.mode = Mode::Context {
+                text: "context".into(),
+                scroll: 0,
+            };
+            on_key(&mut app, key(KeyModifiers::NONE, code));
+            assert!(matches!(app.mode, Mode::Chat));
+        }
     }
 
     #[test]

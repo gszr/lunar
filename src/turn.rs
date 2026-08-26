@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, TryRecvError};
 
 use crate::app::{App, Message, Role};
-use crate::protocol::{self, ChatMessage, Config, StreamEvent, ToolCall, ToolResult};
+use crate::protocol::{self, Config, StreamEvent, ToolCall, ToolResult};
 use crate::transcript::jump_to_tail;
 use crate::{mission, prompt, tools};
 
@@ -301,35 +301,9 @@ pub(crate) fn continue_turn(app: &mut App) {
         return;
     };
     app.messages.push(Message::assistant());
-    let history = api_history(app.preamble.as_deref(), &app.messages);
+    let history = crate::context::history(app.preamble.as_deref(), &app.messages);
     let (tx, rx) = mpsc::channel();
     app.stream_rx = Some(rx);
     let cache_key = app.mission.as_ref().map(|m| m.id.clone());
     std::thread::spawn(move || protocol::stream(cfg, history, cancel, tx, cache_key));
-}
-
-pub(crate) fn api_history(preamble: Option<&str>, messages: &[Message]) -> Vec<ChatMessage> {
-    let mut out = Vec::new();
-    if let Some(text) = preamble {
-        out.push(ChatMessage::User(text.to_string()));
-    }
-    out.extend(
-        messages
-            .iter()
-            .filter(|m| {
-                !m.text.is_empty() || matches!(m.role, Role::User) || !m.tool_calls.is_empty()
-            })
-            .map(|m| match m.role {
-                Role::User => ChatMessage::User(m.text.clone()),
-                Role::Assistant => ChatMessage::Assistant {
-                    content: m.text.clone(),
-                    tool_calls: m.tool_calls.clone(),
-                },
-                Role::Tool => ChatMessage::Tool {
-                    id: m.tool_id.clone(),
-                    content: m.text.clone(),
-                },
-            }),
-    );
-    out
 }

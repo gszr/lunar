@@ -13,7 +13,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "context",
-        description: "files and skills sent every prompt",
+        description: "summarize context; /context raw shows contents",
     },
     Command {
         name: "help",

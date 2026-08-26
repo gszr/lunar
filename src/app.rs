@@ -78,6 +78,10 @@ pub(crate) enum Mode {
         cursor: usize,
     },
     ApiKey,
+    Context {
+        text: String,
+        scroll: usize,
+    },
     Resume {
         items: Vec<mission::Meta>,
         cursor: usize,

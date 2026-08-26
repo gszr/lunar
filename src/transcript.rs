@@ -59,7 +59,7 @@ pub(crate) fn painted_lines(app: &mut App, width: usize) -> Vec<Line<'static>> {
         if !lines.is_empty() {
             lines.push(Line::from(""));
         }
-        lines.extend(notice_lines(notice));
+        lines.extend(notice_lines(notice, width));
     }
     lines
 }
@@ -103,6 +103,14 @@ pub(crate) fn paint_slice(
 
 pub(crate) const WHEEL_LINES: usize = 3;
 
+fn has_content(app: &App) -> bool {
+    !app.messages.is_empty()
+        || app
+            .notice
+            .as_deref()
+            .is_some_and(|notice| notice.contains('\n'))
+}
+
 pub(crate) fn page_delta(app: &App) -> isize {
     app.transcript_h.saturating_sub(1).max(1) as isize
 }
@@ -112,7 +120,7 @@ pub(crate) fn jump_to_tail(app: &mut App) {
 }
 
 pub(crate) fn scroll_home(app: &mut App) {
-    if !matches!(app.mode, Mode::Chat) || app.messages.is_empty() {
+    if !matches!(app.mode, Mode::Chat) || !has_content(app) {
         return;
     }
     app.scroll = 0;
@@ -120,7 +128,7 @@ pub(crate) fn scroll_home(app: &mut App) {
 }
 
 pub(crate) fn scroll_by(app: &mut App, delta: isize) {
-    if !matches!(app.mode, Mode::Chat) || app.messages.is_empty() {
+    if !matches!(app.mode, Mode::Chat) || !has_content(app) {
         return;
     }
     let height = app.transcript_h as usize;
@@ -144,6 +152,18 @@ pub(crate) fn scroll_by(app: &mut App, delta: isize) {
 }
 
 pub(crate) fn on_mouse(app: &mut App, mouse: MouseEvent) {
+    if let Mode::Context { text, scroll } = &mut app.mode {
+        let width = app.transcript_w.max(1) as usize;
+        let max = crate::view::context_lines(text, width)
+            .len()
+            .saturating_sub(app.transcript_h as usize);
+        match mouse.kind {
+            MouseEventKind::ScrollUp => *scroll = scroll.saturating_sub(WHEEL_LINES),
+            MouseEventKind::ScrollDown => *scroll = scroll.saturating_add(WHEEL_LINES).min(max),
+            _ => {}
+        }
+        return;
+    }
     match mouse.kind {
         MouseEventKind::ScrollUp => scroll_by(app, -(WHEEL_LINES as isize)),
         MouseEventKind::ScrollDown => scroll_by(app, WHEEL_LINES as isize),
