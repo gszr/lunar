@@ -99,6 +99,13 @@ Type a prompt and press Enter. Run `/help` to see the available commands. Use `/
 
 Lunar includes `AGENTS.md`, `CONTEXT.md`, and summaries from `.agents/skills/*/SKILL.md` in its context.
 
+Optional skills live in [`skills/`](skills/) and are not enabled by default. To enable Lunar attribution on pull requests and issues for a project:
+
+```bash
+mkdir -p .agents/skills
+cp -R /path/to/lunar/skills/lunar-attribution .agents/skills/
+```
+
 ## Extensions
 
 Lua extensions are planned. For example, you will be able to replace local `bash` with execution in a [Runta](https://runta.ai) runtime:
