@@ -3,6 +3,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use serde_json::{Value, json};
 
@@ -21,6 +22,7 @@ pub struct Meta {
     pub id: String,
     pub name: Option<String>,
     pub cwd: Option<String>,
+    modified: SystemTime,
 }
 
 pub enum Selection {
@@ -211,18 +213,25 @@ pub fn list() -> io::Result<Vec<Meta>> {
         {
             if meta.name.is_none()
                 && let Ok(Some(name)) = first_user_name(&path)
-                && rewrite_header_name(&path, &name).is_ok()
             {
                 meta.name = Some(name);
             }
             items.push(meta);
         }
     }
-    items.sort_by(|a, b| match (parse_id(&a.id), parse_id(&b.id)) {
-        (Some(x), Some(y)) => y.cmp(&x),
-        _ => b.id.cmp(&a.id),
-    });
+    sort_by_modified(&mut items);
     Ok(items)
+}
+
+fn sort_by_modified(items: &mut [Meta]) {
+    items.sort_by(|a, b| {
+        b.modified
+            .cmp(&a.modified)
+            .then_with(|| match (parse_id(&a.id), parse_id(&b.id)) {
+                (Some(x), Some(y)) => y.cmp(&x),
+                _ => b.id.cmp(&a.id),
+            })
+    });
 }
 
 pub fn load(path: &Path) -> io::Result<Loaded> {
@@ -394,6 +403,7 @@ fn first_user_name(path: &Path) -> io::Result<Option<String>> {
 }
 
 fn read_meta(path: &Path) -> io::Result<Meta> {
+    let modified = fs::metadata(path)?.modified()?;
     let file = File::open(path)?;
     let mut id = path
         .file_stem()
@@ -433,6 +443,7 @@ fn read_meta(path: &Path) -> io::Result<Meta> {
         id,
         name,
         cwd,
+        modified,
     })
 }
 
@@ -548,6 +559,7 @@ mod tests {
             id: id.into(),
             name: name.map(str::to_string),
             cwd: Some("/work".into()),
+            modified: SystemTime::UNIX_EPOCH,
         }
     }
 
@@ -637,6 +649,21 @@ mod tests {
         assert_eq!(loaded.messages[2].tool_title, "read");
         assert_eq!(loaded.messages[2].text, "contents");
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn missions_sort_by_most_recent_activity() {
+        let mut older_id_but_newer_activity = meta("2026-08-19-1", None);
+        older_id_but_newer_activity.modified =
+            SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(2);
+        let mut newer_id_but_older_activity = meta("2026-08-20-1", None);
+        newer_id_but_older_activity.modified =
+            SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1);
+        let mut items = vec![newer_id_but_older_activity, older_id_but_newer_activity];
+
+        sort_by_modified(&mut items);
+
+        assert_eq!(items[0].id, "2026-08-19-1");
     }
 
     #[test]
