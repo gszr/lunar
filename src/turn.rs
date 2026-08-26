@@ -12,12 +12,19 @@ use crate::{mission, prompt, tools};
 const MAX_ROUNDS: u32 = 50;
 
 pub(crate) fn drain_stream(app: &mut App) {
-    let Some(rx) = app.stream_rx.as_ref() else {
+    if app.stream_rx.is_none() {
         return;
-    };
+    }
     let mut end: Option<StreamEvent> = None;
     loop {
-        match rx.try_recv() {
+        let event = app.stream_rx.as_ref().unwrap().try_recv();
+        match event {
+            Ok(StreamEvent::Request { audit, attempt }) => {
+                persist_value(app, &mission::request_line(&audit, attempt));
+            }
+            Ok(StreamEvent::Response { status, attempt }) => {
+                persist_value(app, &mission::response_line(status, attempt));
+            }
             Ok(StreamEvent::Delta(text)) => {
                 if let Some(last) = app.messages.last_mut()
                     && matches!(last.role, Role::Assistant)
@@ -74,7 +81,11 @@ pub(crate) fn finish_stream(app: &mut App, end: StreamEvent) {
             pop_empty_assistant(app);
             app.notice = Some(err);
         }
-        StreamEvent::Delta(_) | StreamEvent::Think(_) | StreamEvent::Usage(_) => {}
+        StreamEvent::Request { .. }
+        | StreamEvent::Response { .. }
+        | StreamEvent::Delta(_)
+        | StreamEvent::Think(_)
+        | StreamEvent::Usage(_) => {}
     }
 }
 
@@ -243,6 +254,14 @@ pub(crate) fn persist_value(app: &mut App, value: &serde_json::Value) {
         }
     }
     if let Some(m) = &app.mission {
+        if created
+            && let Some(config) = &app.config
+            && let Err(err) =
+                mission::append(m, &mission::model_line(config.provider(), &config.model))
+        {
+            app.notice = Some(format!("mission: {err}"));
+            return;
+        }
         if created
             && value.get("type").and_then(serde_json::Value::as_str) != Some("thinking")
             && let Some(level) = app.thinking_override

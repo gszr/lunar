@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use crate::tools;
 
 use super::http::{parse_usage, post_retry, sse_payload};
-use super::{ChatMessage, Config, StreamEvent, ToolCall};
+use super::{ChatMessage, Config, RequestAudit, StreamEvent, ToolCall};
 
 impl ChatMessage {
     fn to_responses(&self, msg_index: usize) -> Value {
@@ -80,7 +80,16 @@ pub(super) fn stream(
         .as_deref()
         .map(clamp_cache_key)
         .filter(|key| !key.is_empty());
+    let input_items = flatten_input(&messages).len();
     let body = body(&cfg, &messages, cache_key.as_deref());
+    let audit = RequestAudit {
+        provider: cfg.provider.clone(),
+        model: cfg.model.clone(),
+        api: cfg.api,
+        url: url.clone(),
+        input_items,
+        input_bytes: body.len(),
+    };
     let account = if cfg.auth_provider.as_deref() == Some("openai") {
         Some(crate::auth::chatgpt_account_id(&cfg.api_key)?)
     } else {
@@ -93,6 +102,7 @@ pub(super) fn stream(
         &cancel,
         cache_key.as_deref(),
         account.as_deref(),
+        (&audit, tx),
     )?;
 
     let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();

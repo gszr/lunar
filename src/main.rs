@@ -97,7 +97,7 @@ mod tests {
     use super::*;
     use crate::app::{Message, Mode};
     use crate::event::{on_key, on_paste};
-    use crate::protocol::{Api, Config, Thinking, ToolCall, Usage};
+    use crate::protocol::{Api, Config, RequestAudit, Thinking, ToolCall, Usage};
     use crate::transcript::painted_lines;
     use crate::transcript::{jump_to_tail, on_mouse};
     use crate::turn::{abort_turn, run_tools_parallel, skipped_truncated};
@@ -445,6 +445,52 @@ mod tests {
         let second = painted_lines(&mut app, 40).len();
         assert_eq!(app.paint_upto, 2);
         assert_eq!(app.paint_frozen.len(), frozen + second - first);
+    }
+
+    #[test]
+    fn request_audit_is_persisted_without_entering_transcript() {
+        let mut app = test_app();
+        let dir = std::env::temp_dir().join(format!("lunar-request-audit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        app.mission = Some(crate::mission::Mission {
+            path: dir.join("mission.jsonl"),
+            id: "mission".into(),
+            name: None,
+        });
+        let (tx, rx) = mpsc::channel();
+        app.stream_rx = Some(rx);
+        tx.send(crate::protocol::StreamEvent::Request {
+            audit: RequestAudit {
+                provider: "stag2".into(),
+                model: "gpt-5.6-sol".into(),
+                api: Api::Responses,
+                url: "https://jss.staging2.gojss.dev/v1/responses".into(),
+                input_items: 37,
+                input_bytes: 184_220,
+            },
+            attempt: 1,
+        })
+        .unwrap();
+        tx.send(crate::protocol::StreamEvent::Response {
+            status: 200,
+            attempt: 1,
+        })
+        .unwrap();
+
+        crate::turn::drain_stream(&mut app);
+
+        assert!(app.messages.is_empty());
+        let lines: Vec<serde_json::Value> = std::fs::read_to_string(dir.join("mission.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(lines[0]["type"], "request");
+        assert_eq!(lines[0]["provider"], "stag2");
+        assert_eq!(lines[0]["input_items"], 37);
+        assert_eq!(lines[1]["type"], "response");
+        assert_eq!(lines[1]["status"], 200);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

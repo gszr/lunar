@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use crate::tools;
 
 use super::http::{collect_tail, parse_usage, post_retry};
-use super::{ChatMessage, Config, StreamEvent, ToolCall};
+use super::{ChatMessage, Config, RequestAudit, StreamEvent, ToolCall};
 
 /// Hard cap on reasoning + answer.
 pub const MAX_TOKENS: u32 = 32_768;
@@ -51,8 +51,16 @@ pub(super) fn stream(
 ) -> Result<(), String> {
     let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
     let body = body(&cfg, &messages);
+    let audit = RequestAudit {
+        provider: cfg.provider.clone(),
+        model: cfg.model.clone(),
+        api: cfg.api,
+        url: url.clone(),
+        input_items: messages.len(),
+        input_bytes: body.len(),
+    };
 
-    let response = post_retry(&url, &cfg.api_key, &body, &cancel, None, None)?;
+    let response = post_retry(&url, &cfg.api_key, &body, &cancel, None, None, (&audit, tx))?;
 
     let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();
     let mut usage = None;
