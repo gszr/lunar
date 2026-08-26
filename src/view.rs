@@ -319,8 +319,9 @@ pub(crate) fn draw_splash(frame: &mut Frame, area: Rect, app: &App) {
         Style::default().fg(splash::ASH),
     ));
     let notice = app.notice.as_deref().unwrap_or("");
-    let extra = 4 + u16::from(!notice.is_empty());
-    let block_h = art_h.saturating_add(extra);
+    let notice_lines = notice_lines(notice, area.width.max(1) as usize);
+    let extra = 4usize.saturating_add(notice_lines.len());
+    let block_h = art_h.saturating_add(extra.min(u16::MAX as usize) as u16);
     let art_w = splash::width();
     let splash_area = Rect {
         x: area.x + area.width.saturating_sub(art_w) / 2,
@@ -334,9 +335,7 @@ pub(crate) fn draw_splash(frame: &mut Frame, area: Rect, app: &App) {
     lines.push(title.centered());
     lines.push(tag.centered());
     lines.push(tag2.centered());
-    if !notice.is_empty() {
-        lines.push(Line::from(Span::styled(notice, Style::default().fg(splash::GOLD))).centered());
-    }
+    lines.extend(notice_lines.into_iter().map(Line::centered));
     frame.render_widget(
         Paragraph::new(lines).alignment(Alignment::Left),
         splash_area,
