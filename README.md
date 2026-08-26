@@ -8,7 +8,23 @@
 
 <p align="center">Lunar gives the model four tools—<code>read</code>, <code>write</code>, <code>edit</code>, and <code>bash</code>. No hidden system prompts</p>
 
-<p align="center">No token wasting on hidden system prompts or excessive tool schema</p>
+<p align="center">No token wasting on hidden system prompts: a harness that works for <em>you</em></p>
+
+## Lunar Agent Harness
+
+Lunar is deliberately small: a Rust host owns the terminal, model transport, and four tools, while a Lua guest supplies model and provider configuration. It does not impose plan modes, sub-agents, approval prompts, or another workflow between you and the model.
+
+Context stays inspectable. Lunar sends your project's `AGENTS.md`, `CONTEXT.md`, and skill summaries as a visible user message—never a hidden system prompt. Conversations are durable, linear missions you can leave and resume.
+
+## Features
+
+- Streaming terminal UI with Markdown rendering, reasoning previews, and full transcript scrolling
+- Parallel `read`, `write`, `edit`, and `bash` tool calls with cancellable turns
+- Lua 5.5 model catalogs, provider configuration, defaults, and project overrides
+- Provider URLs and tokens resolved from Lua, environment variables, shell commands, or Lunar-managed authentication
+- Completions and Responses APIs, including xAI and ChatGPT Plus/Pro authentication
+- Linear JSONL missions (Lunar's sessions! :) with naming, resume, token usage, and context-window protection
+- Project instructions and skill summaries loaded directly from files you control
 
 ## Install
 
@@ -29,24 +45,75 @@ Configure Lunar with `~/.lunar/control/init.lua`. A project can override model a
 ```lua
 return {
   models = {
-    grok46 = {
-      id = "grok-4.6",
-      window = 500000,
-      api = "completions",
-    },
+    grok46 = { id = "grok-4.6", window = 500000, api = "completions" },
+    gpt56sol = { id = "gpt-5.6-sol", window = 1000000, api = "responses" },
+    -- gpt56sol = { id = "gpt-5.6-sol", window = 1000000, api = "completions" },
   },
 
   providers = {
+    ollama = {
+      base_url = "http://127.0.0.1:11434/v1",
+      models = {
+        { id = "gemma4:12b", window = 10000, }
+      },
+      key_in = "none",
+    },
+
+    openai = {
+      key_in = "auth",
+      auth_provider = "openai",
+      models = {
+        "gpt56sol",
+      },
+    },
+
+    openai_api = {
+      base_url = "https://api.openai.com/v1",
+      key_cmd = "pass openai_api_key",
+      models = {
+        "gpt56sol",
+      },
+    },
+
+    dev2 = {
+      base_url_cmd = "pass jss_dev2_url",
+      key_in = "env",
+      key_cmd = "pass jss_dev2",
+      models = {
+        "gpt56sol",
+      },
+    },
+
+    stag2 = {
+      base_url_cmd = "pass jss_stag2_url",
+      key_in = "env",
+      key_cmd = "pass jss_stag2",
+      models = {
+        "gpt56sol",
+      },
+    },
+
     xai = {
       base_url = "https://api.x.ai/v1",
-      key_name = "XAI_API_KEY",
-      models = { "grok46" },
+      key_in = "auth",
+      auth_provider = "xai",
+      models = {
+        "grok46",
+      },
+    },
+
+    cheapinf = {
+      base_url = "https://api.cheaperinference.com/v1",
+      key_name = "CHEAP_INF_API_KEY",
+      models = {
+        "gpt56sol",
+      },
     },
   },
 
   defaults = {
-    provider = "xai",
-    model = "grok46",
+    provider = "openai",
+    model = "gpt-5.6-sol", -- alias, else wire id in that provider's list
   },
 }
 ```
@@ -106,21 +173,9 @@ mkdir -p .agents/skills
 cp -R /path/to/lunar/skills/lunar-attribution .agents/skills/
 ```
 
-## Extensions
-
-Lua extensions are planned. For example, you will be able to replace local `bash` with execution in a [Runta](https://runta.ai) runtime:
-
-```lua
--- Planned API; not implemented yet.
-lunar.tools.bash = function(cmd)
-  local runtime = os.getenv("LUNAR_RUNTIME") or "demo"
-  return lunar.sh { "runta", "exec", runtime, "--", "sh", "-lc", cmd }
-end
-```
-
 ## Status
 
-Lunar is early software for macOS and Linux. Model `api` selects Completions, Responses, or Messages; Completions and Responses send. Lua extensions are not implemented yet.
+Lunar is early software for macOS and Linux.
 
 ## License
 
