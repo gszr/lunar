@@ -111,6 +111,15 @@ pub fn apply(name: &str) -> String {
     format!("/{name} ")
 }
 
+pub fn help() -> String {
+    let commands = COMMANDS
+        .iter()
+        .map(|command| format!("/{}", command.name))
+        .collect::<Vec<_>>()
+        .join("  ");
+    format!("{commands}\n\ntab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,6 +166,17 @@ mod tests {
         let (start, view) = visible(&all, all.len() - 1);
         assert_eq!(start, all.len() - MAX_VISIBLE);
         assert_eq!(view.last().unwrap().name, all.last().unwrap().name);
+    }
+
+    #[test]
+    fn help_lists_every_command() {
+        let help = help();
+        for command in COMMANDS {
+            assert!(
+                help.split_whitespace()
+                    .any(|word| word == format!("/{}", command.name))
+            );
+        }
     }
 
     #[test]

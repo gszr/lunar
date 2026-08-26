@@ -374,12 +374,7 @@ pub(crate) fn submit(app: &mut App) {
     reset_history_navigation(app);
     match line.as_str() {
         "/quit" | "/q" => app.quit = true,
-        "/help" => {
-            app.notice = Some(
-                "/quit /new /resume /model /thinking /config /login /logout /name /mission /context /help    tab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits"
-                    .into(),
-            );
-        }
+        "/help" => app.notice = Some(crate::commands::help()),
         "/config" => edit_config(app),
         "/new" => new_mission(app),
         "/login" => open_login(app),
