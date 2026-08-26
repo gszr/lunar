@@ -48,6 +48,7 @@ struct Markdown {
     code: bool,
     json: bool,
     table: Option<Table>,
+    item_prefix: Vec<String>,
 }
 
 struct Table {
@@ -73,6 +74,7 @@ impl Markdown {
             code: false,
             json: false,
             table: None,
+            item_prefix: Vec::new(),
         }
     }
 
@@ -97,7 +99,7 @@ impl Markdown {
                 Event::SoftBreak => self.text(" "),
                 Event::HardBreak => self.flush(),
                 Event::Rule => {
-                    self.flush();
+                    self.separate();
                     self.text(&"─".repeat(self.width));
                     self.flush();
                 }
@@ -107,17 +109,34 @@ impl Markdown {
             }
         }
         self.flush();
+        while self.lines.last().is_some_and(|line| line.spans.is_empty()) {
+            self.lines.pop();
+        }
         self.lines
     }
 
     fn start(&mut self, tag: Tag<'_>) {
         match tag {
-            Tag::Heading { .. } => self.heading = true,
+            Tag::Paragraph if self.list.is_empty() && self.quote_depth == 0 => self.separate(),
+            Tag::Heading { .. } => {
+                self.separate();
+                self.heading = true;
+            }
             Tag::Emphasis => self.emphasis += 1,
             Tag::Strong => self.strong += 1,
             Tag::Strikethrough => self.strike += 1,
-            Tag::BlockQuote(_) => self.quote_depth += 1,
-            Tag::List(start) => self.list.push(start),
+            Tag::BlockQuote(_) => {
+                if self.quote_depth == 0 {
+                    self.separate();
+                }
+                self.quote_depth += 1;
+            }
+            Tag::List(start) => {
+                if self.list.is_empty() {
+                    self.separate();
+                }
+                self.list.push(start);
+            }
             Tag::Item => {
                 self.flush();
                 let marker = match self.list.last_mut() {
@@ -128,14 +147,14 @@ impl Markdown {
                     }
                     _ => "• ".into(),
                 };
-                self.text(&format!(
+                self.item_prefix.push(format!(
                     "{}{}",
                     "  ".repeat(self.list.len().saturating_sub(1)),
                     marker
                 ));
             }
             Tag::CodeBlock(kind) => {
-                self.flush();
+                self.separate();
                 self.code = true;
                 self.json =
                     matches!(kind, CodeBlockKind::Fenced(language) if language.as_ref() == "json");
@@ -146,7 +165,7 @@ impl Markdown {
                 self.image_depth += 1;
             }
             Tag::Table(alignments) => {
-                self.flush();
+                self.separate();
                 self.table = Some(Table {
                     alignments,
                     rows: Vec::new(),
@@ -172,7 +191,11 @@ impl Markdown {
             TagEnd::Emphasis => self.emphasis = self.emphasis.saturating_sub(1),
             TagEnd::Strong => self.strong = self.strong.saturating_sub(1),
             TagEnd::Strikethrough => self.strike = self.strike.saturating_sub(1),
-            TagEnd::Paragraph | TagEnd::Item => self.flush(),
+            TagEnd::Paragraph => self.flush(),
+            TagEnd::Item => {
+                self.flush();
+                self.item_prefix.pop();
+            }
             TagEnd::BlockQuote(_) => {
                 self.flush();
                 self.quote_depth = self.quote_depth.saturating_sub(1);
@@ -183,6 +206,7 @@ impl Markdown {
             }
             TagEnd::CodeBlock => {
                 self.flush();
+                self.separate();
                 self.code = false;
                 self.json = false;
             }
@@ -249,18 +273,30 @@ impl Markdown {
 
     fn code_text(&mut self, text: &str) {
         let style = self.style().fg(splash::CODE_FG).bg(splash::CODE_BG);
+        let quote = "│ ".repeat(self.quote_depth);
+        let item = self.item_prefix.last().cloned().unwrap_or_default();
+        let prefix = format!("{quote}{}", " ".repeat(display_width(&item)));
+        let width = self.width.saturating_sub(display_width(&prefix)).max(1);
         for line in text.lines() {
             if line.is_empty() {
-                self.push_line(Vec::new());
+                self.push_code_line(&prefix, Vec::new());
                 continue;
             }
             let mut rest = line;
             while !rest.is_empty() {
-                let (part, tail) = split_width(rest, self.width.max(1));
-                self.push_line(vec![Span::styled(part.to_string(), style)]);
+                let (part, tail) = split_width(rest, width);
+                self.push_code_line(&prefix, vec![Span::styled(part.to_string(), style)]);
                 rest = tail;
             }
         }
+    }
+
+    fn push_code_line(&mut self, prefix: &str, mut spans: Vec<Span<'static>>) {
+        spans.insert(
+            0,
+            Span::styled(prefix.to_string(), Style::default().fg(splash::ASH)),
+        );
+        self.push_line(spans);
     }
 
     fn text(&mut self, text: &str) {
@@ -272,14 +308,30 @@ impl Markdown {
         self.spans.push(Span::styled(text.to_string(), style));
     }
 
+    fn separate(&mut self) {
+        self.flush();
+        if !self.lines.is_empty() && self.lines.last().is_some_and(|line| !line.spans.is_empty()) {
+            self.lines.push(Line::default());
+        }
+    }
+
     fn flush(&mut self) {
         if self.spans.is_empty() || self.table.is_some() {
             return;
         }
-        let prefix = "│ ".repeat(self.quote_depth);
-        let width = self.width.saturating_sub(display_width(&prefix)).max(1);
+        let quote = "│ ".repeat(self.quote_depth);
+        let item = self.item_prefix.last().cloned().unwrap_or_default();
+        let first_prefix = format!("{quote}{item}");
+        let next_prefix = format!("{quote}{}", " ".repeat(display_width(&item)));
+        let prefix_width = display_width(&first_prefix);
+        let width = self.width.saturating_sub(prefix_width).max(1);
         let wrapped = wrap_spans(std::mem::take(&mut self.spans), width);
-        for mut spans in wrapped {
+        for (index, mut spans) in wrapped.into_iter().enumerate() {
+            let prefix = if index == 0 {
+                &first_prefix
+            } else {
+                &next_prefix
+            };
             spans.insert(
                 0,
                 Span::styled(prefix.clone(), Style::default().fg(splash::ASH)),
@@ -485,6 +537,10 @@ fn push_token(
         return;
     }
     if *used > 0 && *used + token_width > width {
+        if line.last().is_some_and(|span| span.content == " ") {
+            line.pop();
+            *used = used.saturating_sub(1);
+        }
         lines.push(std::mem::take(line));
         *used = 0;
     }
