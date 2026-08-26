@@ -18,7 +18,6 @@ use crate::input::{
     history_down, history_up, insert_input, line_down, line_up, next_char, on_complete_key,
     on_search_key, prev_char, reset_history_navigation, start_search, word_left, word_right,
 };
-use crate::prompt;
 use crate::transcript::{jump_to_tail, on_mouse, page_delta, scroll_by, scroll_home};
 use crate::turn::{abort_turn, drain_stream, send_prompt};
 use crate::view::draw;
@@ -68,6 +67,7 @@ pub(crate) fn on_key(app: &mut App, key: KeyEvent) {
         Mode::LoginProvider { cursor } => on_login_provider_key(app, key, *cursor),
         Mode::LoginMethod { cursor } => on_login_method_key(app, key, *cursor),
         Mode::ApiKey => on_api_key(app, key),
+        Mode::Context { .. } => on_context_key(app, key),
         Mode::Thinking { cursor } => on_thinking_key(app, key, *cursor),
         Mode::Model { items, cursor } => {
             let len = items.len();
@@ -121,6 +121,30 @@ fn on_login_method_key(app: &mut App, key: KeyEvent, cursor: usize) {
             app.input.clear();
             app.cursor = 0;
         }
+        _ => {}
+    }
+}
+
+fn on_context_key(app: &mut App, key: KeyEvent) {
+    let page = app.transcript_h.saturating_sub(1).max(1) as usize;
+    let Some((text, scroll)) = (match &mut app.mode {
+        Mode::Context { text, scroll } => Some((text, scroll)),
+        _ => None,
+    }) else {
+        return;
+    };
+    let width = app.transcript_w.max(1) as usize;
+    let max = crate::view::context_lines(text, width)
+        .len()
+        .saturating_sub(app.transcript_h as usize);
+    match (key.modifiers, key.code) {
+        (_, KeyCode::Esc | KeyCode::Char('q')) => app.mode = Mode::Chat,
+        (_, KeyCode::PageUp) => *scroll = scroll.saturating_sub(page),
+        (_, KeyCode::PageDown) => *scroll = scroll.saturating_add(page).min(max),
+        (KeyModifiers::CONTROL, KeyCode::Home) => *scroll = 0,
+        (KeyModifiers::CONTROL, KeyCode::End) => *scroll = max,
+        (_, KeyCode::Up | KeyCode::Char('k')) => *scroll = scroll.saturating_sub(1),
+        (_, KeyCode::Down | KeyCode::Char('j')) => *scroll = scroll.saturating_add(1).min(max),
         _ => {}
     }
 }
@@ -380,7 +404,14 @@ pub(crate) fn submit(app: &mut App) {
             }
         }
         "/mission" => show_mission(app),
-        "/context" => app.notice = Some(prompt::summary()),
+        "/context" | "/context raw" => {
+            let text = if line == "/context raw" {
+                crate::context::raw(&app.messages)
+            } else {
+                crate::context::summary(&app.messages)
+            };
+            app.mode = Mode::Context { text, scroll: 0 };
+        }
         cmd if let Some(name) = cmd.strip_prefix("/name ") => name_mission(app, name),
         cmd if let Some(prefix) = cmd.strip_prefix("/resume ") => resume_prefix(app, prefix),
         cmd if cmd.starts_with('/') => {

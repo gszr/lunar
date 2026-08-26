@@ -184,6 +184,10 @@ pub(crate) fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 pub(crate) fn draw_messages(frame: &mut Frame, area: Rect, app: &mut App) {
+    if let Mode::Context { text, scroll } = &app.mode {
+        draw_context(frame, area, text, *scroll);
+        return;
+    }
     if let Mode::Resume {
         items,
         cursor,
@@ -193,11 +197,12 @@ pub(crate) fn draw_messages(frame: &mut Frame, area: Rect, app: &mut App) {
         draw_resume(frame, area, items, *cursor, title);
         return;
     }
-    if app.messages.is_empty() {
-        if app.notice.as_deref().is_some_and(|n| n.contains('\n')) {
-            draw_notice(frame, area, app.notice.as_deref().unwrap());
-            return;
-        }
+    if app.messages.is_empty()
+        && !app
+            .notice
+            .as_deref()
+            .is_some_and(|notice| notice.contains('\n'))
+    {
         draw_splash(frame, area, app);
         return;
     }
@@ -215,22 +220,29 @@ pub(crate) fn draw_messages(frame: &mut Frame, area: Rect, app: &mut App) {
     frame.render_widget(Paragraph::new(lines[start..end].to_vec()), area);
 }
 
-pub(crate) fn notice_lines(notice: &str) -> Vec<Line<'static>> {
-    notice
-        .lines()
-        .map(|line| {
-            Line::from(Span::styled(
-                line.to_string(),
-                Style::default().fg(splash::GOLD),
-            ))
-        })
-        .collect()
+pub(crate) fn context_lines(text: &str, width: usize) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(Span::styled(
+        "context  page up/down · j/k · esc/q close",
+        Style::default().fg(splash::ASH),
+    ))];
+    lines.extend(notice_lines(text, width));
+    lines
 }
 
-pub(crate) fn draw_notice(frame: &mut Frame, area: Rect, notice: &str) {
-    let lines = notice_lines(notice);
-    let skip = lines.len().saturating_sub(area.height as usize);
-    frame.render_widget(Paragraph::new(lines[skip..].to_vec()), area);
+fn draw_context(frame: &mut Frame, area: Rect, text: &str, scroll: usize) {
+    let lines = context_lines(text, area.width.max(1) as usize);
+    let max = lines.len().saturating_sub(area.height as usize);
+    let start = scroll.min(max);
+    let end = (start + area.height as usize).min(lines.len());
+    frame.render_widget(Paragraph::new(lines[start..end].to_vec()), area);
+}
+
+pub(crate) fn notice_lines(notice: &str, width: usize) -> Vec<Line<'static>> {
+    notice
+        .lines()
+        .flat_map(|line| char_wrap(line, width.max(1)))
+        .map(|line| Line::from(Span::styled(line, Style::default().fg(splash::GOLD))))
+        .collect()
 }
 
 pub(crate) fn draw_model(frame: &mut Frame, area: Rect, items: &[lua::ModelChoice], cursor: usize) {

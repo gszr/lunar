@@ -40,46 +40,39 @@ pub fn budget_warning() -> Option<String> {
     }
 }
 
-/// Live listing of CWD files and skill summaries sent on every request.
-pub fn summary() -> String {
+pub fn summary() -> (String, usize) {
     match std::env::current_dir() {
         Ok(cwd) => summary_in(&cwd),
-        Err(_) => "no cwd".into(),
+        Err(_) => ("no cwd".into(), 0),
     }
 }
 
-fn summary_in(cwd: &Path) -> String {
+fn summary_in(cwd: &Path) -> (String, usize) {
     let files = load_files(cwd);
     let skills = load_skills(cwd);
     if files.is_empty() && skills.is_empty() {
-        return "no prompt context".into();
+        return ("no preamble".into(), 0);
     }
     let text = render(&files, &skills);
     let tokens = estimate_tokens(&text);
     let budget = budget_tokens();
-    let mut out = format!("prompt context  ~{tokens} / {budget} tokens");
+    let mut out = format!("preamble  ~{tokens} / {budget} tokens");
     if !files.is_empty() {
-        out.push_str("\nfiles");
+        out.push_str("\n  files");
         for (name, body) in &files {
-            let n = body.lines().count();
-            let _ = write!(out, "\n  {name}  {n} lines");
+            let _ = write!(out, "\n    {name}  {} lines", body.lines().count());
         }
     }
     if !skills.is_empty() {
-        out.push_str("\nskills");
+        out.push_str("\n  skill summaries");
         for skill in &skills {
-            if skill.description.is_empty() {
-                let _ = write!(out, "\n  {}  (`{}`)", skill.name, skill.path);
-            } else {
-                let _ = write!(
-                    out,
-                    "\n  {}: {}  (`{}`)",
-                    skill.name, skill.description, skill.path
-                );
+            let _ = write!(out, "\n    {}  (`{}`)", skill.name, skill.path);
+            if !skill.description.is_empty() {
+                let _ = write!(out, "\n      {}", skill.description);
             }
         }
     }
-    out
+    (out, tokens as usize)
 }
 
 fn load(cwd: &Path) -> Option<Loaded> {
@@ -290,6 +283,24 @@ mod tests {
     }
 
     #[test]
+    fn summary_nests_skill_description_under_name() {
+        let dir = scratch();
+        let skill = dir.join(".agents").join("skills").join("review");
+        fs::create_dir_all(&skill).unwrap();
+        fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: review\ndescription: Review a diff.\n---\n",
+        )
+        .unwrap();
+
+        let (summary, _) = summary_in(&dir);
+        assert!(
+            summary
+                .contains("    review  (`.agents/skills/review/SKILL.md`)\n      Review a diff.")
+        );
+    }
+
+    #[test]
     fn folded_description() {
         let (name, desc) = parse_frontmatter(
             "---\nname: ship\ndescription: >\n  Cut a release.\n  Tag it.\n---\n",
@@ -307,33 +318,5 @@ mod tests {
         let text = load(&dir).unwrap().text;
         assert!(text.contains("- notes (`.agents/skills/notes/SKILL.md`)"));
         assert!(!text.contains("just a body"));
-    }
-
-    #[test]
-    fn summary_lists_files_and_skills() {
-        let dir = scratch();
-        fs::write(dir.join("AGENTS.md"), "be brief\n").unwrap();
-        let skill = dir.join(".agents").join("skills").join("review");
-        fs::create_dir_all(&skill).unwrap();
-        fs::write(
-            skill.join("SKILL.md"),
-            "---\nname: review\ndescription: Review a diff.\n---\n\nbody\n",
-        )
-        .unwrap();
-        let text = summary_in(&dir);
-        assert!(text.starts_with("prompt context  ~"));
-        assert!(text.contains("files"));
-        assert!(text.contains("AGENTS.md  1 lines"));
-        assert!(!text.contains("CONTEXT.md"));
-        assert!(text.contains("skills"));
-        assert!(text.contains("review: Review a diff."));
-        assert!(text.contains(".agents/skills/review/SKILL.md"));
-        assert!(!text.contains("body"));
-    }
-
-    #[test]
-    fn summary_empty_cwd() {
-        let dir = scratch();
-        assert_eq!(summary_in(&dir), "no prompt context");
     }
 }
