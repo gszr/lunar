@@ -620,24 +620,34 @@ pub(crate) fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
 
 pub(crate) fn stats_line(app: &App) -> String {
     let mut parts = Vec::new();
-    if app.usage.input > 0 {
-        parts.push(format!("↑{}", format_tokens(app.usage.input)));
+    let input = app.usage.prompt();
+    if input > 0 {
+        let mut input = format!("↑{}", format_tokens(input));
+        if app.usage.cache_read > 0 || app.usage.cache_write > 0 {
+            let mut split = vec![format!("U{}", format_tokens(app.usage.input))];
+            if app.usage.cache_read > 0 {
+                split.push(format!("R{}", format_tokens(app.usage.cache_read)));
+            }
+            if app.usage.cache_write > 0 {
+                split.push(format!("W{}", format_tokens(app.usage.cache_write)));
+            }
+            input.push_str(&format!(" ({})", split.join(" ")));
+        }
+        parts.push(input);
     }
     if app.usage.output > 0 {
         parts.push(format!("↓{}", format_tokens(app.usage.output)));
-    }
-    if app.usage.cache_read > 0 {
-        parts.push(format!("R{}", format_tokens(app.usage.cache_read)));
-    }
-    if app.usage.cache_write > 0 {
-        parts.push(format!("W{}", format_tokens(app.usage.cache_write)));
     }
     if let Some(window) = app.config.as_ref().and_then(Config::context_window)
         && window > 0
         && app.last_prompt > 0
     {
         let pct = (f64::from(app.last_prompt) / f64::from(window)) * 100.0;
-        parts.push(format!("{pct:.1}%/{}", format_tokens(window)));
+        parts.push(format!(
+            "ctx {}/{} ({pct:.1}%)",
+            format_tokens(app.last_prompt),
+            format_tokens(window)
+        ));
     }
     parts.join(" ")
 }

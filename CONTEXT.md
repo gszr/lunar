@@ -145,7 +145,7 @@ Top to bottom:
    - Assistant: terminal-friendly CommonMark (gold headings, emphasis, inline/fenced code, valid fenced `json` pretty-printed, links with visible destinations, lists, blockquotes, rules). Tables use aligned Unicode borders and wrap cells to fit the transcript. Images render alt text plus URL
 3. **Working** — `⠋ Thinking...` while the model streams; `⠋ Running tools...` while tools run
 4. **Editor** — top **and** bottom rules, char-wrap, grows/shrinks (max 8 lines), real cursor
-5. **Footer (2 lines)** — cwd; then `↑in ↓out R W pct/window` left and `(provider) model • off` right
+5. **Footer (2 lines)** — cwd; then cumulative `↑total (Uuncached Rread Wwrite) ↓output` and latest `ctx tokens/window (pct)` left, `(provider) model • off` right. The cache split appears only when cache activity is reported; zero `R`/`W` components are omitted
 
 Readline: Ctrl+W / Alt+Backspace word-kill, Ctrl+U/K, Ctrl+A/E, arrows, Alt+B/F, Delete. Enter sends. Shift+Enter / Ctrl+J insert a newline. **Ctrl+C quits** (not clear). Esc aborts a turn or clears the editor.
 

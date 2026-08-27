@@ -101,7 +101,7 @@ mod tests {
     use crate::transcript::painted_lines;
     use crate::transcript::{jump_to_tail, on_mouse};
     use crate::turn::{abort_turn, run_tools_parallel, skipped_truncated};
-    use crate::view::{char_wrap, cursor_xy, working_text};
+    use crate::view::{char_wrap, cursor_xy, stats_line, working_text};
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
     use std::sync::atomic::AtomicBool;
@@ -251,6 +251,37 @@ mod tests {
         assert_eq!(app.usage.cache_write, 7);
         assert_eq!(app.last_prompt, 52);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn stats_show_total_input_split_and_current_context() {
+        let mut app = configured_app();
+        app.config.as_mut().unwrap().window = Some(1_000_000);
+        app.usage = Usage {
+            input: 30_000,
+            output: 8_500,
+            cache_read: 2_000_000,
+            cache_write: 100_000,
+        };
+        app.last_prompt = 150_000;
+
+        assert_eq!(
+            stats_line(&app),
+            "↑2.1M (U30k R2.0M W100k) ↓8.5k ctx 150k/1.0M (15.0%)"
+        );
+    }
+
+    #[test]
+    fn stats_omit_unreported_cache_components() {
+        let mut app = configured_app();
+        app.usage = Usage {
+            input: 30_000,
+            output: 0,
+            cache_read: 2_000_000,
+            cache_write: 0,
+        };
+
+        assert_eq!(stats_line(&app), "↑2.0M (U30k R2.0M)");
     }
 
     #[test]
