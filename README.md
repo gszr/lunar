@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="docs/logos/lunar-logo-with-wordmark-transparent.png" alt="Lunar" width="220">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logos/dark/lunar-dark-theme-with-wordmark-transparent.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/logos/light/lunar-logo-with-wordmark-transparent.png">
+    <img src="docs/logos/light/lunar-logo-with-wordmark-transparent.png" alt="Lunar" width="220">
+  </picture>
 </p>
 
 <p align="center">A terminal coding harness. You open <code>lunar</code> and code</p>
