@@ -172,7 +172,7 @@ Lunar includes `AGENTS.md`, `CONTEXT.md`, and summaries from `.agents/skills/*/S
 
 ## Token usage
 
-The footer separates cumulative mission traffic from the latest request's context occupancy:
+Some of Lunar's goals are transparency and token efficiency. Token accounting can be confusing, and most harnesses do little to explain what their numbers mean. Lunar separates cumulative mission traffic from current context occupancy, and breaks input down into ordinary, cache-read, and cache-write tokens. This makes it clear how much work the model has processed over the mission and how much of its context window the latest request occupies.
 
 ```text
 ↑2.1M (U30k R2.0M W100k) ↓8.5k  ctx 150k/1.0M (15.0%)
