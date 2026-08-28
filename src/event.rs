@@ -2,7 +2,7 @@
 
 use std::io;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -22,8 +22,16 @@ use crate::transcript::{jump_to_tail, on_mouse, page_delta, scroll_by, scroll_ho
 use crate::turn::{abort_turn, drain_stream, send_prompt};
 use crate::view::draw;
 
+const RESUME_GAP: Duration = Duration::from_secs(30);
+
 pub(crate) fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
+    let mut last_tick = SystemTime::now();
     while !app.quit {
+        let now = SystemTime::now();
+        if resumed_during_turn(app.cancel.is_some(), last_tick, now) {
+            interrupt_resumed_turn(app);
+        }
+        last_tick = now;
         drain_stream(app);
         drain_auth(app);
         terminal.draw(|frame| draw(frame, app))?;
@@ -42,6 +50,18 @@ pub(crate) fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<(
         }
     }
     Ok(())
+}
+
+pub(crate) fn resumed_during_turn(active: bool, before: SystemTime, now: SystemTime) -> bool {
+    active
+        && now
+            .duration_since(before)
+            .is_ok_and(|elapsed| elapsed > RESUME_GAP)
+}
+
+pub(crate) fn interrupt_resumed_turn(app: &mut App) {
+    abort_turn(app);
+    app.notice = Some("computer resumed; interrupted model stream".into());
 }
 
 pub(crate) fn on_paste(app: &mut App, text: &str) {
