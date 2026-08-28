@@ -97,7 +97,7 @@ mod tests {
     use super::*;
     use crate::app::{Message, Mode};
     use crate::event::{on_key, on_paste};
-    use crate::protocol::{Api, Config, Thinking, ToolCall, Usage};
+    use crate::protocol::{Api, Config, ToolCall, Usage};
     use crate::transcript::painted_lines;
     use crate::transcript::{jump_to_tail, on_mouse};
     use crate::turn::{abort_turn, run_tools_parallel, skipped_truncated};
@@ -156,7 +156,8 @@ mod tests {
             window: None,
             api: Api::Completions,
             auth_provider: None,
-            thinking: Thinking::Off,
+            thinking: "off".into(),
+            thinking_levels: vec!["off".into(), "low".into(), "medium".into(), "high".into()],
         };
         app.config = Some(config.clone());
         app.startup_config = Some(config);
@@ -181,18 +182,35 @@ mod tests {
     }
 
     #[test]
-    fn thinking_without_value_opens_picker_and_selects_with_arrows() {
+    fn thinking_without_value_uses_the_model_levels() {
         let mut app = configured_app();
+        let config = app.config.as_mut().unwrap();
+        config.thinking = "high".into();
+        config.thinking_levels = vec!["low".into(), "high".into(), "max".into()];
         app.input = "/thinking".into();
         app.cursor = app.input.len();
         on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Enter));
-        assert!(matches!(app.mode, Mode::Thinking { cursor: 0 }));
-        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Right));
+        assert!(matches!(app.mode, Mode::Thinking { cursor: 1 }));
         on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Right));
         on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Enter));
         assert!(matches!(app.mode, Mode::Chat));
-        assert_eq!(app.config.unwrap().thinking, Thinking::Medium);
-        assert_eq!(app.thinking_override, Some(Thinking::Medium));
+        assert_eq!(app.config.unwrap().thinking, "max");
+        assert_eq!(app.thinking_override, Some("max".into()));
+    }
+
+    #[test]
+    fn thinking_rejects_values_outside_the_model_levels() {
+        let mut app = configured_app();
+        app.config.as_mut().unwrap().thinking_levels =
+            vec!["low".into(), "high".into(), "max".into()];
+        app.input = "/thinking medium".into();
+        app.cursor = app.input.len();
+
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Enter));
+
+        assert_eq!(app.config.unwrap().thinking, "off");
+        assert_eq!(app.thinking_override, None);
+        assert_eq!(app.notice.as_deref(), Some("usage: /thinking low|high|max"));
     }
 
     #[test]
@@ -217,8 +235,75 @@ mod tests {
         )
         .unwrap();
         crate::actions::load_mission(&mut app, &path);
-        assert_eq!(app.thinking_override, Some(Thinking::High));
-        assert_eq!(app.config.unwrap().thinking, Thinking::High);
+        assert_eq!(app.thinking_override, Some("high".into()));
+        assert_eq!(app.config.unwrap().thinking, "high");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn reopening_mission_ignores_a_thinking_level_the_model_no_longer_allows() {
+        let mut app = configured_app();
+        let dir = std::env::temp_dir().join(format!(
+            "lunar-thinking-resume-invalid-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("2026-08-19-1.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"header\",\"id\":\"2026-08-19-1\",\"name\":\"Thinking\"}\n",
+                "{\"type\":\"thinking\",\"level\":\"max\"}\n"
+            ),
+        )
+        .unwrap();
+
+        crate::actions::load_mission(&mut app, &path);
+
+        assert_eq!(app.thinking_override, None);
+        assert_eq!(app.config.as_ref().unwrap().thinking, "off");
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("saved thinking level is not supported by grok: max")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn reopening_mission_keeps_the_missing_model_notice() {
+        let mut app = configured_app();
+        let dir = std::env::temp_dir().join(format!(
+            "lunar-thinking-resume-missing-model-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("2026-08-19-1.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"header\",\"id\":\"2026-08-19-1\",\"name\":\"Thinking\"}\n",
+                "{\"type\":\"model\",\"provider\":\"openai\",\"id\":\"gpt-5\"}\n",
+                "{\"type\":\"thinking\",\"level\":\"max\"}\n"
+            ),
+        )
+        .unwrap();
+
+        crate::actions::load_mission(&mut app, &path);
+
+        assert_eq!(app.thinking_override, None);
+        assert_eq!(app.config.as_ref().unwrap().thinking, "off");
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("saved model openai / gpt-5 is no longer configured; using startup default")
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -290,10 +375,10 @@ mod tests {
         app.input = "/thinking high".into();
         app.cursor = app.input.len();
         on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Enter));
-        assert_eq!(app.thinking_override, Some(Thinking::High));
+        assert_eq!(app.thinking_override, Some("high".into()));
         crate::actions::new_mission(&mut app);
         assert_eq!(app.thinking_override, None);
-        assert_eq!(app.config.unwrap().thinking, Thinking::Off);
+        assert_eq!(app.config.unwrap().thinking, "off");
     }
 
     #[test]

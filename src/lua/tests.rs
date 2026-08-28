@@ -1,5 +1,5 @@
 use super::*;
-use crate::protocol::{Api, Thinking};
+use crate::protocol::Api;
 use std::fs;
 use std::sync::{Mutex, MutexGuard};
 
@@ -230,7 +230,7 @@ return {
 }
 
 #[test]
-fn model_thinking_overrides_provider_thinking() {
+fn model_thinking_lists_allowed_levels_and_default() {
     let _env = isolate(&[("XAI_API_KEY", "key")]);
     let dir = scratch();
     let path = write_init(
@@ -238,13 +238,15 @@ fn model_thinking_overrides_provider_thinking() {
         r#"
 return {
   models = {
-  grok = { id = "grok", thinking = "high" },
+  grok = {
+    id = "grok",
+    thinking = { "low", "high", "max", default = "high" },
+  },
 },
   providers = {
   xai = {
     base_url = "https://api.x.ai/v1",
     key_name = "XAI_API_KEY",
-    thinking = "low",
     models = { "grok", { id = "other" } },
   },
 },
@@ -253,9 +255,69 @@ return {
 "#,
     );
     let loaded = load_path(&path);
-    assert_eq!(loaded.config.unwrap().thinking, Thinking::High);
+    let config = loaded.config.unwrap();
+    assert_eq!(config.thinking, "high");
+    assert_eq!(config.thinking_levels, ["low", "high", "max"]);
     let other = loaded.models.iter().find(|m| m.id == "other").unwrap();
-    assert_eq!(other.config.as_ref().unwrap().thinking, Thinking::Low);
+    let other = other.config.as_ref().unwrap();
+    assert_eq!(other.thinking, "off");
+    assert_eq!(other.thinking_levels, ["off"]);
+}
+
+#[test]
+fn provider_thinking_is_rejected() {
+    let _env = isolate(&[("XAI_API_KEY", "key")]);
+    let src = r#"
+return {
+  providers = {
+    xai = {
+      base_url = "https://api.x.ai/v1",
+      key_name = "XAI_API_KEY",
+      thinking = "high",
+      models = { { id = "grok" } },
+    },
+  },
+  defaults = { provider = "xai", model = "grok" },
+}
+"#;
+    let loaded = load_path(&write_init(&scratch(), src));
+    assert_eq!(loaded.config.unwrap().thinking, "off");
+    assert_eq!(
+        loaded.notice.as_deref(),
+        Some("provider xai thinking is not supported")
+    );
+}
+
+#[test]
+fn invalid_model_thinking_is_skipped() {
+    let _env = isolate(&[("XAI_API_KEY", "key")]);
+    let src = r#"
+return {
+  models = {
+    scalar = { id = "scalar", thinking = "high" },
+    bad_default = {
+      id = "bad-default",
+      thinking = { "low", "high", default = "max" },
+    },
+  },
+  providers = {
+    xai = {
+      base_url = "https://api.x.ai/v1",
+      key_name = "XAI_API_KEY",
+      models = { "scalar", "bad_default", { id = "ok" } },
+    },
+  },
+  defaults = { provider = "xai", model = "ok" },
+}
+"#;
+    let loaded = load_path(&write_init(&scratch(), src));
+    assert_eq!(loaded.models.len(), 1);
+    assert_eq!(loaded.models[0].id, "ok");
+    let notice = loaded.notice.unwrap();
+    assert!(notice.contains("model scalar thinking is not a table of strings"));
+    assert!(notice.contains("model bad_default thinking default is not listed: max"));
+    assert!(notice.contains("unknown alias: scalar"));
+    assert!(notice.contains("unknown alias: bad_default"));
 }
 
 #[test]

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use mlua::{Table, Value};
 
-use crate::protocol::{Api, Thinking};
+use crate::protocol::Api;
 
 #[derive(Default)]
 pub(super) struct Guest {
@@ -21,11 +21,17 @@ pub(super) struct RawDefaults {
 }
 
 #[derive(Clone)]
+pub(super) struct ThinkingDef {
+    pub(super) levels: Vec<String>,
+    pub(super) default: String,
+}
+
+#[derive(Clone)]
 pub(super) struct ModelDef {
     pub(super) id: String,
     pub(super) window: Option<u32>,
     pub(super) api: Api,
-    pub(super) thinking: Option<Thinking>,
+    pub(super) thinking: ThinkingDef,
 }
 
 pub(super) struct ProviderDef {
@@ -35,7 +41,6 @@ pub(super) struct ProviderDef {
     pub(super) key_cmd: Option<String>,
     pub(super) key_in: String,
     pub(super) auth_provider: Option<String>,
-    pub(super) thinking: Option<Thinking>,
     pub(super) models: Vec<Listed>,
 }
 
@@ -132,7 +137,9 @@ fn parse_providers(table: &Table) -> (BTreeMap<String, ProviderDef>, Vec<String>
         };
         notices.extend(extra);
         let key_in = field_string(&t, "key_in").unwrap_or_else(|| "env".into());
-        let thinking = parse_thinking(&t, "thinking", &format!("provider {name}"), &mut notices);
+        if !matches!(t.get::<Value>("thinking"), Ok(Value::Nil) | Err(_)) {
+            notices.push(format!("provider {name} thinking is not supported"));
+        }
         providers.insert(
             name,
             ProviderDef {
@@ -142,7 +149,6 @@ fn parse_providers(table: &Table) -> (BTreeMap<String, ProviderDef>, Vec<String>
                 key_cmd: field_string(&t, "key_cmd"),
                 key_in,
                 auth_provider: field_string(&t, "auth_provider"),
-                thinking,
                 models,
             },
         );
@@ -171,7 +177,10 @@ fn parse_listed(table: &Table) -> (Vec<Listed>, Vec<String>) {
 enum DefError {
     NoId,
     UnknownApi(Option<String>),
-    UnknownThinking(Option<String>),
+    InvalidThinking,
+    EmptyThinking,
+    MissingThinkingDefault,
+    UnknownThinkingDefault(String),
 }
 
 fn model_def(table: &Table) -> Result<ModelDef, DefError> {
@@ -190,11 +199,12 @@ fn model_def(table: &Table) -> Result<ModelDef, DefError> {
         },
     };
     let thinking = match table.get::<Value>("thinking") {
-        Ok(Value::Nil) | Err(_) => None,
-        Ok(v) => match value_string(&v).and_then(|raw| Thinking::parse(&raw)) {
-            Some(level) => Some(level),
-            None => return Err(DefError::UnknownThinking(value_string(&v))),
+        Ok(Value::Nil) | Err(_) => ThinkingDef {
+            levels: vec!["off".into()],
+            default: "off".into(),
         },
+        Ok(Value::Table(value)) => parse_thinking(&value)?,
+        Ok(_) => return Err(DefError::InvalidThinking),
     };
     Ok(ModelDef {
         id,
@@ -204,25 +214,29 @@ fn model_def(table: &Table) -> Result<ModelDef, DefError> {
     })
 }
 
-fn parse_thinking(
-    table: &Table,
-    key: &str,
-    prefix: &str,
-    notices: &mut Vec<String>,
-) -> Option<Thinking> {
-    match table.get::<Value>(key) {
-        Ok(Value::Nil) | Err(_) => None,
-        Ok(value) => match value_string(&value).and_then(|raw| Thinking::parse(&raw)) {
-            Some(level) => Some(level),
-            None => {
-                notices.push(match value_string(&value) {
-                    Some(raw) => format!("{prefix} has unknown thinking: {raw}"),
-                    None => format!("{prefix} has unknown thinking"),
-                });
-                None
-            }
-        },
+fn parse_thinking(table: &Table) -> Result<ThinkingDef, DefError> {
+    let mut levels = Vec::new();
+    for value in table.sequence_values::<Value>() {
+        let Ok(value) = value else {
+            return Err(DefError::InvalidThinking);
+        };
+        let Some(level) = value_string(&value).filter(|level| !level.is_empty()) else {
+            return Err(DefError::InvalidThinking);
+        };
+        if !levels.contains(&level) {
+            levels.push(level);
+        }
     }
+    if levels.is_empty() {
+        return Err(DefError::EmptyThinking);
+    }
+    let default = field_string(table, "default")
+        .filter(|level| !level.is_empty())
+        .ok_or(DefError::MissingThinkingDefault)?;
+    if !levels.contains(&default) {
+        return Err(DefError::UnknownThinkingDefault(default));
+    }
+    Ok(ThinkingDef { levels, default })
 }
 
 fn def_error(prefix: &str, err: DefError) -> String {
@@ -230,10 +244,12 @@ fn def_error(prefix: &str, err: DefError) -> String {
         DefError::NoId => format!("{prefix} has no id"),
         DefError::UnknownApi(Some(raw)) => format!("{prefix} has unknown api: {raw}"),
         DefError::UnknownApi(None) => format!("{prefix} has unknown api"),
-        DefError::UnknownThinking(Some(raw)) => {
-            format!("{prefix} has unknown thinking: {raw}")
+        DefError::InvalidThinking => format!("{prefix} thinking is not a table of strings"),
+        DefError::EmptyThinking => format!("{prefix} thinking has no levels"),
+        DefError::MissingThinkingDefault => format!("{prefix} thinking has no default"),
+        DefError::UnknownThinkingDefault(raw) => {
+            format!("{prefix} thinking default is not listed: {raw}")
         }
-        DefError::UnknownThinking(None) => format!("{prefix} has unknown thinking"),
     }
 }
 

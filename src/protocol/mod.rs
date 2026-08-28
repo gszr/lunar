@@ -34,36 +34,6 @@ impl Api {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Thinking {
-    #[default]
-    Off,
-    Low,
-    Medium,
-    High,
-}
-
-impl Thinking {
-    pub fn parse(raw: &str) -> Option<Self> {
-        match raw {
-            "off" => Some(Self::Off),
-            "low" => Some(Self::Low),
-            "medium" => Some(Self::Medium),
-            "high" => Some(Self::High),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Off => "off",
-            Self::Low => "low",
-            Self::Medium => "medium",
-            Self::High => "high",
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct Config {
     pub api_key: String,
@@ -73,7 +43,8 @@ pub struct Config {
     pub window: Option<u32>,
     pub api: Api,
     pub auth_provider: Option<String>,
-    pub thinking: Thinking,
+    pub thinking: String,
+    pub thinking_levels: Vec<String>,
 }
 
 impl Config {
@@ -83,6 +54,10 @@ impl Config {
 
     pub fn provider(&self) -> &str {
         &self.provider
+    }
+
+    pub fn allows_thinking(&self, level: &str) -> bool {
+        self.thinking_levels.iter().any(|allowed| allowed == level)
     }
 }
 

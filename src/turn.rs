@@ -245,7 +245,7 @@ pub(crate) fn persist_value(app: &mut App, value: &serde_json::Value) {
     if let Some(m) = &app.mission {
         if created
             && value.get("type").and_then(serde_json::Value::as_str) != Some("thinking")
-            && let Some(level) = app.thinking_override
+            && let Some(level) = app.thinking_override.as_deref()
             && let Err(err) = mission::append(m, &mission::thinking_line(level))
         {
             app.notice = Some(format!("mission: {err}"));

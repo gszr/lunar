@@ -494,12 +494,17 @@ pub(crate) fn draw_thinking_editor(frame: &mut Frame, area: Rect, app: &App, cur
         .split(inner);
     draw_editor_input(frame, chunks[0], app);
     let mut spans = vec![Span::styled("<-  ", Style::default().fg(splash::ASH))];
-    for (i, level) in ["off", "low", "medium", "high"].iter().enumerate() {
+    let levels = app
+        .config
+        .as_ref()
+        .map(|config| config.thinking_levels.as_slice())
+        .unwrap_or(&[]);
+    for (i, level) in levels.iter().enumerate() {
         if i > 0 {
             spans.push(Span::raw("   "));
         }
         spans.push(Span::styled(
-            *level,
+            level.as_str(),
             Style::default().fg(if i == cursor {
                 splash::GOLD
             } else {
@@ -597,12 +602,7 @@ pub(crate) fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
     let cwd = Line::from(Span::styled(cwd_label(), Style::default().fg(splash::DUST)));
     let stats = stats_line(app);
     let model = match &app.config {
-        Some(cfg) => format!(
-            "({}) {} • {}",
-            cfg.provider(),
-            cfg.model,
-            cfg.thinking.as_str()
-        ),
+        Some(cfg) => format!("({}) {} • {}", cfg.provider(), cfg.model, cfg.thinking),
         None => "no model".into(),
     };
     let stats_row = spread(

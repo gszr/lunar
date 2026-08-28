@@ -8,7 +8,7 @@ use std::time::SystemTime;
 use serde_json::{Value, json};
 
 use crate::app::Message;
-use crate::protocol::{Thinking, ToolCall, Usage};
+use crate::protocol::{ToolCall, Usage};
 
 pub struct Mission {
     pub path: PathBuf,
@@ -114,7 +114,7 @@ pub struct Loaded {
     pub mission: Mission,
     pub messages: Vec<Message>,
     pub model: Option<(String, String)>,
-    pub thinking: Option<Thinking>,
+    pub thinking: Option<String>,
     pub usage: Usage,
     pub last_prompt: u32,
 }
@@ -279,12 +279,8 @@ pub fn load(path: &Path) -> io::Result<Loaded> {
                 }
             }
             Some("thinking") => {
-                if let Some(level) = value
-                    .get("level")
-                    .and_then(Value::as_str)
-                    .and_then(Thinking::parse)
-                {
-                    thinking = Some(level);
+                if let Some(level) = value.get("level").and_then(Value::as_str) {
+                    thinking = Some(level.to_string());
                 }
             }
             Some("usage") => {
@@ -352,8 +348,8 @@ pub fn model_line(provider: &str, id: &str) -> Value {
     json!({ "type": "model", "provider": provider, "id": id })
 }
 
-pub fn thinking_line(level: Thinking) -> Value {
-    json!({ "type": "thinking", "level": level.as_str() })
+pub fn thinking_line(level: &str) -> Value {
+    json!({ "type": "thinking", "level": level })
 }
 
 pub fn usage_line(usage: Usage) -> Value {
@@ -580,12 +576,12 @@ mod tests {
             format!(
                 "{}\n{}\n",
                 json!({"type":"header","id":"2026-08-19-1","name":"Thinking"}),
-                thinking_line(Thinking::High)
+                thinking_line("high")
             ),
         )
         .unwrap();
         let loaded = load(&path).unwrap();
-        assert_eq!(loaded.thinking, Some(Thinking::High));
+        assert_eq!(loaded.thinking, Some("high".into()));
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -604,7 +600,7 @@ mod tests {
         let lines = [
             json!({"type":"header","id":"2026-08-19-1","name":"Loaded"}),
             model_line("xai", "grok-old"),
-            thinking_line(Thinking::Low),
+            thinking_line("low"),
             user_line("hello"),
             assistant_line("hi", &[]),
             tool_line("call-1", "read", "contents"),
@@ -615,7 +611,7 @@ mod tests {
                 cache_write: 1,
             }),
             model_line("openai", "gpt-current"),
-            thinking_line(Thinking::High),
+            thinking_line("high"),
             usage_line(Usage {
                 input: 20,
                 output: 4,
@@ -637,7 +633,7 @@ mod tests {
         let loaded = load(&path).unwrap();
 
         assert_eq!(loaded.model, Some(("openai".into(), "gpt-current".into())));
-        assert_eq!(loaded.thinking, Some(Thinking::High));
+        assert_eq!(loaded.thinking, Some("high".into()));
         assert_eq!(loaded.usage.input, 30);
         assert_eq!(loaded.usage.output, 6);
         assert_eq!(loaded.usage.cache_read, 8);

@@ -45,7 +45,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "thinking",
-        description: "set reasoning effort: off, low, medium, high",
+        description: "set the model's reasoning effort",
     },
     Command {
         name: "resume",
