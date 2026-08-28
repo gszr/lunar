@@ -22,7 +22,6 @@ pub struct Meta {
     pub id: String,
     pub name: Option<String>,
     pub cwd: Option<String>,
-    search_body: String,
     modified: SystemTime,
 }
 
@@ -43,7 +42,17 @@ pub fn matches_query(meta: &Meta, query: &str) -> bool {
             .cwd
             .as_deref()
             .is_some_and(|cwd| cwd.to_lowercase().contains(&query))
-        || meta.search_body.contains(&query)
+        || body_contains(&meta.path, &query)
+}
+
+fn body_contains(path: &Path, query: &str) -> bool {
+    let Ok(file) = File::open(path) else {
+        return false;
+    };
+    BufReader::new(file).lines().any(|line| {
+        line.ok()
+            .is_some_and(|line| line.to_lowercase().contains(query))
+    })
 }
 
 pub fn select(items: &[Meta], selector: &str) -> Selection {
@@ -416,8 +425,7 @@ fn first_user_name(path: &Path) -> io::Result<Option<String>> {
 
 fn read_meta(path: &Path) -> io::Result<Meta> {
     let modified = fs::metadata(path)?.modified()?;
-    let body = fs::read_to_string(path)?;
-    let search_body = body.to_lowercase();
+    let file = File::open(path)?;
     let mut id = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -425,8 +433,9 @@ fn read_meta(path: &Path) -> io::Result<Meta> {
         .to_string();
     let mut name = None;
     let mut cwd = None;
-    for line in body.lines() {
-        let Ok(value) = serde_json::from_str::<Value>(line) else {
+    for line in BufReader::new(file).lines() {
+        let line = line?;
+        let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
         match value.get("type").and_then(Value::as_str) {
@@ -455,7 +464,6 @@ fn read_meta(path: &Path) -> io::Result<Meta> {
         id,
         name,
         cwd,
-        search_body,
         modified,
     })
 }
@@ -572,7 +580,6 @@ mod tests {
             id: id.into(),
             name: name.map(str::to_string),
             cwd: Some("/work".into()),
-            search_body: String::new(),
             modified: SystemTime::UNIX_EPOCH,
         }
     }
@@ -703,12 +710,30 @@ mod tests {
 
     #[test]
     fn search_matches_id_name_cwd_and_body_case_insensitively() {
+        let dir = std::env::temp_dir().join(format!(
+            "lunar-mission-search-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("2026-08-19-1.jsonl");
+        fs::write(
+            &path,
+            format!(
+                "{}\n{}\n",
+                json!({"type":"header","id":"2026-08-19-1","name":"Fix Mission Search","cwd":"/Work/Lunar"}),
+                json!({"type":"user","text":"Unique body phrase"})
+            ),
+        )
+        .unwrap();
         let item = Meta {
-            path: PathBuf::from("2026-08-19-1.jsonl"),
+            path,
             id: "2026-08-19-1".into(),
             name: Some("Fix Mission Search".into()),
             cwd: Some("/Work/Lunar".into()),
-            search_body: "{\"type\":\"user\",\"text\":\"unique body phrase\"}".into(),
             modified: SystemTime::UNIX_EPOCH,
         };
 
@@ -717,6 +742,7 @@ mod tests {
         assert!(matches_query(&item, "/work/lunar"));
         assert!(matches_query(&item, "unique body phrase"));
         assert!(!matches_query(&item, "missing"));
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
