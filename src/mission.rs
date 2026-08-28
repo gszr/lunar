@@ -22,6 +22,7 @@ pub struct Meta {
     pub id: String,
     pub name: Option<String>,
     pub cwd: Option<String>,
+    search_body: String,
     modified: SystemTime,
 }
 
@@ -42,6 +43,7 @@ pub fn matches_query(meta: &Meta, query: &str) -> bool {
             .cwd
             .as_deref()
             .is_some_and(|cwd| cwd.to_lowercase().contains(&query))
+        || meta.search_body.contains(&query)
 }
 
 pub fn select(items: &[Meta], selector: &str) -> Selection {
@@ -414,7 +416,8 @@ fn first_user_name(path: &Path) -> io::Result<Option<String>> {
 
 fn read_meta(path: &Path) -> io::Result<Meta> {
     let modified = fs::metadata(path)?.modified()?;
-    let file = File::open(path)?;
+    let body = fs::read_to_string(path)?;
+    let search_body = body.to_lowercase();
     let mut id = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -422,9 +425,8 @@ fn read_meta(path: &Path) -> io::Result<Meta> {
         .to_string();
     let mut name = None;
     let mut cwd = None;
-    for line in BufReader::new(file).lines() {
-        let line = line?;
-        let Ok(value) = serde_json::from_str::<Value>(&line) else {
+    for line in body.lines() {
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
             continue;
         };
         match value.get("type").and_then(Value::as_str) {
@@ -453,6 +455,7 @@ fn read_meta(path: &Path) -> io::Result<Meta> {
         id,
         name,
         cwd,
+        search_body,
         modified,
     })
 }
@@ -569,6 +572,7 @@ mod tests {
             id: id.into(),
             name: name.map(str::to_string),
             cwd: Some("/work".into()),
+            search_body: String::new(),
             modified: SystemTime::UNIX_EPOCH,
         }
     }
@@ -698,18 +702,20 @@ mod tests {
     }
 
     #[test]
-    fn search_matches_id_name_and_cwd_case_insensitively() {
+    fn search_matches_id_name_cwd_and_body_case_insensitively() {
         let item = Meta {
             path: PathBuf::from("2026-08-19-1.jsonl"),
             id: "2026-08-19-1".into(),
             name: Some("Fix Mission Search".into()),
             cwd: Some("/Work/Lunar".into()),
+            search_body: "{\"type\":\"user\",\"text\":\"unique body phrase\"}".into(),
             modified: SystemTime::UNIX_EPOCH,
         };
 
         assert!(matches_query(&item, "08-19"));
         assert!(matches_query(&item, "mission search"));
         assert!(matches_query(&item, "/work/lunar"));
+        assert!(matches_query(&item, "unique body phrase"));
         assert!(!matches_query(&item, "missing"));
     }
 

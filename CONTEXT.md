@@ -161,7 +161,7 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 
 `/` opens command completion under the editor. Tab / ↑↓ cycle; Enter accepts (runs, except `/name` which stays in the editor). `/q` is a hidden quit alias.
 
-`/resume` is j/k + enter. Press `/` to search mission ID, name, and cwd with a case-insensitive substring; arrows move through matches, Enter opens one, and Esc clears search before closing the picker. PageUp / PageDown / wheel do nothing in the picker. `lunar -c` / `--continue` loads the latest mission for this cwd. `lunar -m` / `--mission` without an argument opens the mission log; with an argument it resumes an exact filename (with or without `.jsonl`) or the newest exact label for this cwd. If no mission matches, it opens the mission log. A date (`YYYY-MM-DD`) opens that day's filtered log, unless an exact label matches first. `-c` and `-m` are mutually exclusive.
+`/resume` is j/k + enter. Press `/` to search mission ID, name, cwd, and body with a case-insensitive substring; arrows move through matches, Enter opens one, and Esc clears search before closing the picker. PageUp / PageDown / wheel do nothing in the picker. `lunar -c` / `--continue` loads the latest mission for this cwd. `lunar -m` / `--mission` without an argument opens the mission log; with an argument it resumes an exact filename (with or without `.jsonl`) or the newest exact label for this cwd. If no mission matches, it opens the mission log. A date (`YYYY-MM-DD`) opens that day's filtered log, unless an exact label matches first. `-c` and `-m` are mutually exclusive.
 
 ## Shipped vs not
 
