@@ -26,7 +26,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Lua guest API | `init.lua` returns one table containing optional `models`, `providers`, and `defaults` tables. The registrar form does not exist. **No `lunar.on`** (hook bus is not v0) |
 | Model catalog | Top-level `models`: alias → `{ id, window?, api?, thinking? }`. `id` is the wire string; alias is a Lua name. Provider `models` is an ordered list: string = ref to a global alias, table = local `{ id, window?, api?, thinking? }`. Missing alias = notice, skip that entry. Missing `id`, unknown `api`, or unknown `thinking` = notice, skip that entry. `thinking` is `off` · `low` · `medium` · `high`; a model value overrides its provider default. Omitted values resolve to `off`. Omitted `api` is Completions |
 | Live model | Top-level `defaults = { provider, model }`. `provider` is a providers key; `model` matches that list as alias then wire `id`. Unknown provider or model is an error: notice, glass opens, cannot send. Omitted defaults = no live Config; the catalog remains available in `/model`. Partial defaults (only one field) = present and invalid. The selected provider must have `base_url_cmd` or `base_url` unless `key_in = "auth"` and `auth_provider` is `xai` or `openai` (then `https://api.x.ai/v1` or `https://chatgpt.com/backend-api`). `key_in = "none"` requires an explicit `base_url`; HTTP and HTTPS are accepted. Plus `key_cmd` or `key_name` (`key_in = "env"`), or `auth_provider` (`key_in = "auth"`); missing the applicable source = notice, cannot send. `base_url_cmd` takes precedence over `base_url`, which takes precedence over an auth default. Live `api` `"messages"` is resolve-time refuse: notice, cannot send, entry stays in `/model`. Completions and Responses send. Live Config carries optional `auth_provider` from Lua `key_in = "auth"`. `"openai"` means Codex Responses + JWT account header; Completions on that auth is refuse. Do not sniff `base_url`. Model `window` if set, else the Grok-id guess. Footer provider is the providers key |
-| Prompt conventions | CWD `AGENTS.md` + `CONTEXT.md` in full. Skill *summaries* from `.agents/skills/*/SKILL.md`. Optional bundled skills live in `skills/` and are installed manually per project; none are enabled by default. `~/.agents/skills` later |
+| Prompt conventions | Rules come from CWD `AGENTS.md`, falling back to `~/.agents/AGENTS.md`; project rules replace global rules. CWD `CONTEXT.md` is included in full. Skill *summaries* merge from `~/.agents/skills/*/SKILL.md` and `.agents/skills/*/SKILL.md`; project skills replace global skills with the same directory name. Optional bundled skills live in `skills/` and are installed manually; none are enabled by default. |
 | System prompt | None. Context is a leading user message, snapshotted at each user submit, held for the tool loop, not persisted |
 | v0 goal | Daily driver for one user, not ecosystem parity |
 | Model protocol | Completions, Responses, and Messages. Selected by model `api`: `"completions"` · `"responses"` · `"messages"`. Case-sensitive, no aliases. Omitted `api` is Completions. Completions and Responses send. Responses stays `store: false`, requests an automatic reasoning summary for the thinking preview, and replays the full converted history each round. When a mission exists, Responses also sends `prompt_cache_key` (mission id, 64 chars max) and Pi affinity headers `session_id` / `x-client-request-id`. No `previous_response_id`. ChatGPT Plus (`auth_provider = "openai"`) is Responses-only: POST `{base_url}/codex/responses` (not `{base_url}/responses`), plus `chatgpt-account-id` decoded from the access JWT at send and refresh (`https://api.openai.com/auth` → `chatgpt_account_id`; missing or empty = notice, cannot send) and `originator: lunar`. No extra `auth.json` field. Completions on that auth is resolve-time refuse. No websocket and no zstd this slice. Messages is not implemented |
@@ -163,14 +163,14 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 - Four tools + continue-after-tools (50-round cap; submit `continue` to proceed). Tools in one round run in parallel. Results cap 50KB or 2000 lines; truncated bash output is saved under `~/.lunar/recorder/tool-output/`. Truncated completions do not run tool calls
 - Missions: `/new` `/resume` `/name` `/mission`, `-c`
 - Token stats + refuse submit when last prompt ≥ window
-- CWD `AGENTS.md` / `CONTEXT.md` + `.agents/skills` summaries as a leading user message, snapshotted per user turn
+- Global/project `AGENTS.md`, CWD `CONTEXT.md`, and merged global/project skill summaries as a leading user message, snapshotted per user turn
 - Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/model` `/thinking` `/login` `/logout` `/name` `/mission` `/context`. `/context` opens a component summary of the live preamble and current history, with count and estimated-token breakdowns for user messages, assistant messages, tool calls, and tool results, plus a preamble + history total; `/context raw` shows their full contents, including tool calls and results. Both use a pager: PageUp/PageDown, j/k, wheel, and Ctrl+Home/End scroll, while Esc or q closes it
 - Lua 5.5 embed; user `~/.lunar/control/init.lua` returns `{ models, providers, defaults }`
 - Thinking levels: `/thinking off|low|medium|high`; Lua model value overrides provider default; Completions and Responses wire mappings; live level in footer
 
 **Not shipped (still v0 intent)**
 
-- Walk-up discovery, `~/.agents/skills`, skill bodies (only summaries ship)
+- Walk-up discovery, skill bodies (only summaries ship)
 - `/reload` `/trust`
 - Messages API (catalog accepts `api`; Completions and Responses send)
 - Cost in the footer, git branch, `$` prices
@@ -190,7 +190,7 @@ Package manager, print/RPC/SDK, Pi session compatibility, provider zoo, themes, 
 
 1. Messages, if you actually use a Messages-only id
 2. Dumb `/compact` after the window hurts
-3. Walk-up context + `~/.agents/skills`
+3. Walk-up context
 
 ## Layout in the repo
 
