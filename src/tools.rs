@@ -457,6 +457,12 @@ fn stop_child(child: &mut Child) {
 }
 
 fn resolve(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/")
+        && let Some(home) = std::env::var_os("HOME")
+        && !home.is_empty()
+    {
+        return PathBuf::from(home).join(rest);
+    }
     let p = Path::new(path);
     if p.is_absolute() {
         p.to_path_buf()

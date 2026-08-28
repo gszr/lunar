@@ -1,14 +1,15 @@
-//! CWD context files and skill summaries. Not a system prompt.
+//! Global and CWD context files and skill summaries. Not a system prompt.
 //!
 //! Loaded from disk at the start of each user turn so edits apply without
 //! /reload, then held stable across tool rounds for prefix cache.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const DEFAULT_BUDGET: u32 = 16_000;
-const CONTEXT_FILES: &[&str] = &["AGENTS.md", "CONTEXT.md"];
+const CONTEXT_FILE: &str = "CONTEXT.md";
 
 struct Skill {
     name: String,
@@ -23,12 +24,12 @@ struct Loaded {
 
 pub fn preamble() -> Option<String> {
     let cwd = std::env::current_dir().ok()?;
-    load(&cwd).map(|loaded| loaded.text)
+    load(&cwd, global_agents().as_deref()).map(|loaded| loaded.text)
 }
 
 pub fn budget_warning() -> Option<String> {
     let cwd = std::env::current_dir().ok()?;
-    let loaded = load(&cwd)?;
+    let loaded = load(&cwd, global_agents().as_deref())?;
     let budget = budget_tokens();
     if loaded.tokens > budget {
         Some(format!(
@@ -42,14 +43,14 @@ pub fn budget_warning() -> Option<String> {
 
 pub fn summary() -> (String, usize) {
     match std::env::current_dir() {
-        Ok(cwd) => summary_in(&cwd),
+        Ok(cwd) => summary_in(&cwd, global_agents().as_deref()),
         Err(_) => ("no cwd".into(), 0),
     }
 }
 
-fn summary_in(cwd: &Path) -> (String, usize) {
-    let files = load_files(cwd);
-    let skills = load_skills(cwd);
+fn summary_in(cwd: &Path, global: Option<&Path>) -> (String, usize) {
+    let files = load_files(cwd, global);
+    let skills = load_skills(cwd, global);
     if files.is_empty() && skills.is_empty() {
         return ("no preamble".into(), 0);
     }
@@ -75,9 +76,9 @@ fn summary_in(cwd: &Path) -> (String, usize) {
     (out, tokens as usize)
 }
 
-fn load(cwd: &Path) -> Option<Loaded> {
-    let files = load_files(cwd);
-    let skills = load_skills(cwd);
+fn load(cwd: &Path, global: Option<&Path>) -> Option<Loaded> {
+    let files = load_files(cwd, global);
+    let skills = load_skills(cwd, global);
     if files.is_empty() && skills.is_empty() {
         return None;
     }
@@ -86,27 +87,51 @@ fn load(cwd: &Path) -> Option<Loaded> {
     Some(Loaded { text, tokens })
 }
 
-fn load_files(cwd: &Path) -> Vec<(String, String)> {
+fn global_agents() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from)
+        .map(|home| home.join(".agents"))
+}
+
+fn load_files(cwd: &Path, global: Option<&Path>) -> Vec<(String, String)> {
     let mut files = Vec::new();
-    for name in CONTEXT_FILES {
-        let Ok(body) = fs::read_to_string(cwd.join(name)) else {
-            continue;
-        };
-        let body = body.trim();
-        if !body.is_empty() {
-            files.push(((*name).to_string(), body.to_string()));
-        }
+    let project_agents = cwd.join("AGENTS.md");
+    let agents = if project_agents.is_file() {
+        Some(("AGENTS.md".to_string(), project_agents))
+    } else {
+        global.map(|root| ("~/.agents/AGENTS.md".to_string(), root.join("AGENTS.md")))
+    };
+    if let Some((name, path)) = agents
+        && let Ok(body) = fs::read_to_string(path)
+        && !body.trim().is_empty()
+    {
+        files.push((name, body.trim().to_string()));
+    }
+    if let Ok(body) = fs::read_to_string(cwd.join(CONTEXT_FILE))
+        && !body.trim().is_empty()
+    {
+        files.push((CONTEXT_FILE.to_string(), body.trim().to_string()));
     }
     files
 }
 
-fn load_skills(cwd: &Path) -> Vec<Skill> {
-    let root = cwd.join(".agents").join("skills");
-    let entries = match fs::read_dir(&root) {
+fn load_skills(cwd: &Path, global: Option<&Path>) -> Vec<Skill> {
+    let mut skills = BTreeMap::new();
+    if let Some(root) = global {
+        load_skills_from(root, "~/.agents/skills", &mut skills);
+    }
+    load_skills_from(&cwd.join(".agents"), ".agents/skills", &mut skills);
+    let mut skills: Vec<_> = skills.into_values().collect();
+    skills.sort_by(|a, b| a.name.cmp(&b.name));
+    skills
+}
+
+fn load_skills_from(root: &Path, display_root: &str, skills: &mut BTreeMap<String, Skill>) {
+    let entries = match fs::read_dir(root.join("skills")) {
         Ok(entries) => entries,
-        Err(_) => return Vec::new(),
+        Err(_) => return,
     };
-    let mut skills = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_dir() {
@@ -122,15 +147,16 @@ fn load_skills(cwd: &Path) -> Vec<Skill> {
             .unwrap_or("skill")
             .to_string();
         let (fm_name, fm_desc) = parse_frontmatter(&body);
-        let rel = format!(".agents/skills/{dir_name}/SKILL.md");
-        skills.push(Skill {
-            name: fm_name.unwrap_or(dir_name),
-            description: fm_desc.unwrap_or_default(),
-            path: rel,
-        });
+        let rel = format!("{display_root}/{dir_name}/SKILL.md");
+        skills.insert(
+            dir_name.clone(),
+            Skill {
+                name: fm_name.unwrap_or(dir_name),
+                description: fm_desc.unwrap_or_default(),
+                path: rel,
+            },
+        );
     }
-    skills.sort_by(|a, b| a.name.cmp(&b.name));
-    skills
 }
 
 fn render(files: &[(String, String)], skills: &[Skill]) -> String {
@@ -250,7 +276,7 @@ mod tests {
     #[test]
     fn empty_cwd_is_none() {
         let dir = scratch();
-        assert!(load(&dir).is_none());
+        assert!(load(&dir, None).is_none());
     }
 
     #[test]
@@ -258,11 +284,60 @@ mod tests {
         let dir = scratch();
         fs::write(dir.join("AGENTS.md"), "be brief").unwrap();
         fs::write(dir.join("CONTEXT.md"), "repo facts").unwrap();
-        let text = load(&dir).unwrap().text;
+        let text = load(&dir, None).unwrap().text;
         assert!(text.contains("# AGENTS.md"));
         assert!(text.contains("be brief"));
         assert!(text.contains("# CONTEXT.md"));
         assert!(text.contains("repo facts"));
+    }
+
+    #[test]
+    fn project_agents_overrides_global_agents() {
+        let cwd = scratch();
+        let global = scratch();
+        fs::write(global.join("AGENTS.md"), "global rules").unwrap();
+
+        let text = load(&cwd, Some(&global)).unwrap().text;
+        assert!(text.contains("global rules"));
+
+        fs::write(cwd.join("AGENTS.md"), "project rules").unwrap();
+        let text = load(&cwd, Some(&global)).unwrap().text;
+        assert!(text.contains("project rules"));
+        assert!(!text.contains("global rules"));
+    }
+
+    #[test]
+    fn project_skills_override_global_by_directory_name() {
+        let cwd = scratch();
+        let global = scratch();
+        let global_review = global.join("skills/review");
+        let global_ship = global.join("skills/ship");
+        let project_review = cwd.join(".agents/skills/review");
+        fs::create_dir_all(&global_review).unwrap();
+        fs::create_dir_all(&global_ship).unwrap();
+        fs::create_dir_all(&project_review).unwrap();
+        fs::write(
+            global_review.join("SKILL.md"),
+            "---\nname: global-review\ndescription: Global review.\n---\n",
+        )
+        .unwrap();
+        fs::write(
+            global_ship.join("SKILL.md"),
+            "---\nname: ship\ndescription: Ship globally.\n---\n",
+        )
+        .unwrap();
+        fs::write(
+            project_review.join("SKILL.md"),
+            "---\nname: project-review\ndescription: Project review.\n---\n",
+        )
+        .unwrap();
+
+        let text = load(&cwd, Some(&global)).unwrap().text;
+        assert!(text.contains("project-review: Project review."));
+        assert!(text.contains(".agents/skills/review/SKILL.md"));
+        assert!(!text.contains("global-review"));
+        assert!(text.contains("ship: Ship globally."));
+        assert!(text.contains("~/.agents/skills/ship/SKILL.md"));
     }
 
     #[test]
@@ -275,7 +350,7 @@ mod tests {
             "---\nname: review\ndescription: Review a diff.\n---\n\nDo not paste this body.\n",
         )
         .unwrap();
-        let text = load(&dir).unwrap().text;
+        let text = load(&dir, None).unwrap().text;
         assert!(text.contains("# Skills"));
         assert!(text.contains("review: Review a diff."));
         assert!(text.contains(".agents/skills/review/SKILL.md"));
@@ -293,7 +368,7 @@ mod tests {
         )
         .unwrap();
 
-        let (summary, _) = summary_in(&dir);
+        let (summary, _) = summary_in(&dir, None);
         assert!(
             summary
                 .contains("    review  (`.agents/skills/review/SKILL.md`)\n      Review a diff.")
@@ -315,7 +390,7 @@ mod tests {
         let skill = dir.join(".agents").join("skills").join("notes");
         fs::create_dir_all(&skill).unwrap();
         fs::write(skill.join("SKILL.md"), "just a body\n").unwrap();
-        let text = load(&dir).unwrap().text;
+        let text = load(&dir, None).unwrap().text;
         assert!(text.contains("- notes (`.agents/skills/notes/SKILL.md`)"));
         assert!(!text.contains("just a body"));
     }
