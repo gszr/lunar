@@ -86,6 +86,7 @@ pub(crate) enum Mode {
         items: Vec<mission::Meta>,
         cursor: usize,
         title: String,
+        query: Option<String>,
     },
     Model {
         items: Vec<lua::ModelChoice>,

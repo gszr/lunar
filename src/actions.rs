@@ -338,6 +338,7 @@ pub(crate) fn open_resume(app: &mut App) {
                 items,
                 cursor: 0,
                 title: "resume".into(),
+                query: None,
             };
         }
         Err(err) => app.notice = Some(format!("resume: {err}")),

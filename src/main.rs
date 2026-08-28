@@ -81,6 +81,7 @@ fn main() -> io::Result<()> {
                             })
                             .map(|selector| format!("missions · {selector}"))
                             .unwrap_or_else(|| "missions".into()),
+                        query: None,
                     };
                 }
             }
@@ -704,6 +705,7 @@ mod tests {
             items: Vec::new(),
             cursor: 0,
             title: "resume".into(),
+            query: None,
         };
         let before = app.scroll;
         on_mouse(
