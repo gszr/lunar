@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::process::Command;
 
-use crate::protocol::{self, Api, Config, Thinking};
+use crate::protocol::{self, Api, Config};
 
 use super::guest::{Guest, Listed, ModelDef, ProviderDef, RawDefaults};
 use super::{Loaded, ModelChoice};
@@ -144,7 +144,8 @@ fn provider_config(
         window: model.window.or_else(|| protocol::guess_window(&model.id)),
         api: model.api,
         auth_provider,
-        thinking: model.thinking.or(provider.thinking).unwrap_or_default(),
+        thinking: model.thinking.clone(),
+        thinking_levels: model.thinking_levels.clone(),
     })
 }
 
@@ -179,7 +180,8 @@ struct ResolvedModel {
     id: String,
     window: Option<u32>,
     api: Api,
-    thinking: Option<Thinking>,
+    thinking: String,
+    thinking_levels: Vec<String>,
 }
 
 fn resolve_listed(
@@ -196,7 +198,8 @@ fn resolve_listed(
                     id: def.id.clone(),
                     window: def.window,
                     api: def.api,
-                    thinking: def.thinking,
+                    thinking: def.thinking.default.clone(),
+                    thinking_levels: def.thinking.levels.clone(),
                 }),
                 None => notices.push(format!("unknown alias: {alias}")),
             },
@@ -205,7 +208,8 @@ fn resolve_listed(
                 id: def.id.clone(),
                 window: def.window,
                 api: def.api,
-                thinking: def.thinking,
+                thinking: def.thinking.default.clone(),
+                thinking_levels: def.thinking.levels.clone(),
             }),
         }
     }

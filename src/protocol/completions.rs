@@ -182,8 +182,8 @@ fn body(cfg: &Config, messages: &[ChatMessage]) -> String {
     } else {
         body["max_tokens"] = json!(MAX_TOKENS);
     }
-    if cfg.thinking != super::Thinking::Off {
-        body["reasoning_effort"] = json!(cfg.thinking.as_str());
+    if cfg.thinking != "off" {
+        body["reasoning_effort"] = json!(&cfg.thinking);
     }
     body.to_string()
 }
@@ -216,7 +216,8 @@ mod tests {
             window: Some(500_000),
             api: Api::Completions,
             auth_provider: None,
-            thinking: super::super::Thinking::Off,
+            thinking: "off".into(),
+            thinking_levels: vec!["off".into()],
         };
         let body: Value = serde_json::from_str(&body(&cfg, &[])).unwrap();
         assert_eq!(body["max_tokens"], MAX_TOKENS);
@@ -234,10 +235,11 @@ mod tests {
             window: None,
             api: Api::Completions,
             auth_provider: None,
-            thinking: super::super::Thinking::High,
+            thinking: "max".into(),
+            thinking_levels: vec!["low".into(), "high".into(), "max".into()],
         };
         let parsed: Value = serde_json::from_str(&body(&cfg, &[])).unwrap();
-        assert_eq!(parsed["reasoning_effort"], "high");
+        assert_eq!(parsed["reasoning_effort"], "max");
     }
 
     #[test]
@@ -250,7 +252,8 @@ mod tests {
             window: None,
             api: Api::Completions,
             auth_provider: None,
-            thinking: super::super::Thinking::Off,
+            thinking: "off".into(),
+            thinking_levels: vec!["off".into()],
         };
         let parsed: Value = serde_json::from_str(&body(&cfg, &[])).unwrap();
         assert_eq!(parsed["max_completion_tokens"], MAX_TOKENS);

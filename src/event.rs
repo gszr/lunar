@@ -168,6 +168,11 @@ fn on_api_key(app: &mut App, key: KeyEvent) {
 }
 
 fn on_thinking_key(app: &mut App, key: KeyEvent, cursor: usize) {
+    let len = app
+        .config
+        .as_ref()
+        .map(|config| config.thinking_levels.len())
+        .unwrap_or(0);
     match key.code {
         KeyCode::Esc => app.mode = Mode::Chat,
         KeyCode::Left | KeyCode::Up | KeyCode::Char('h' | 'k') => {
@@ -177,19 +182,20 @@ fn on_thinking_key(app: &mut App, key: KeyEvent, cursor: usize) {
         }
         KeyCode::Right | KeyCode::Down | KeyCode::Char('l' | 'j') => {
             app.mode = Mode::Thinking {
-                cursor: (cursor + 1).min(3),
+                cursor: (cursor + 1).min(len.saturating_sub(1)),
             };
         }
         KeyCode::Enter => {
-            let level = [
-                crate::protocol::Thinking::Off,
-                crate::protocol::Thinking::Low,
-                crate::protocol::Thinking::Medium,
-                crate::protocol::Thinking::High,
-            ][cursor];
+            let level = app
+                .config
+                .as_ref()
+                .and_then(|config| config.thinking_levels.get(cursor))
+                .cloned();
             app.mode = Mode::Chat;
-            set_thinking(app, level);
-            app.notice = Some(format!("thinking: {}", level.as_str()));
+            if let Some(level) = level {
+                set_thinking(app, &level);
+                app.notice = Some(format!("thinking: {level}"));
+            }
         }
         _ => {}
     }
@@ -387,15 +393,16 @@ pub(crate) fn submit(app: &mut App) {
         "/model" => open_model(app),
         "/thinking" => open_thinking(app),
         cmd if let Some(raw) = cmd.strip_prefix("/thinking ") => {
-            match crate::protocol::Thinking::parse(raw.trim()) {
-                Some(level) => {
-                    if set_thinking(app, level) {
-                        app.notice = Some(format!("thinking: {}", level.as_str()));
-                    } else {
-                        app.notice = Some("no model configured".into());
-                    }
-                }
-                None => app.notice = Some("usage: /thinking off|low|medium|high".into()),
+            let level = raw.trim();
+            if set_thinking(app, level) {
+                app.notice = Some(format!("thinking: {level}"));
+            } else if let Some(config) = app.config.as_ref() {
+                app.notice = Some(format!(
+                    "usage: /thinking {}",
+                    config.thinking_levels.join("|")
+                ));
+            } else {
+                app.notice = Some("no model configured".into());
             }
         }
         "/mission" => show_mission(app),

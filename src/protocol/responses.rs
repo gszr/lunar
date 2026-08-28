@@ -173,16 +173,16 @@ fn body(cfg: &Config, messages: &[ChatMessage], cache_key: Option<&str>) -> Stri
         "store": false,
         "reasoning": {
             "summary": "auto",
-            "effort": if cfg.thinking == super::Thinking::Off {
+            "effort": if cfg.thinking == "off" {
                 Value::Null
             } else {
-                json!(cfg.thinking.as_str())
+                json!(&cfg.thinking)
             },
         },
         "tools": tools::responses_definitions(),
         "input": flatten_input(messages),
     });
-    if cfg.thinking == super::Thinking::Off {
+    if cfg.thinking == "off" {
         value["reasoning"].as_object_mut().unwrap().remove("effort");
     }
     if let Some(key) = cache_key {
@@ -342,7 +342,8 @@ mod tests {
             window: None,
             api: Api::Responses,
             auth_provider: None,
-            thinking: super::super::Thinking::Off,
+            thinking: "off".into(),
+            thinking_levels: vec!["off".into()],
         }
     }
 
@@ -365,9 +366,10 @@ mod tests {
     #[test]
     fn configured_thinking_sets_reasoning_effort() {
         let mut cfg = sample_cfg();
-        cfg.thinking = super::super::Thinking::Medium;
+        cfg.thinking = "max".into();
+        cfg.thinking_levels = vec!["low".into(), "high".into(), "max".into()];
         let parsed: Value = serde_json::from_str(&body(&cfg, &[], None)).unwrap();
-        assert_eq!(parsed["reasoning"]["effort"], "medium");
+        assert_eq!(parsed["reasoning"]["effort"], "max");
     }
 
     #[test]

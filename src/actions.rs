@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{self, TryRecvError};
 
 use crate::app::{App, AuthEvent, AuthPrompt, Mode};
-use crate::protocol::{Thinking, Usage};
+use crate::protocol::Usage;
 use crate::transcript::{invalidate_paint, jump_to_tail};
 use crate::turn::persist_value;
 use crate::view::draw;
@@ -147,45 +147,44 @@ fn logout_provider(app: &mut App, provider: &str, brand: &str) {
 }
 
 pub(crate) fn open_thinking(app: &mut App) {
-    let Some(level) = app.config.as_ref().map(|config| config.thinking) else {
+    let Some(config) = app.config.as_ref() else {
         app.notice = Some("no model configured".into());
         return;
     };
-    app.mode = Mode::Thinking {
-        cursor: match level {
-            Thinking::Off => 0,
-            Thinking::Low => 1,
-            Thinking::Medium => 2,
-            Thinking::High => 3,
-        },
-    };
+    let cursor = config
+        .thinking_levels
+        .iter()
+        .position(|level| level == &config.thinking)
+        .unwrap_or(0);
+    app.mode = Mode::Thinking { cursor };
 }
 
-pub(crate) fn set_thinking(app: &mut App, level: Thinking) -> bool {
+pub(crate) fn set_thinking(app: &mut App, level: &str) -> bool {
     let Some(config) = &mut app.config else {
         return false;
     };
-    app.thinking_override = Some(level);
-    config.thinking = level;
+    if !config.allows_thinking(level) {
+        return false;
+    }
+    app.thinking_override = Some(level.to_string());
+    config.thinking = level.to_string();
     if app.mission.is_some() {
         persist_value(app, &mission::thinking_line(level));
     }
     true
 }
 
-fn with_thinking_override(
-    mut config: Option<crate::protocol::Config>,
-    level: Option<Thinking>,
-) -> Option<crate::protocol::Config> {
-    if let (Some(config), Some(level)) = (&mut config, level) {
-        config.thinking = level;
-    }
-    config
-}
-
 pub(crate) fn reload_config(app: &mut App) {
     let loaded = lua::load();
-    app.config = with_thinking_override(loaded.config.clone(), app.thinking_override);
+    let mut config = loaded.config.clone();
+    if let (Some(config), Some(level)) = (&mut config, app.thinking_override.as_deref()) {
+        if config.allows_thinking(level) {
+            config.thinking = level.to_string();
+        } else {
+            app.thinking_override = None;
+        }
+    }
+    app.config = config;
     app.startup_config = loaded.config;
     app.models = loaded.models;
     if let Some(notice) = loaded.notice {
@@ -303,17 +302,17 @@ pub(crate) fn open_model(app: &mut App) {
 }
 
 pub(crate) fn select_model(app: &mut App, item: lua::ModelChoice, persist: bool) {
-    let Some(mut config) = item.config else {
+    let Some(config) = item.config else {
         app.notice = Some(item.error.unwrap_or_else(|| "model is unavailable".into()));
         return;
     };
-    if let Some(level) = app.thinking_override {
-        config.thinking = level;
-    }
+    app.thinking_override = None;
+    let default_thinking = config.thinking.clone();
     app.config = Some(config);
     app.notice = Some(format!("model: {} / {}", item.provider, item.id));
     if persist {
         persist_value(app, &mission::model_line(&item.provider, &item.id));
+        persist_value(app, &mission::thinking_line(&default_thinking));
     }
 }
 
@@ -364,8 +363,8 @@ pub(crate) fn resume_prefix(app: &mut App, prefix: &str) {
 pub(crate) fn load_mission(app: &mut App, path: &std::path::Path) {
     match mission::load(path) {
         Ok(loaded) => {
-            app.thinking_override = loaded.thinking;
-            app.config = with_thinking_override(app.startup_config.clone(), loaded.thinking);
+            app.thinking_override = None;
+            app.config = app.startup_config.clone();
             app.messages = loaded.messages;
             app.mission = Some(loaded.mission);
             invalidate_paint(app);
@@ -378,6 +377,21 @@ pub(crate) fn load_mission(app: &mut App, path: &std::path::Path) {
                 app.notice = Some(format!(
                     "saved model {provider} / {id} is no longer configured; using startup default"
                 ));
+            }
+            if let Some(level) = loaded.thinking {
+                match app.config.as_mut() {
+                    Some(config) if config.allows_thinking(&level) => {
+                        app.thinking_override = Some(level.clone());
+                        config.thinking = level;
+                    }
+                    Some(config) if app.notice.is_none() => {
+                        app.notice = Some(format!(
+                            "saved thinking level is not supported by {}: {level}",
+                            config.model
+                        ));
+                    }
+                    _ => {}
+                }
             }
             jump_to_tail(app);
         }

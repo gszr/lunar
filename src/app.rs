@@ -16,7 +16,7 @@ pub(crate) struct App {
     pub(crate) messages: Vec<Message>,
     pub(crate) config: Option<Config>,
     pub(crate) startup_config: Option<Config>,
-    pub(crate) thinking_override: Option<crate::protocol::Thinking>,
+    pub(crate) thinking_override: Option<String>,
     pub(crate) models: Vec<lua::ModelChoice>,
     pub(crate) stream_rx: Option<Receiver<StreamEvent>>,
     pub(crate) cancel: Option<Arc<AtomicBool>>,

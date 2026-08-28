@@ -24,7 +24,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Trust | Not implemented. Project `.lunar/init.lua` runs automatically this slice |
 | Language | Lua 5.5.1, vendored via `mlua` (`lua55` + `vendored`). Embed this slice |
 | Lua guest API | `init.lua` returns one table containing optional `models`, `providers`, and `defaults` tables. The registrar form does not exist. **No `lunar.on`** (hook bus is not v0) |
-| Model catalog | Top-level `models`: alias → `{ id, window?, api?, thinking? }`. `id` is the wire string; alias is a Lua name. Provider `models` is an ordered list: string = ref to a global alias, table = local `{ id, window?, api?, thinking? }`. Missing alias = notice, skip that entry. Missing `id`, unknown `api`, or unknown `thinking` = notice, skip that entry. `thinking` is `off` · `low` · `medium` · `high`; a model value overrides its provider default. Omitted values resolve to `off`. Omitted `api` is Completions |
+| Model catalog | Top-level `models`: alias → `{ id, window?, api?, thinking? }`. `id` is the wire string; alias is a Lua name. Provider `models` is an ordered list: string = ref to a global alias, table = local `{ id, window?, api?, thinking? }`. Missing alias = notice, skip that entry. Missing `id`, unknown `api`, or invalid `thinking` = notice, skip that entry. Model `thinking` is an ordered table of model-specific wire values plus `default`, for example `{ "low", "high", "max", default = "high" }`; `default` must be listed. Omitted `thinking` resolves to `{ "off", default = "off" }`. Provider-level and scalar `thinking` do not exist. Omitted `api` is Completions |
 | Live model | Top-level `defaults = { provider, model }`. `provider` is a providers key; `model` matches that list as alias then wire `id`. Unknown provider or model is an error: notice, glass opens, cannot send. Omitted defaults = no live Config; the catalog remains available in `/model`. Partial defaults (only one field) = present and invalid. The selected provider must have `base_url_cmd` or `base_url` unless `key_in = "auth"` and `auth_provider` is `xai` or `openai` (then `https://api.x.ai/v1` or `https://chatgpt.com/backend-api`). `key_in = "none"` requires an explicit `base_url`; HTTP and HTTPS are accepted. Plus `key_cmd` or `key_name` (`key_in = "env"`), or `auth_provider` (`key_in = "auth"`); missing the applicable source = notice, cannot send. `base_url_cmd` takes precedence over `base_url`, which takes precedence over an auth default. Live `api` `"messages"` is resolve-time refuse: notice, cannot send, entry stays in `/model`. Completions and Responses send. Live Config carries optional `auth_provider` from Lua `key_in = "auth"`. `"openai"` means Codex Responses + JWT account header; Completions on that auth is refuse. Do not sniff `base_url`. Model `window` if set, else the Grok-id guess. Footer provider is the providers key |
 | Prompt conventions | CWD `AGENTS.md` + `CONTEXT.md` in full. Skill *summaries* from `.agents/skills/*/SKILL.md`. Optional bundled skills live in `skills/` and are installed manually per project; none are enabled by default. `~/.agents/skills` later |
 | System prompt | None. Context is a leading user message, snapshotted at each user submit, held for the tool loop, not persisted |
@@ -32,7 +32,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Model protocol | Completions, Responses, and Messages. Selected by model `api`: `"completions"` · `"responses"` · `"messages"`. Case-sensitive, no aliases. Omitted `api` is Completions. Completions and Responses send. Responses stays `store: false`, requests an automatic reasoning summary for the thinking preview, and replays the full converted history each round. When a mission exists, Responses also sends `prompt_cache_key` (mission id, 64 chars max) and Pi affinity headers `session_id` / `x-client-request-id`. No `previous_response_id`. ChatGPT Plus (`auth_provider = "openai"`) is Responses-only: POST `{base_url}/codex/responses` (not `{base_url}/responses`), plus `chatgpt-account-id` decoded from the access JWT at send and refresh (`https://api.openai.com/auth` → `chatgpt_account_id`; missing or empty = notice, cannot send) and `originator: lunar`. No extra `auth.json` field. Completions on that auth is resolve-time refuse. No websocket and no zstd this slice. Messages is not implemented |
 | First brand | xAI. No provider is compiled into configuration |
 | Auth | Env named by Lua, shell command, Lunar-managed auth, or none. With `key_in = "env"`, `key_cmd` runs through `sh -c` and supplies the secret, otherwise `key_name` names an env secret. `key_in = "auth"` names a canonical built-in integration with `auth_provider` (`xai` or `openai`) and resolves API-key or OAuth credentials from `~/.lunar/recorder/auth.json`. `key_in = "none"` sends no Authorization header and requires an explicit `base_url`; `key_name`, `key_cmd`, and `auth_provider` are ignored. `/login` is a provider picker (`xAI`, `OpenAI`). Enter on xAI opens the existing method picker. Enter on OpenAI starts device-code immediately. `/login xai` opens the xAI method picker. `/login openai` is ChatGPT Plus/Pro subscription OAuth only (no stored platform API key this slice): device-code, same glass as xAI (open URL, show user code, poll, Esc cancels). No browser PKCE and no localhost callback this slice. `/logout xai` / `/logout openai` remove that credential; `/logout` with no argument notices usage. The xAI device flow uses the public client ID distributed by Pi. The OpenAI device flow uses the public Codex client ID distributed by Pi |
-| Thinking | `off` · `low` · `medium` · `high`. `/thinking` opens a one-line `<- off low medium high ->` picker; left/right selects and Enter applies. `/thinking <level>` applies directly. It changes the running Config for the current mission and is appended to that mission’s JSONL; reopening the mission restores its last level. Before the first prompt it is held in memory and written when the mission is created. `/new` returns to the configured default. Lua model value overrides provider default; omitted resolves to `off`. Completions sends `reasoning_effort`, Responses sends `reasoning.effort`; `off` omits effort. Footer shows the live level |
+| Thinking | Each model defines its ordered allowed wire values and default with `thinking = { "low", "high", "max", default = "high" }`. `/thinking` opens a one-line picker containing only the live model’s values; left/right selects and Enter applies. `/thinking <level>` applies directly only when that level is allowed by the live model. It changes the running Config for the current mission and is appended to that mission’s JSONL; reopening the mission restores its last level when the selected model still allows it. Before the first prompt it is held in memory and written when the mission is created. `/new` and model selection return to that model’s configured default. Omitted model `thinking` resolves to only `off`. Completions sends `reasoning_effort`, Responses sends `reasoning.effort`; the literal `off` omits effort. Footer shows the live level |
 | TUI | `ratatui` + `crossterm` |
 | Transcript | The current mission. Scrollable: every message in that mission is reachable as painted (tool cards stay 8 lines, thinking stays a 3-line preview). Not a tail-only view. `/resume` switches missions; there is no Session history object |
 | Tools | `read` / `write` / `edit` (`old_string`/`new_string`) / `bash`. Gate = allow. Bash timeout 60s, Esc kills the process group. Bash stdin is null; on Unix the child is a new session so a nested TUI cannot take the glass. Tool results cap 50KB or 2000 lines per result. `read` keeps the head and gives the next offset. `bash` keeps the tail; truncated bash output is saved under `~/.lunar/recorder/tool-output/` and the path is included in the result. Files older than seven days are deleted at startup. `finish_reason=length` does not execute tool calls. Calls in one assistant turn run in parallel. Tool loops pause after 50 rounds; submitting `continue` starts a fresh turn |
@@ -79,7 +79,12 @@ Host runs `~/.lunar/control/init.lua` (or `$LUNAR_HOME/control/init.lua`) and th
 ```lua
 return {
   models = {
-    grok46 = { id = "grok-4.6", window = 500000, api = "completions" },
+    grok46 = {
+      id = "grok-4.6",
+      window = 500000,
+      api = "completions",
+      thinking = { "low", "high", "max", default = "high" },
+    },
   },
 
   providers = {
@@ -90,10 +95,13 @@ return {
       -- key_cmd = "pass my_key" -- shell command; takes precedence over key_name
       -- key_in = "env", -- default if omitted
       -- key_in = "auth", auth_provider = "xai", -- ~/.lunar/recorder/auth.json via /login
-      thinking = "low", -- optional provider default
       models = {
         "grok46", -- ref: alias → global catalog
-        { id = "grok-4.5", api = "completions", thinking = "high" },
+        {
+          id = "grok-4.5",
+          api = "completions",
+          thinking = { "off", "low", "high", default = "low" },
+        },
       },
     },
   },
@@ -108,7 +116,7 @@ return {
 - **Provider name** is the table key, not a `name` field.
 - **Alias** is a Lua name (`grok46`). **`id`** is the wire string (`grok-4.6`). Every model def requires `id`; skip that entry if missing. `api` is `"completions"` · `"responses"` · `"messages"`; unknown value = notice, skip that entry (same as missing `id`). Omitted `api` is Completions, not an error.
 - Provider `models` is an **ordered list**. String = ref to a global alias (missing alias = notice, skip). Table = local `{ id, window?, api?, thinking? }`.
-- This slice honors **`id`**, optional **`window`**, optional **`api`**, and optional **`thinking`**. `api` is only on a model def. `thinking` may be `off`, `low`, `medium`, or `high` on a model def or provider; the model overrides the provider, and omission resolves to `off`. A string ref inherits the alias’s values. Omitted `api` is Completions. xAI models set `api` explicitly.
+- This slice honors **`id`**, optional **`window`**, optional **`api`**, and optional model **`thinking`**. `api` and `thinking` are only on a model def. `thinking` is an ordered list of that model’s non-empty wire values with a required `default` that must appear in the list. Duplicate values keep their first position. Omitted `thinking` resolves to `{ "off", default = "off" }`. Provider-level and scalar `thinking` are invalid. A string ref inherits the alias’s values. Omitted `api` is Completions. xAI models set `api` explicitly.
 - **`key_name`** is the env var to read when `key_in` is `"env"`. Token never sits in Lua.
 - **`key_cmd`** is an alternative when `key_in` is `"env"`. It runs through `sh -c` at config resolution, before Lunar enters TUI mode, so interactive credential helpers such as GPG pinentry can use the terminal; trailing whitespace is trimmed. Non-zero exit, non-UTF-8 output, or an empty key = notice, cannot send. When both are set, `key_cmd` wins.
 - **`key_in`** defaults to `"env"`. `"env"` reads `key_cmd` or `key_name`; `"auth"` reads `~/.lunar/recorder/auth.json` for `auth_provider` (`xai` or `openai`); `"none"` sends no Authorization header, ignores credential fields, and requires an explicit `base_url`. Any other value = notice, cannot send.
@@ -166,7 +174,7 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 - CWD `AGENTS.md` / `CONTEXT.md` + `.agents/skills` summaries as a leading user message, snapshotted per user turn
 - Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/model` `/thinking` `/login` `/logout` `/name` `/mission` `/context`. `/context` opens a component summary of the live preamble and current history, with count and estimated-token breakdowns for user messages, assistant messages, tool calls, and tool results, plus a preamble + history total; `/context raw` shows their full contents, including tool calls and results. Both use a pager: PageUp/PageDown, j/k, wheel, and Ctrl+Home/End scroll, while Esc or q closes it
 - Lua 5.5 embed; user `~/.lunar/control/init.lua` returns `{ models, providers, defaults }`
-- Thinking levels: `/thinking off|low|medium|high`; Lua model value overrides provider default; Completions and Responses wire mappings; live level in footer
+- Thinking levels: each model supplies its ordered values and default; `/thinking` only accepts and displays those values; Completions and Responses wire mappings; live level in footer
 
 **Not shipped (still v0 intent)**
 

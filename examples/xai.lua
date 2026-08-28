@@ -6,7 +6,12 @@
 
 return {
   models = {
-    grok46 = { id = "grok-4.6", window = 500000, api = "completions" },
+    grok46 = {
+      id = "grok-4.6",
+      window = 500000,
+      api = "completions",
+      thinking = { "low", "high", "max", default = "high" },
+    },
   },
 
   providers = {
@@ -16,10 +21,13 @@ return {
       key_name = "XAI_API_KEY",
       -- key_cmd = "pass lunar/xai"
       -- key_in = "auth", auth_provider = "xai",
-      thinking = "low",
       models = {
         "grok46",
-        { id = "grok-4.5", api = "completions", thinking = "high" },
+        {
+          id = "grok-4.5",
+          api = "completions",
+          thinking = { "off", "low", "high", default = "low" },
+        },
       },
     },
   },
