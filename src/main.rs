@@ -96,7 +96,7 @@ fn main() -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::app::{Message, Mode};
-    use crate::event::{on_key, on_paste};
+    use crate::event::{interrupt_resumed_turn, on_key, on_paste, resumed_during_turn};
     use crate::protocol::{Api, Config, ToolCall, Usage};
     use crate::transcript::painted_lines;
     use crate::transcript::{jump_to_tail, on_mouse};
@@ -106,6 +106,7 @@ mod tests {
     use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
     use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, mpsc};
+    use std::time::{Duration, SystemTime};
 
     fn test_app() -> App {
         App {
@@ -587,6 +588,41 @@ mod tests {
             arguments: "{}".into(),
         });
         assert_eq!(working_text(&app), " Running tools...");
+    }
+
+    #[test]
+    fn long_clock_gap_only_interrupts_an_active_turn() {
+        let before = SystemTime::UNIX_EPOCH + Duration::from_secs(100);
+        let after = before + Duration::from_secs(31);
+        assert!(resumed_during_turn(true, before, after));
+        assert!(!resumed_during_turn(false, before, after));
+        assert!(!resumed_during_turn(
+            true,
+            before,
+            before + Duration::from_secs(30)
+        ));
+        assert!(!resumed_during_turn(true, after, before));
+    }
+
+    #[test]
+    fn resume_interrupt_preserves_partial_output() {
+        let mut app = test_app();
+        app.cancel = Some(Arc::new(AtomicBool::new(false)));
+        let (_tx, rx) = mpsc::channel();
+        app.stream_rx = Some(rx);
+        let mut assistant = Message::assistant();
+        assistant.text = "partial answer".into();
+        app.messages.push(assistant);
+
+        interrupt_resumed_turn(&mut app);
+
+        assert!(app.cancel.is_none());
+        assert!(app.stream_rx.is_none());
+        assert_eq!(app.messages.last().unwrap().text, "partial answer");
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("computer resumed; interrupted model stream")
+        );
     }
 
     #[test]

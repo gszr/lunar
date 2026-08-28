@@ -167,7 +167,7 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 
 **Shipped**
 
-- Glass, Completions and Responses streams, reused HTTP agent, no global timeout. Completions `max_tokens` 32768 (reasoning + answer). POST retries 429/5xx/reset (3 times, 0.5s…8s, Esc cancels the wait). Completions `finish_reason` / Responses `response.completed` ends the turn; leftover Completions SSE is drained for usage (1s cap) and `[DONE]` in the background so the socket can return to the pool. Transcript scroll: PageUp / PageDown, wheel, Ctrl+Home / Ctrl+End; follow only at the tail. History paint is cached; only the streaming tail is re-wrapped
+- Glass, Completions and Responses streams, reused HTTP agent, no global timeout. Completions `max_tokens` 32768 (reasoning + answer). POST retries 429/5xx/reset (3 times, 0.5s…8s, Esc cancels the wait). Completions `finish_reason` / Responses `response.completed` ends the turn; leftover Completions SSE is drained for usage (1s cap) and `[DONE]` in the background so the socket can return to the pool. A computer resume detected during an active turn interrupts the stale turn, preserves partial output, and returns control to the user. Transcript scroll: PageUp / PageDown, wheel, Ctrl+Home / Ctrl+End; follow only at the tail. History paint is cached; only the streaming tail is re-wrapped
 - Four tools + continue-after-tools (50-round cap; submit `continue` to proceed). Tools in one round run in parallel. Results cap 50KB or 2000 lines; truncated bash output is saved under `~/.lunar/recorder/tool-output/`. Truncated completions do not run tool calls
 - Missions: `/new` `/resume` `/name` `/mission`, `-c`
 - Token stats + refuse submit when last prompt ≥ window
