@@ -9,7 +9,7 @@ use crate::protocol::{self, Config, StreamEvent, ToolCall, ToolResult};
 use crate::transcript::jump_to_tail;
 use crate::{mission, prompt, tools};
 
-const MAX_ROUNDS: u32 = 50;
+const MAX_ROUNDS: u32 = 100;
 
 pub(crate) fn drain_stream(app: &mut App) {
     let Some(rx) = app.stream_rx.as_ref() else {
