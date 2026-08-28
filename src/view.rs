@@ -192,9 +192,10 @@ pub(crate) fn draw_messages(frame: &mut Frame, area: Rect, app: &mut App) {
         items,
         cursor,
         title,
+        query,
     } = &app.mode
     {
-        draw_resume(frame, area, items, *cursor, title);
+        draw_resume(frame, area, items, *cursor, title, query.as_deref());
         return;
     }
     if app.messages.is_empty()
@@ -282,11 +283,20 @@ pub(crate) fn draw_resume(
     items: &[mission::Meta],
     cursor: usize,
     title: &str,
+    query: Option<&str>,
 ) {
+    let header = match query {
+        Some(query) => format!("{title}  /{query}"),
+        None => format!("{title}  / search  j/k  enter  esc"),
+    };
     let mut lines = vec![Line::from(Span::styled(
-        format!("{title}  j/k  enter  esc"),
+        header,
         Style::default().fg(splash::ASH),
     ))];
+    let items: Vec<&mission::Meta> = items
+        .iter()
+        .filter(|item| query.is_none_or(|query| mission::matches_query(item, query)))
+        .collect();
     let visible = area.height.saturating_sub(1) as usize;
     let start = if visible == 0 {
         0

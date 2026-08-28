@@ -94,8 +94,20 @@ pub(crate) fn on_key(app: &mut App, key: KeyEvent) {
             let cursor = *cursor;
             on_model_key(app, key, len, cursor);
         }
-        Mode::Resume { items, cursor, .. } => {
-            let len = items.len();
+        Mode::Resume {
+            items,
+            cursor,
+            query,
+            ..
+        } => {
+            let len = items
+                .iter()
+                .filter(|item| {
+                    query
+                        .as_deref()
+                        .is_none_or(|query| crate::mission::matches_query(item, query))
+                })
+                .count();
             let cursor = *cursor;
             on_resume_key(app, key, len, cursor);
         }
@@ -249,21 +261,60 @@ fn on_model_key(app: &mut App, key: KeyEvent, len: usize, cursor: usize) {
 }
 
 fn on_resume_key(app: &mut App, key: KeyEvent, len: usize, cursor: usize) {
-    match key.code {
-        KeyCode::Esc => app.mode = Mode::Chat,
-        KeyCode::Up | KeyCode::Char('k') => {
+    let searching = matches!(&app.mode, Mode::Resume { query: Some(_), .. });
+    match (searching, key.modifiers, key.code) {
+        (true, _, KeyCode::Esc) => {
+            if let Mode::Resume { cursor, query, .. } = &mut app.mode {
+                *cursor = 0;
+                *query = None;
+            }
+        }
+        (false, _, KeyCode::Esc) => app.mode = Mode::Chat,
+        (false, _, KeyCode::Char('/')) => {
+            if let Mode::Resume { cursor, query, .. } = &mut app.mode {
+                *cursor = 0;
+                *query = Some(String::new());
+            }
+        }
+        (true, _, KeyCode::Backspace) => {
+            if let Mode::Resume { cursor, query, .. } = &mut app.mode
+                && let Some(query) = query
+            {
+                query.pop();
+                *cursor = 0;
+            }
+        }
+        (true, modifiers, KeyCode::Char(c))
+            if modifiers.is_empty() || modifiers == KeyModifiers::SHIFT =>
+        {
+            if let Mode::Resume { cursor, query, .. } = &mut app.mode
+                && let Some(query) = query
+            {
+                query.push(c);
+                *cursor = 0;
+            }
+        }
+        (false, _, KeyCode::Up | KeyCode::Char('k')) | (true, _, KeyCode::Up) => {
             if let Mode::Resume { cursor, .. } = &mut app.mode {
                 *cursor = cursor.saturating_sub(1);
             }
         }
-        KeyCode::Down | KeyCode::Char('j') => {
+        (false, _, KeyCode::Down | KeyCode::Char('j')) | (true, _, KeyCode::Down) => {
             if let Mode::Resume { cursor, .. } = &mut app.mode {
                 *cursor = (*cursor + 1).min(len.saturating_sub(1));
             }
         }
-        KeyCode::Enter => {
+        (_, _, KeyCode::Enter) => {
             let meta = match &app.mode {
-                Mode::Resume { items, .. } => items.get(cursor).cloned(),
+                Mode::Resume { items, query, .. } => items
+                    .iter()
+                    .filter(|item| {
+                        query
+                            .as_deref()
+                            .is_none_or(|query| crate::mission::matches_query(item, query))
+                    })
+                    .nth(cursor)
+                    .cloned(),
                 _ => None,
             };
             if let Some(meta) = meta {

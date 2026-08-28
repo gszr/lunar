@@ -30,6 +30,31 @@ pub enum Selection {
     Log(Vec<Meta>),
 }
 
+pub fn matches_query(meta: &Meta, query: &str) -> bool {
+    let query = query.to_lowercase();
+    query.is_empty()
+        || meta.id.to_lowercase().contains(&query)
+        || meta
+            .name
+            .as_deref()
+            .is_some_and(|name| name.to_lowercase().contains(&query))
+        || meta
+            .cwd
+            .as_deref()
+            .is_some_and(|cwd| cwd.to_lowercase().contains(&query))
+        || body_contains(&meta.path, &query)
+}
+
+fn body_contains(path: &Path, query: &str) -> bool {
+    let Ok(file) = File::open(path) else {
+        return false;
+    };
+    BufReader::new(file).lines().any(|line| {
+        line.ok()
+            .is_some_and(|line| line.to_lowercase().contains(query))
+    })
+}
+
 pub fn select(items: &[Meta], selector: &str) -> Selection {
     let stem = selector.strip_suffix(".jsonl").unwrap_or(selector);
 
@@ -681,6 +706,43 @@ mod tests {
             meta("2026-08-19-1", Some("Resume Mission Selector")).label(),
             "mission: 2026-08-19-1 - Resume Mission Selector"
         );
+    }
+
+    #[test]
+    fn search_matches_id_name_cwd_and_body_case_insensitively() {
+        let dir = std::env::temp_dir().join(format!(
+            "lunar-mission-search-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("2026-08-19-1.jsonl");
+        fs::write(
+            &path,
+            format!(
+                "{}\n{}\n",
+                json!({"type":"header","id":"2026-08-19-1","name":"Fix Mission Search","cwd":"/Work/Lunar"}),
+                json!({"type":"user","text":"Unique body phrase"})
+            ),
+        )
+        .unwrap();
+        let item = Meta {
+            path,
+            id: "2026-08-19-1".into(),
+            name: Some("Fix Mission Search".into()),
+            cwd: Some("/Work/Lunar".into()),
+            modified: SystemTime::UNIX_EPOCH,
+        };
+
+        assert!(matches_query(&item, "08-19"));
+        assert!(matches_query(&item, "mission search"));
+        assert!(matches_query(&item, "/work/lunar"));
+        assert!(matches_query(&item, "unique body phrase"));
+        assert!(!matches_query(&item, "missing"));
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

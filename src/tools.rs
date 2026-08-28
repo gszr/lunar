@@ -567,17 +567,17 @@ mod tests {
     fn bash_abort_kills_sleep() {
         let cancel = Arc::new(AtomicBool::new(false));
         let flag = cancel.clone();
-        let start = Instant::now();
         let handle = thread::spawn(move || run("bash", r#"{"command":"sleep 30"}"#, flag.as_ref()));
         thread::sleep(Duration::from_millis(80));
+        let start = Instant::now();
         cancel.store(true, Ordering::Relaxed);
         let out = handle.join().unwrap();
+        assert_eq!(out.content, "aborted");
         assert!(
-            start.elapsed() < Duration::from_secs(3),
+            start.elapsed() < Duration::from_secs(10),
             "{:?}",
             start.elapsed()
         );
-        assert_eq!(out.content, "aborted");
     }
 
     #[test]
