@@ -9,14 +9,15 @@ use super::guest::{Guest, Listed, ModelDef, ProviderDef, RawDefaults};
 use super::{Loaded, ModelChoice};
 
 pub(super) fn loaded(guest: &Guest) -> Loaded {
+    let mut providers = BTreeMap::new();
     let Some(defaults) = &guest.defaults else {
         return Loaded {
             config: None,
-            models: choices(guest),
+            models: choices(guest, &mut providers),
             notice: None,
         };
     };
-    match config_from_lua(guest, defaults) {
+    match config_from_lua(guest, defaults, &mut providers) {
         Ok((config, extra)) => {
             let notice = join_notices(
                 guest
@@ -27,7 +28,7 @@ pub(super) fn loaded(guest: &Guest) -> Loaded {
             );
             Loaded {
                 config: Some(config),
-                models: choices(guest),
+                models: choices(guest, &mut providers),
                 notice,
             }
         }
@@ -41,19 +42,22 @@ pub(super) fn loaded(guest: &Guest) -> Loaded {
             );
             Loaded {
                 config: None,
-                models: choices(guest),
+                models: choices(guest, &mut providers),
                 notice: combined,
             }
         }
     }
 }
 
-fn choices(guest: &Guest) -> Vec<ModelChoice> {
+fn choices(
+    guest: &Guest,
+    providers: &mut BTreeMap<String, Result<ResolvedProvider, String>>,
+) -> Vec<ModelChoice> {
     let mut out = Vec::new();
     for (provider_key, provider) in &guest.providers {
         let (models, _) = resolve_listed(&guest.models, &provider.models);
         for model in models {
-            let result = provider_config(provider_key, provider, &model);
+            let result = provider_config(provider_key, provider, &model, providers);
             let (config, error) = match result {
                 Ok(config) => (Some(config), None),
                 Err(error) => (None, Some(error)),
@@ -70,11 +74,51 @@ fn choices(guest: &Guest) -> Vec<ModelChoice> {
     out
 }
 
+#[derive(Clone)]
+struct ResolvedProvider {
+    api_key: String,
+    base_url: String,
+    auth_provider: Option<String>,
+}
+
 fn provider_config(
     provider_key: &str,
     provider: &ProviderDef,
     model: &ResolvedModel,
+    providers: &mut BTreeMap<String, Result<ResolvedProvider, String>>,
 ) -> Result<Config, String> {
+    if model.api == Api::Messages
+        || (provider.key_in == "auth"
+            && provider.auth_provider.as_deref() == Some("openai")
+            && model.api != Api::Responses)
+    {
+        let name = model.alias.as_deref().unwrap_or(model.id.as_str());
+        return Err(format!(
+            "{name} uses {}, not implemented",
+            model.api.as_str()
+        ));
+    }
+    let provider = providers
+        .entry(provider_key.to_string())
+        .or_insert_with(|| resolve_provider(provider_key, provider))
+        .clone()?;
+    Ok(Config {
+        api_key: provider.api_key,
+        base_url: provider.base_url,
+        model: model.id.clone(),
+        provider: provider_key.to_string(),
+        window: model.window.or_else(|| protocol::guess_window(&model.id)),
+        api: model.api,
+        auth_provider: provider.auth_provider,
+        thinking: model.thinking.clone(),
+        thinking_levels: model.thinking_levels.clone(),
+    })
+}
+
+fn resolve_provider(
+    provider_key: &str,
+    provider: &ProviderDef,
+) -> Result<ResolvedProvider, String> {
     let auth_provider = match provider.key_in.as_str() {
         "env" | "none" => None,
         "auth" => {
@@ -111,15 +155,6 @@ fn provider_config(
                 .to_string(),
         }
     };
-    if model.api == Api::Messages
-        || (auth_provider.as_deref() == Some("openai") && model.api != Api::Responses)
-    {
-        let name = model.alias.as_deref().unwrap_or(model.id.as_str());
-        return Err(format!(
-            "{name} uses {}, not implemented",
-            model.api.as_str()
-        ));
-    }
     let api_key = match provider.key_in.as_str() {
         "env" => match provider.key_cmd.as_deref().filter(|s| !s.is_empty()) {
             Some(command) => command_value(provider_key, "key_cmd", command)?,
@@ -136,20 +171,18 @@ fn provider_config(
         "none" => String::new(),
         _ => unreachable!(),
     };
-    Ok(Config {
+    Ok(ResolvedProvider {
         api_key,
         base_url,
-        model: model.id.clone(),
-        provider: provider_key.to_string(),
-        window: model.window.or_else(|| protocol::guess_window(&model.id)),
-        api: model.api,
         auth_provider,
-        thinking: model.thinking.clone(),
-        thinking_levels: model.thinking_levels.clone(),
     })
 }
 
-fn config_from_lua(guest: &Guest, defaults: &RawDefaults) -> Result<(Config, Vec<String>), String> {
+fn config_from_lua(
+    guest: &Guest,
+    defaults: &RawDefaults,
+    providers: &mut BTreeMap<String, Result<ResolvedProvider, String>>,
+) -> Result<(Config, Vec<String>), String> {
     let provider_key = defaults
         .provider
         .as_deref()
@@ -169,7 +202,7 @@ fn config_from_lua(guest: &Guest, defaults: &RawDefaults) -> Result<(Config, Vec
         Some(model) => model,
         None => return Err(join_parts(skips, format!("unknown model: {model_key}"))),
     };
-    match provider_config(provider_key, provider, chosen) {
+    match provider_config(provider_key, provider, chosen, providers) {
         Ok(config) => Ok((config, skips)),
         Err(err) => Err(join_parts(skips, err)),
     }
