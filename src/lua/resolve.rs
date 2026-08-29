@@ -87,12 +87,10 @@ fn provider_config(
     model: &ResolvedModel,
     providers: &mut BTreeMap<String, Result<ResolvedProvider, String>>,
 ) -> Result<Config, String> {
-    let provider = providers
-        .entry(provider_key.to_string())
-        .or_insert_with(|| resolve_provider(provider_key, provider))
-        .clone()?;
     if model.api == Api::Messages
-        || (provider.auth_provider.as_deref() == Some("openai") && model.api != Api::Responses)
+        || (provider.key_in == "auth"
+            && provider.auth_provider.as_deref() == Some("openai")
+            && model.api != Api::Responses)
     {
         let name = model.alias.as_deref().unwrap_or(model.id.as_str());
         return Err(format!(
@@ -100,6 +98,10 @@ fn provider_config(
             model.api.as_str()
         ));
     }
+    let provider = providers
+        .entry(provider_key.to_string())
+        .or_insert_with(|| resolve_provider(provider_key, provider))
+        .clone()?;
     Ok(Config {
         api_key: provider.api_key,
         base_url: provider.base_url,
