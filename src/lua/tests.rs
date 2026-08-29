@@ -616,6 +616,34 @@ return {
 }
 
 #[test]
+fn provider_commands_run_once_for_all_models() {
+    let _e = isolate(&[]);
+    let dir = scratch();
+    let count = dir.join("count");
+    let src = format!(
+        r#"
+return {{
+  providers = {{
+    xai = {{
+      base_url = "https://api.x.ai/v1",
+      key_cmd = "printf x >> '{}'; printf command-key",
+      models = {{ {{ id = "one" }}, {{ id = "two" }}, {{ id = "three" }} }},
+    }},
+  }},
+  defaults = {{ provider = "xai", model = "one" }},
+}}
+"#,
+        count.display()
+    );
+
+    let loaded = load_path(&write_init(&dir, &src));
+
+    assert!(loaded.config.is_some());
+    assert_eq!(loaded.models.len(), 3);
+    assert_eq!(fs::read_to_string(count).unwrap(), "x");
+}
+
+#[test]
 fn failing_key_cmd_cannot_send() {
     let _e = isolate(&[]);
     let src = r#"
