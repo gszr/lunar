@@ -187,11 +187,13 @@ Some of Lunar's goals are transparency and token efficiency. Token accounting ca
 
 These are provider-reported token statistics, not billing estimates. Lunar uses the same accounting for API keys and subscriptions, and omits cache components the provider reports as zero or does not report. Reopening a mission restores the cumulative totals and latest request size from its JSONL transcript; the context-window denominator comes from the current model configuration.
 
-Optional skills live in [`skills/`](skills/) and are not enabled by default. To enable Lunar attribution on pull requests and issues for a project:
+Optional skills live in [`skills/`](skills/) and are not enabled by default.
+To enable an optional skill for a project:
 
 ```bash
 mkdir -p .agents/skills
 cp -R /path/to/lunar/skills/lunar-attribution .agents/skills/
+cp -R /path/to/lunar/skills/standup-update .agents/skills/
 ```
 
 ## Status
