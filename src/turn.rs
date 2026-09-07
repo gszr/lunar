@@ -68,12 +68,16 @@ pub(crate) fn finish_stream(app: &mut App, end: StreamEvent) {
     match end {
         StreamEvent::Tools { calls, truncated } => begin_tools(app, calls, truncated),
         StreamEvent::ToolResults(results) => apply_tool_results(app, results),
-        StreamEvent::CompactDone => finish_compaction(app),
+        StreamEvent::CompactDone => {
+            finish_compaction(app);
+            crate::limits::refresh(app);
+        }
         StreamEvent::Done => {
             persist_last_assistant(app);
             app.stream_rx = None;
             app.cancel = None;
             pop_empty_assistant(app);
+            crate::limits::refresh(app);
         }
         StreamEvent::Failed(err) => {
             if app.compacting.take().is_some() {

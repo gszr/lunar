@@ -611,22 +611,31 @@ pub(crate) fn draw_editor_input(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 pub(crate) fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
-    let cwd = Line::from(Span::styled(cwd_label(), Style::default().fg(splash::DUST)));
-    let stats = stats_line(app);
     let model = match &app.config {
         Some(cfg) => format!("({}) {} • {}", cfg.provider(), cfg.model, cfg.thinking),
         None => "no model".into(),
     };
+    let model_row = spread(
+        vec![Span::styled(cwd_label(), Style::default().fg(splash::DUST))],
+        Span::styled(model, Style::default().fg(splash::DUST)),
+        area.width,
+    );
+    let stats = stats_line(app);
+    let limits = app
+        .limits
+        .as_ref()
+        .map(crate::limits::label)
+        .unwrap_or_default();
     let stats_row = spread(
         vec![Span::styled(stats, Style::default().fg(splash::DUST))],
-        Span::styled(model, Style::default().fg(splash::DUST)),
+        Span::styled(limits, Style::default().fg(splash::DUST)),
         area.width,
     );
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Length(1)])
         .split(area);
-    frame.render_widget(Paragraph::new(cwd), chunks[0]);
+    frame.render_widget(model_row, chunks[0]);
     frame.render_widget(stats_row, chunks[1]);
 }
 

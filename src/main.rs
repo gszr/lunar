@@ -9,6 +9,7 @@ mod debug;
 mod event;
 mod history;
 mod input;
+mod limits;
 mod lua;
 mod mission;
 mod prompt;
@@ -91,6 +92,7 @@ fn main() -> io::Result<()> {
     if app.notice.is_none() {
         app.notice = prompt::budget_warning();
     }
+    limits::refresh(&mut app);
     event::run(terminal.get_mut(), &mut app)
 }
 
@@ -148,6 +150,8 @@ mod tests {
             auth_cancel: None,
             auth_prompt: None,
             auth_brand: None,
+            limits: None,
+            limits_rx: None,
         }
     }
 

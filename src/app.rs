@@ -46,6 +46,8 @@ pub(crate) struct App {
     pub(crate) auth_cancel: Option<Arc<AtomicBool>>,
     pub(crate) auth_prompt: Option<AuthPrompt>,
     pub(crate) auth_brand: Option<&'static str>,
+    pub(crate) limits: Option<crate::limits::Limits>,
+    pub(crate) limits_rx: Option<Receiver<crate::limits::Limits>>,
 }
 
 pub(crate) struct Compaction {
@@ -166,6 +168,8 @@ impl App {
             auth_cancel: None,
             auth_prompt: None,
             auth_brand: None,
+            limits: None,
+            limits_rx: None,
         }
     }
 }
