@@ -37,7 +37,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Transcript | The current mission. Scrollable: every message in that mission is reachable as painted (tool cards stay 8 lines, thinking stays a 3-line preview). Not a tail-only view. `/resume` switches missions; there is no Session history object |
 | Tools | `read` / `write` / `edit` (`old_string`/`new_string`) / `bash`. Gate = allow. Bash timeout 60s, Esc kills the process group. Bash stdin is null; on Unix the child is a new session so a nested TUI cannot take the glass. Tool results cap 50KB or 2000 lines per result. `read` keeps the head and gives the next offset. `bash` keeps the tail; truncated bash output is saved under `~/.lunar/recorder/tool-output/` and the path is included in the result. Files older than seven days are deleted at startup. `finish_reason=length` does not execute tool calls. Calls in one assistant turn run in parallel. Tool loops pause after 100 rounds; submitting `continue` starts a fresh turn |
 | Missions | Linear append-only jsonl. Not a tree. Not Pi-compatible. Each model usage result is appended; reopening sums the mission totals for the footer and restores the latest prompt size. Mission lists are ordered by file modification time, newest first; opening or listing a mission does not modify it, while prompts, model/thinking changes, and renames bump it |
-| Full context | Warn and refuse submit. No auto-compact. `/compact` only after this hurts |
+| Full context | Warn and refuse submit. No auto-compact. Manual `/compact [instructions]` uses the live model without tools to summarize older history while retaining about 20k recent estimated tokens. It cuts only at user/assistant boundaries (never at a tool result), truncates tool results to 2k characters in the summarization request, and appends a compaction checkpoint to the mission. The full transcript remains visible; subsequent requests use fresh prompt context + latest checkpoint + retained messages. Repeated compaction updates the prior checkpoint. Failure, truncation, tool-call attempts, or Esc leave the previous context active |
 | Entry | `lunar` always opens the TUI. No print mode in v0 |
 | Providers in source | None hardcoded. Unconfigured is a valid first run |
 
@@ -172,7 +172,7 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 - Missions: `/new` `/resume` `/name` `/mission`, `-c`
 - Token stats + refuse submit when last prompt ≥ window
 - Global/project `AGENTS.md`, CWD `CONTEXT.md`, and merged global/project skill summaries as a leading user message, snapshotted per user turn
-- Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/model` `/thinking` `/login` `/logout` `/name` `/mission` `/context`. `/context` opens a component summary of the live preamble and current history, with count and estimated-token breakdowns for user messages, assistant messages, tool calls, and tool results, plus a preamble + history total; `/context raw` shows their full contents, including tool calls and results. Both use a pager: PageUp/PageDown, j/k, wheel, and Ctrl+Home/End scroll, while Esc or q closes it
+- Commands that exist: `/quit` `/q` `/help` `/new` `/resume` `/model` `/thinking` `/login` `/logout` `/name` `/mission` `/context` `/compact`. `/compact [instructions]` manually summarizes older context with the live model and keeps about 20k recent estimated tokens verbatim; no automatic compaction. `/context` opens a component summary of the live preamble and current history, with count and estimated-token breakdowns for user messages, assistant messages, tool calls, and tool results, plus a preamble + history total; `/context raw` shows their full contents, including tool calls and results. Both use a pager: PageUp/PageDown, j/k, wheel, and Ctrl+Home/End scroll, while Esc or q closes it
 - Lua 5.5 embed; user `~/.lunar/control/init.lua` returns `{ models, providers, defaults }`
 - Thinking levels: each model supplies its ordered values and default; `/thinking` only accepts and displays those values; Completions and Responses wire mappings; live level in footer
 
@@ -182,7 +182,6 @@ Transcript scroll: PageUp / PageDown, mouse wheel, Ctrl+Home / Ctrl+End to top /
 - `/reload` `/trust`
 - Messages API (catalog accepts `api`; Completions and Responses send)
 - Cost in the footer, git branch, `$` prices
-- `/compact`
 
 ## Slots (foundation, Rust-filled)
 
@@ -197,8 +196,7 @@ Package manager, print/RPC/SDK, Pi session compatibility, provider zoo, themes, 
 ## Next slices (recommended order)
 
 1. Messages, if you actually use a Messages-only id
-2. Dumb `/compact` after the window hurts
-3. Walk-up context
+2. Walk-up context
 
 ## Layout in the repo
 

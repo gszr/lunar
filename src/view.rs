@@ -145,7 +145,9 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
 pub(crate) const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 pub(crate) fn working_text(app: &App) -> &'static str {
-    if matches!(
+    if app.compacting.is_some() {
+        " Compacting..."
+    } else if matches!(
         app.messages.last(),
         Some(Message {
             role: Role::Assistant,

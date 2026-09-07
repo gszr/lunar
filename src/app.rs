@@ -24,6 +24,8 @@ pub(crate) struct App {
     pub(crate) usage: Usage,
     pub(crate) last_prompt: u32,
     pub(crate) preamble: Option<String>,
+    pub(crate) compaction: Option<Compaction>,
+    pub(crate) compacting: Option<PendingCompaction>,
     pub(crate) mission: Option<mission::Mission>,
     pub(crate) mode: Mode,
     pub(crate) complete_sel: usize,
@@ -44,6 +46,18 @@ pub(crate) struct App {
     pub(crate) auth_cancel: Option<Arc<AtomicBool>>,
     pub(crate) auth_prompt: Option<AuthPrompt>,
     pub(crate) auth_brand: Option<&'static str>,
+}
+
+pub(crate) struct Compaction {
+    pub(crate) summary: String,
+    pub(crate) first_kept: usize,
+}
+
+pub(crate) struct PendingCompaction {
+    pub(crate) first_kept: usize,
+    pub(crate) tokens_before: u32,
+    pub(crate) text: String,
+    pub(crate) usage: Usage,
 }
 
 pub(crate) struct HistorySearch {
@@ -130,6 +144,8 @@ impl App {
             usage: Usage::default(),
             last_prompt: 0,
             preamble: None,
+            compaction: None,
+            compacting: None,
             mission: None,
             mode: Mode::Chat,
             complete_sel: 0,

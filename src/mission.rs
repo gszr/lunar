@@ -142,6 +142,7 @@ pub struct Loaded {
     pub thinking: Option<String>,
     pub usage: Usage,
     pub last_prompt: u32,
+    pub compaction: Option<(String, usize)>,
 }
 
 pub fn create(name: &str) -> io::Result<Mission> {
@@ -272,6 +273,7 @@ pub fn load(path: &Path) -> io::Result<Loaded> {
     let mut thinking = None;
     let mut usage = Usage::default();
     let mut last_prompt = 0;
+    let mut compaction = None;
     for line in BufReader::new(file).lines() {
         let line = line?;
         if line.trim().is_empty() {
@@ -317,6 +319,21 @@ pub fn load(path: &Path) -> io::Result<Loaded> {
                 };
                 usage.add(item);
                 last_prompt = item.prompt();
+            }
+            Some("compaction") => {
+                if let (Some(summary), Some(first_kept)) = (
+                    value.get("summary").and_then(Value::as_str),
+                    value.get("first_kept").and_then(Value::as_u64),
+                ) {
+                    compaction = Some((summary.to_string(), first_kept as usize));
+                    if let Some(tokens_after) = value
+                        .get("tokens_after")
+                        .and_then(Value::as_u64)
+                        .and_then(|tokens| tokens.try_into().ok())
+                    {
+                        last_prompt = tokens_after;
+                    }
+                }
             }
             Some("user") => {
                 if let Some(text) = value.get("text").and_then(Value::as_str) {
@@ -366,6 +383,7 @@ pub fn load(path: &Path) -> io::Result<Loaded> {
         thinking,
         usage,
         last_prompt,
+        compaction,
     })
 }
 
@@ -384,6 +402,21 @@ pub fn usage_line(usage: Usage) -> Value {
         "output": usage.output,
         "cache_read": usage.cache_read,
         "cache_write": usage.cache_write,
+    })
+}
+
+pub fn compaction_line(
+    summary: &str,
+    first_kept: usize,
+    tokens_before: u32,
+    tokens_after: u32,
+) -> Value {
+    json!({
+        "type": "compaction",
+        "summary": summary,
+        "first_kept": first_kept,
+        "tokens_before": tokens_before,
+        "tokens_after": tokens_after,
     })
 }
 
