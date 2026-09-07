@@ -200,4 +200,4 @@ Package manager, print/RPC/SDK, Pi session compatibility, provider zoo, themes, 
 
 ## Layout in the repo
 
-`src/main.rs` app/TUI · `auth.rs` managed credentials + xAI / OpenAI OAuth · `protocol/` HTTP (`stream` + Completions / Responses adapters) · `lua.rs` user + project `init.lua` · `tools.rs` four tools · `tool_output.rs` truncated bash files · `mission.rs` jsonl · `prompt.rs` CWD context + skill summaries · `render.rs` transcript paint · `splash.rs` art + colors
+`src/main.rs` app/TUI · `commands/` slash dispatch, completion, and domain command implementations · `auth.rs` managed credentials + xAI / OpenAI OAuth · `protocol/` HTTP (`stream` + Completions / Responses adapters) · `lua.rs` user + project `init.lua` · `tools.rs` four tools · `tool_output.rs` truncated bash files · `mission.rs` jsonl · `prompt.rs` CWD context + skill summaries · `render.rs` transcript paint · `splash.rs` art + colors

@@ -1,4 +1,3 @@
-mod actions;
 mod app;
 mod auth;
 mod cli;
@@ -26,8 +25,8 @@ mod view;
 
 use std::io;
 
-use actions::load_mission;
 use app::App;
+use commands::mission::load_mission;
 
 fn main() -> io::Result<()> {
     let open = match cli::parse(std::env::args_os().skip(1)) {
@@ -178,6 +177,28 @@ mod tests {
     }
 
     #[test]
+    fn command_dispatch_leaves_prompts_and_handles_unknown_commands() {
+        let mut app = test_app();
+        assert!(!crate::commands::dispatch(&mut app, "hello"));
+        assert!(app.notice.is_none());
+        assert!(crate::commands::dispatch(&mut app, "/unknown"));
+        assert_eq!(app.notice.as_deref(), Some("unknown command: /unknown"));
+    }
+
+    #[test]
+    fn command_dispatch_preserves_quit_alias_and_exact_matching() {
+        for command in ["/quit", "/q"] {
+            let mut app = test_app();
+            assert!(crate::commands::dispatch(&mut app, command));
+            assert!(app.quit);
+        }
+        let mut app = test_app();
+        assert!(crate::commands::dispatch(&mut app, "/quit extra"));
+        assert!(!app.quit);
+        assert_eq!(app.notice.as_deref(), Some("unknown command: /quit extra"));
+    }
+
+    #[test]
     fn context_pager_closes_with_escape_or_q() {
         for code in [KeyCode::Esc, KeyCode::Char('q')] {
             let mut app = test_app();
@@ -243,7 +264,7 @@ mod tests {
             ),
         )
         .unwrap();
-        crate::actions::load_mission(&mut app, &path);
+        crate::commands::mission::load_mission(&mut app, &path);
         assert_eq!(app.thinking_override, Some("high".into()));
         assert_eq!(app.config.unwrap().thinking, "high");
         std::fs::remove_dir_all(dir).unwrap();
@@ -271,7 +292,7 @@ mod tests {
         )
         .unwrap();
 
-        crate::actions::load_mission(&mut app, &path);
+        crate::commands::mission::load_mission(&mut app, &path);
 
         assert_eq!(app.thinking_override, None);
         assert_eq!(app.config.as_ref().unwrap().thinking, "off");
@@ -305,7 +326,7 @@ mod tests {
         )
         .unwrap();
 
-        crate::actions::load_mission(&mut app, &path);
+        crate::commands::mission::load_mission(&mut app, &path);
 
         assert_eq!(app.thinking_override, None);
         assert_eq!(app.config.as_ref().unwrap().thinking, "off");
@@ -338,7 +359,7 @@ mod tests {
             ),
         )
         .unwrap();
-        crate::actions::load_mission(&mut app, &path);
+        crate::commands::mission::load_mission(&mut app, &path);
         assert_eq!(app.usage.input, 130);
         assert_eq!(app.usage.output, 30);
         assert_eq!(app.usage.cache_read, 100);
@@ -385,7 +406,7 @@ mod tests {
         app.cursor = app.input.len();
         on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Enter));
         assert_eq!(app.thinking_override, Some("high".into()));
-        crate::actions::new_mission(&mut app);
+        crate::commands::mission::new_mission(&mut app);
         assert_eq!(app.thinking_override, None);
         assert_eq!(app.config.unwrap().thinking, "off");
     }

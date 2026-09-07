@@ -7,19 +7,20 @@ use std::time::{Duration, SystemTime};
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use crate::actions::{
-    drain_auth, edit_config, load_mission, logout_openai, logout_xai, name_mission, new_mission,
-    open_login, open_model, open_resume, open_thinking, open_xai_login, resume_prefix,
-    save_api_key, select_model, set_thinking, show_mission, start_openai_oauth, start_xai_oauth,
-};
 use crate::app::{App, Mode};
+use crate::commands::auth::{
+    drain_auth, open_xai_login, save_api_key, start_openai_oauth, start_xai_oauth,
+};
+use crate::commands::mission::load_mission;
+use crate::commands::model::select_model;
+use crate::commands::thinking::set_thinking;
 use crate::history;
 use crate::input::{
     history_down, history_up, insert_input, line_down, line_up, next_char, on_complete_key,
     on_search_key, prev_char, reset_history_navigation, start_search, word_left, word_right,
 };
 use crate::transcript::{jump_to_tail, on_mouse, page_delta, scroll_by, scroll_home};
-use crate::turn::{abort_turn, drain_stream, send_prompt, start_compaction};
+use crate::turn::{abort_turn, drain_stream, send_prompt};
 use crate::view::draw;
 
 const RESUME_GAP: Duration = Duration::from_secs(30);
@@ -452,61 +453,7 @@ pub(crate) fn submit(app: &mut App) {
         app.notice = Some(format!("history: {err}"));
     }
     reset_history_navigation(app);
-    match line.as_str() {
-        "/quit" | "/q" => app.quit = true,
-        "/help" => app.notice = Some(crate::commands::help()),
-        "/config" => edit_config(app),
-        "/new" => new_mission(app),
-        "/login" => open_login(app),
-        "/login xai" => open_xai_login(app),
-        "/login openai" => start_openai_oauth(app),
-        "/logout" => app.notice = Some("usage: /logout xai|openai".into()),
-        "/logout xai" => logout_xai(app),
-        "/logout openai" => logout_openai(app),
-        "/resume" => open_resume(app),
-        "/model" => open_model(app),
-        "/thinking" => open_thinking(app),
-        cmd if let Some(raw) = cmd.strip_prefix("/thinking ") => {
-            let level = raw.trim();
-            if set_thinking(app, level) {
-                app.notice = Some(format!("thinking: {level}"));
-            } else if let Some(config) = app.config.as_ref() {
-                app.notice = Some(format!(
-                    "usage: /thinking {}",
-                    config.thinking_levels.join("|")
-                ));
-            } else {
-                app.notice = Some("no model configured".into());
-            }
-        }
-        "/mission" => show_mission(app),
-        "/compact" => start_compaction(app, None),
-        cmd if let Some(instructions) = cmd.strip_prefix("/compact ") => {
-            start_compaction(app, Some(instructions))
-        }
-        "/context" | "/context raw" => {
-            let text = if line == "/context raw" {
-                crate::context::raw(
-                    &app.messages,
-                    app.compaction
-                        .as_ref()
-                        .map(|compact| (compact.summary.as_str(), compact.first_kept)),
-                )
-            } else {
-                crate::context::summary(
-                    &app.messages,
-                    app.compaction
-                        .as_ref()
-                        .map(|compact| (compact.summary.as_str(), compact.first_kept)),
-                )
-            };
-            app.mode = Mode::Context { text, scroll: 0 };
-        }
-        cmd if let Some(name) = cmd.strip_prefix("/name ") => name_mission(app, name),
-        cmd if let Some(prefix) = cmd.strip_prefix("/resume ") => resume_prefix(app, prefix),
-        cmd if cmd.starts_with('/') => {
-            app.notice = Some(format!("unknown command: {cmd}"));
-        }
-        _ => send_prompt(app, line),
+    if !crate::commands::dispatch(app, &line) {
+        send_prompt(app, line);
     }
 }
