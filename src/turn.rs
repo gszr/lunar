@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, TryRecvError};
 
 use crate::app::{App, Message, Role};
-use crate::protocol::{self, Config, StreamEvent, ToolCall, ToolResult};
+use crate::protocol::{self, Config, StreamEvent, ToolCall, ToolResult, Usage};
 use crate::transcript::jump_to_tail;
 use crate::{mission, prompt, tools};
 
@@ -19,26 +19,33 @@ pub(crate) fn drain_stream(app: &mut App) {
     loop {
         match rx.try_recv() {
             Ok(StreamEvent::Delta(text)) => {
-                if let Some(last) = app.messages.last_mut()
+                if let Some(compacting) = &mut app.compacting {
+                    compacting.text.push_str(&text);
+                } else if let Some(last) = app.messages.last_mut()
                     && matches!(last.role, Role::Assistant)
                 {
                     last.text.push_str(&text);
                 }
             }
             Ok(StreamEvent::Think(text)) => {
-                if let Some(last) = app.messages.last_mut()
+                if app.compacting.is_none()
+                    && let Some(last) = app.messages.last_mut()
                     && matches!(last.role, Role::Assistant)
                 {
                     last.thinking.push_str(&text);
                 }
             }
             Ok(StreamEvent::Usage(usage)) => {
-                app.usage.add(usage);
-                app.last_prompt = usage.prompt();
-                if let Some(m) = &app.mission
-                    && let Err(err) = mission::append(m, &mission::usage_line(usage))
-                {
-                    app.notice = Some(format!("mission: {err}"));
+                if let Some(compacting) = &mut app.compacting {
+                    compacting.usage.add(usage);
+                } else {
+                    app.usage.add(usage);
+                    app.last_prompt = usage.prompt();
+                    if let Some(m) = &app.mission
+                        && let Err(err) = mission::append(m, &mission::usage_line(usage))
+                    {
+                        app.notice = Some(format!("mission: {err}"));
+                    }
                 }
             }
             Ok(other) => {
@@ -61,6 +68,7 @@ pub(crate) fn finish_stream(app: &mut App, end: StreamEvent) {
     match end {
         StreamEvent::Tools { calls, truncated } => begin_tools(app, calls, truncated),
         StreamEvent::ToolResults(results) => apply_tool_results(app, results),
+        StreamEvent::CompactDone => finish_compaction(app),
         StreamEvent::Done => {
             persist_last_assistant(app);
             app.stream_rx = None;
@@ -68,6 +76,12 @@ pub(crate) fn finish_stream(app: &mut App, end: StreamEvent) {
             pop_empty_assistant(app);
         }
         StreamEvent::Failed(err) => {
+            if app.compacting.take().is_some() {
+                app.stream_rx = None;
+                app.cancel = None;
+                app.notice = Some(format!("compaction: {err}"));
+                return;
+            }
             finish_failed(app, &err);
             app.stream_rx = None;
             app.cancel = None;
@@ -81,6 +95,12 @@ pub(crate) fn finish_stream(app: &mut App, end: StreamEvent) {
 pub(crate) fn abort_turn(app: &mut App) {
     if let Some(flag) = &app.cancel {
         flag.store(true, Ordering::Relaxed);
+    }
+    if app.compacting.take().is_some() {
+        app.stream_rx = None;
+        app.cancel = None;
+        app.notice = Some("aborted".into());
+        return;
     }
     finish_failed(app, "aborted");
     app.stream_rx = None;
@@ -270,6 +290,94 @@ pub(crate) fn persist_last_assistant(app: &mut App) {
     persist_value(app, &mission::assistant_line(&last.text, &last.tool_calls));
 }
 
+pub(crate) fn start_compaction(app: &mut App, instructions: Option<&str>) {
+    let Some(cfg) = app.config.clone() else {
+        app.notice = Some("no model configured".into());
+        return;
+    };
+    if app.messages.is_empty() {
+        app.notice = Some("nothing to compact".into());
+        return;
+    }
+    let boundary = app
+        .compaction
+        .as_ref()
+        .map(|compact| compact.first_kept)
+        .unwrap_or(0);
+    let previous = app
+        .compaction
+        .as_ref()
+        .map(|compact| compact.summary.as_str());
+    let Some(prepared) = crate::compact::prepare(&app.messages, boundary, previous, instructions)
+    else {
+        app.notice = Some("nothing old enough to compact".into());
+        return;
+    };
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    let (tx, rx) = mpsc::channel();
+    app.compacting = Some(crate::app::PendingCompaction {
+        first_kept: prepared.first_kept,
+        tokens_before: prepared.tokens_before,
+        text: String::new(),
+        usage: Usage::default(),
+    });
+    app.cancel = Some(cancel.clone());
+    app.stream_rx = Some(rx);
+    app.notice = None;
+    let cache_key = app.mission.as_ref().map(|mission| mission.id.clone());
+    std::thread::spawn(move || {
+        protocol::stream(
+            cfg,
+            vec![crate::protocol::ChatMessage::User(prepared.prompt)],
+            cancel,
+            tx,
+            cache_key,
+            false,
+        )
+    });
+}
+
+fn finish_compaction(app: &mut App) {
+    let Some(done) = app.compacting.take() else {
+        return;
+    };
+    app.stream_rx = None;
+    app.cancel = None;
+    if done.text.trim().is_empty() {
+        app.notice = Some("compaction: model returned an empty summary".into());
+        return;
+    }
+    let summary = done.text.trim().to_string();
+    let tokens_after = crate::compact::estimate_context(&summary, &app.messages[done.first_kept..]);
+    if done.usage.prompt() > 0 || done.usage.output > 0 {
+        app.usage.add(done.usage);
+        if let Some(mission) = &app.mission
+            && let Err(err) = mission::append(mission, &mission::usage_line(done.usage))
+        {
+            app.notice = Some(format!("mission: {err}"));
+            return;
+        }
+    }
+    let Some(mission) = &app.mission else {
+        app.notice = Some("compaction: no mission".into());
+        return;
+    };
+    if let Err(err) = mission::append(
+        mission,
+        &mission::compaction_line(&summary, done.first_kept, done.tokens_before, tokens_after),
+    ) {
+        app.notice = Some(format!("mission: {err}"));
+        return;
+    }
+    app.last_prompt = tokens_after;
+    app.compaction = Some(crate::app::Compaction {
+        summary,
+        first_kept: done.first_kept,
+    });
+    app.notice = Some("context compacted".into());
+}
+
 pub(crate) fn send_prompt(app: &mut App, line: String) {
     if app.config.is_none() {
         app.notice = Some("no model configured".into());
@@ -301,9 +409,15 @@ pub(crate) fn continue_turn(app: &mut App) {
         return;
     };
     app.messages.push(Message::assistant());
-    let history = crate::context::history(app.preamble.as_deref(), &app.messages);
+    let history = crate::context::history(
+        app.preamble.as_deref(),
+        app.compaction
+            .as_ref()
+            .map(|compact| (compact.summary.as_str(), compact.first_kept)),
+        &app.messages,
+    );
     let (tx, rx) = mpsc::channel();
     app.stream_rx = Some(rx);
     let cache_key = app.mission.as_ref().map(|m| m.id.clone());
-    std::thread::spawn(move || protocol::stream(cfg, history, cancel, tx, cache_key));
+    std::thread::spawn(move || protocol::stream(cfg, history, cancel, tx, cache_key, true));
 }

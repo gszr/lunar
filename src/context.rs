@@ -7,13 +7,25 @@ use crate::prompt;
 use crate::protocol::ChatMessage;
 
 /// Build the semantic message history sent to either model protocol.
-pub(crate) fn history(preamble: Option<&str>, messages: &[Message]) -> Vec<ChatMessage> {
+pub(crate) fn history(
+    preamble: Option<&str>,
+    compaction: Option<(&str, usize)>,
+    messages: &[Message],
+) -> Vec<ChatMessage> {
     let mut out = Vec::new();
     if let Some(text) = preamble {
         out.push(ChatMessage::User(text.to_string()));
     }
+    let start = if let Some((summary, first_kept)) = compaction {
+        out.push(ChatMessage::User(format!(
+            "The conversation before this point was compacted into this checkpoint:\n\n{summary}"
+        )));
+        first_kept.min(messages.len())
+    } else {
+        0
+    };
     out.extend(
-        messages
+        messages[start..]
             .iter()
             .filter(|m| {
                 !m.text.is_empty() || matches!(m.role, Role::User) || !m.tool_calls.is_empty()
@@ -34,7 +46,7 @@ pub(crate) fn history(preamble: Option<&str>, messages: &[Message]) -> Vec<ChatM
 }
 
 /// Summarize the context known before the next user message.
-pub(crate) fn summary(messages: &[Message]) -> String {
+pub(crate) fn summary(messages: &[Message], compaction: Option<(&str, usize)>) -> String {
     let (mut out, preamble_tokens) = prompt::summary();
     let mut users = 0;
     let mut assistants = 0;
@@ -44,7 +56,11 @@ pub(crate) fn summary(messages: &[Message]) -> String {
     let mut assistant_chars = 0;
     let mut tool_call_chars = 0;
     let mut tool_result_chars = 0;
-    for message in messages {
+    let start = compaction
+        .map(|(_, first_kept)| first_kept)
+        .unwrap_or(0)
+        .min(messages.len());
+    for message in &messages[start..] {
         match message.role {
             Role::User => {
                 users += 1;
@@ -71,19 +87,24 @@ pub(crate) fn summary(messages: &[Message]) -> String {
     let assistant_tokens = assistant_chars.div_ceil(4);
     let tool_call_tokens = tool_call_chars.div_ceil(4);
     let tool_result_tokens = tool_result_chars.div_ceil(4);
-    let total_tokens = user_tokens + assistant_tokens + tool_call_tokens + tool_result_tokens;
+    let summary_tokens = compaction
+        .map(|(summary, _)| summary.chars().count().div_ceil(4))
+        .unwrap_or(0);
+    let total_tokens =
+        summary_tokens + user_tokens + assistant_tokens + tool_call_tokens + tool_result_tokens;
     let _ = write!(
         out,
-        "\n\nhistory  ~{total_tokens} tokens\n  user messages      {users}  ~{user_tokens} tokens\n  assistant messages {assistants}  ~{assistant_tokens} tokens\n  tool calls         {tool_calls}  ~{tool_call_tokens} tokens\n  tool results       {tool_results}  ~{tool_result_tokens} tokens\n\ntotal  ~{} tokens",
+        "\n\ncheckpoint  ~{summary_tokens} tokens\nhistory  ~{} tokens\n  user messages      {users}  ~{user_tokens} tokens\n  assistant messages {assistants}  ~{assistant_tokens} tokens\n  tool calls         {tool_calls}  ~{tool_call_tokens} tokens\n  tool results       {tool_results}  ~{tool_result_tokens} tokens\n\ntotal  ~{} tokens",
+        total_tokens - summary_tokens,
         preamble_tokens + total_tokens
     );
     out
 }
 
 /// Display the complete context known before the next user message.
-pub(crate) fn raw(messages: &[Message]) -> String {
+pub(crate) fn raw(messages: &[Message], compaction: Option<(&str, usize)>) -> String {
     let preamble = prompt::preamble();
-    let history = history(preamble.as_deref(), messages);
+    let history = history(preamble.as_deref(), compaction, messages);
     format_history(history)
 }
 
@@ -142,7 +163,7 @@ mod tests {
             Message::tool("call-1".into(), "read".into(), "secret result".into()),
         ];
 
-        let summary = summary(&messages);
+        let summary = summary(&messages, None);
         assert!(summary.contains("history  ~"));
         assert!(summary.contains("total  ~"));
         assert!(summary.contains("user messages      1  ~4 tokens"));
@@ -196,7 +217,7 @@ mod tests {
             Message::tool("call-1".into(), "read".into(), "contents".into()),
         ];
 
-        let history = history(Some("instructions"), &messages);
+        let history = history(Some("instructions"), None, &messages);
         assert_eq!(history.len(), 4);
         assert!(matches!(&history[0], ChatMessage::User(text) if text == "instructions"));
         assert!(matches!(&history[1], ChatMessage::User(text) if text == "question"));

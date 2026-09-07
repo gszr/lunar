@@ -3,6 +3,7 @@ mod app;
 mod auth;
 mod cli;
 mod commands;
+mod compact;
 mod context;
 mod debug;
 mod event;
@@ -125,6 +126,8 @@ mod tests {
             usage: Usage::default(),
             last_prompt: 0,
             preamble: None,
+            compaction: None,
+            compacting: None,
             mission: None,
             mode: Mode::Chat,
             complete_sel: 0,

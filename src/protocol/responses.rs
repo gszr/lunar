@@ -74,13 +74,14 @@ pub(super) fn stream(
     cancel: Arc<AtomicBool>,
     tx: &Sender<StreamEvent>,
     cache_key: Option<String>,
+    tools: bool,
 ) -> Result<(), String> {
     let url = responses_url(&cfg);
     let cache_key = cache_key
         .as_deref()
         .map(clamp_cache_key)
         .filter(|key| !key.is_empty());
-    let body = body(&cfg, &messages, cache_key.as_deref());
+    let body = body(&cfg, &messages, cache_key.as_deref(), tools);
     let account = if cfg.auth_provider.as_deref() == Some("openai") {
         Some(crate::auth::chatgpt_account_id(&cfg.api_key)?)
     } else {
@@ -145,8 +146,19 @@ pub(super) fn stream(
             call
         })
         .collect();
-    if calls.is_empty() {
-        let _ = tx.send(StreamEvent::Done);
+    if !tools && (truncated || !calls.is_empty()) {
+        let message = if truncated {
+            "generation hit the token cap"
+        } else {
+            "model attempted to call a tool"
+        };
+        let _ = tx.send(StreamEvent::Failed(message.into()));
+    } else if calls.is_empty() {
+        let _ = tx.send(if tools {
+            StreamEvent::Done
+        } else {
+            StreamEvent::CompactDone
+        });
     } else {
         let _ = tx.send(StreamEvent::Tools { calls, truncated });
     }
@@ -166,7 +178,12 @@ fn clamp_cache_key(key: &str) -> String {
     key.chars().take(64).collect()
 }
 
-fn body(cfg: &Config, messages: &[ChatMessage], cache_key: Option<&str>) -> String {
+fn body(
+    cfg: &Config,
+    messages: &[ChatMessage],
+    cache_key: Option<&str>,
+    include_tools: bool,
+) -> String {
     let mut value = json!({
         "model": cfg.model,
         "stream": true,
@@ -179,9 +196,11 @@ fn body(cfg: &Config, messages: &[ChatMessage], cache_key: Option<&str>) -> Stri
                 json!(&cfg.thinking)
             },
         },
-        "tools": tools::responses_definitions(),
         "input": flatten_input(messages),
     });
+    if include_tools {
+        value["tools"] = tools::responses_definitions();
+    }
     if cfg.thinking == "off" {
         value["reasoning"].as_object_mut().unwrap().remove("effort");
     }
@@ -368,7 +387,7 @@ mod tests {
         let mut cfg = sample_cfg();
         cfg.thinking = "max".into();
         cfg.thinking_levels = vec!["low".into(), "high".into(), "max".into()];
-        let parsed: Value = serde_json::from_str(&body(&cfg, &[], None)).unwrap();
+        let parsed: Value = serde_json::from_str(&body(&cfg, &[], None, true)).unwrap();
         assert_eq!(parsed["reasoning"]["effort"], "max");
     }
 
@@ -390,7 +409,8 @@ mod tests {
             },
         ];
         let parsed: Value =
-            serde_json::from_str(&body(&sample_cfg(), &messages, Some("2026-08-22-1"))).unwrap();
+            serde_json::from_str(&body(&sample_cfg(), &messages, Some("2026-08-22-1"), true))
+                .unwrap();
         assert_eq!(parsed["model"], "gpt-5");
         assert_eq!(parsed["stream"], true);
         assert_eq!(parsed["store"], false);
@@ -420,13 +440,15 @@ mod tests {
     #[test]
     fn body_omits_empty_cache_key_and_clamps_long_ones() {
         let messages = vec![ChatMessage::User("hi".into())];
-        let none: Value = serde_json::from_str(&body(&sample_cfg(), &messages, None)).unwrap();
+        let none: Value =
+            serde_json::from_str(&body(&sample_cfg(), &messages, None, true)).unwrap();
         assert!(none.get("prompt_cache_key").is_none());
         let long = "m".repeat(80);
         let clamped: Value = serde_json::from_str(&body(
             &sample_cfg(),
             &messages,
             Some(&clamp_cache_key(&long)),
+            true,
         ))
         .unwrap();
         assert_eq!(

@@ -19,7 +19,7 @@ use crate::input::{
     on_search_key, prev_char, reset_history_navigation, start_search, word_left, word_right,
 };
 use crate::transcript::{jump_to_tail, on_mouse, page_delta, scroll_by, scroll_home};
-use crate::turn::{abort_turn, drain_stream, send_prompt};
+use crate::turn::{abort_turn, drain_stream, send_prompt, start_compaction};
 use crate::view::draw;
 
 const RESUME_GAP: Duration = Duration::from_secs(30);
@@ -477,11 +477,25 @@ pub(crate) fn submit(app: &mut App) {
             }
         }
         "/mission" => show_mission(app),
+        "/compact" => start_compaction(app, None),
+        cmd if let Some(instructions) = cmd.strip_prefix("/compact ") => {
+            start_compaction(app, Some(instructions))
+        }
         "/context" | "/context raw" => {
             let text = if line == "/context raw" {
-                crate::context::raw(&app.messages)
+                crate::context::raw(
+                    &app.messages,
+                    app.compaction
+                        .as_ref()
+                        .map(|compact| (compact.summary.as_str(), compact.first_kept)),
+                )
             } else {
-                crate::context::summary(&app.messages)
+                crate::context::summary(
+                    &app.messages,
+                    app.compaction
+                        .as_ref()
+                        .map(|compact| (compact.summary.as_str(), compact.first_kept)),
+                )
             };
             app.mode = Mode::Context { text, scroll: 0 };
         }

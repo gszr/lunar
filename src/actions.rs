@@ -245,6 +245,8 @@ pub(crate) fn new_mission(app: &mut App) {
         return;
     }
     app.messages.clear();
+    app.compaction = None;
+    app.compacting = None;
     app.thinking_override = None;
     app.config = app.startup_config.clone();
     invalidate_paint(app);
@@ -367,6 +369,14 @@ pub(crate) fn load_mission(app: &mut App, path: &std::path::Path) {
             app.thinking_override = None;
             app.config = app.startup_config.clone();
             app.messages = loaded.messages;
+            app.compaction =
+                loaded
+                    .compaction
+                    .map(|(summary, first_kept)| crate::app::Compaction {
+                        summary,
+                        first_kept,
+                    });
+            app.compacting = None;
             app.mission = Some(loaded.mission);
             invalidate_paint(app);
             app.usage = loaded.usage;

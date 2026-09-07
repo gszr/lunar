@@ -48,9 +48,10 @@ pub(super) fn stream(
     messages: Vec<ChatMessage>,
     cancel: Arc<AtomicBool>,
     tx: &Sender<StreamEvent>,
+    tools: bool,
 ) -> Result<(), String> {
     let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
-    let body = body(&cfg, &messages);
+    let body = body(&cfg, &messages, tools);
 
     let response = post_retry(&url, &cfg.api_key, &body, &cancel, None, None)?;
 
@@ -161,22 +162,35 @@ pub(super) fn stream(
             call
         })
         .collect();
-    if calls.is_empty() {
-        let _ = tx.send(StreamEvent::Done);
+    if !tools && (truncated || !calls.is_empty()) {
+        let message = if truncated {
+            "generation hit the token cap"
+        } else {
+            "model attempted to call a tool"
+        };
+        let _ = tx.send(StreamEvent::Failed(message.into()));
+    } else if calls.is_empty() {
+        let _ = tx.send(if tools {
+            StreamEvent::Done
+        } else {
+            StreamEvent::CompactDone
+        });
     } else {
         let _ = tx.send(StreamEvent::Tools { calls, truncated });
     }
     Ok(())
 }
 
-fn body(cfg: &Config, messages: &[ChatMessage]) -> String {
+fn body(cfg: &Config, messages: &[ChatMessage], include_tools: bool) -> String {
     let mut body = json!({
         "model": cfg.model,
         "stream": true,
         "stream_options": { "include_usage": true },
-        "tools": tools::completions_definitions(),
         "messages": messages.iter().map(ChatMessage::to_completions).collect::<Vec<_>>(),
     });
+    if include_tools {
+        body["tools"] = tools::completions_definitions();
+    }
     if is_openai_url(&cfg.base_url) {
         body["max_completion_tokens"] = json!(MAX_TOKENS);
     } else {
@@ -219,7 +233,7 @@ mod tests {
             thinking: "off".into(),
             thinking_levels: vec!["off".into()],
         };
-        let body: Value = serde_json::from_str(&body(&cfg, &[])).unwrap();
+        let body: Value = serde_json::from_str(&body(&cfg, &[], true)).unwrap();
         assert_eq!(body["max_tokens"], MAX_TOKENS);
         assert_eq!(body["stream"], true);
         assert_eq!(body["model"], "grok-4.6");
@@ -238,7 +252,7 @@ mod tests {
             thinking: "max".into(),
             thinking_levels: vec!["low".into(), "high".into(), "max".into()],
         };
-        let parsed: Value = serde_json::from_str(&body(&cfg, &[])).unwrap();
+        let parsed: Value = serde_json::from_str(&body(&cfg, &[], true)).unwrap();
         assert_eq!(parsed["reasoning_effort"], "max");
     }
 
@@ -255,7 +269,7 @@ mod tests {
             thinking: "off".into(),
             thinking_levels: vec!["off".into()],
         };
-        let parsed: Value = serde_json::from_str(&body(&cfg, &[])).unwrap();
+        let parsed: Value = serde_json::from_str(&body(&cfg, &[], true)).unwrap();
         assert_eq!(parsed["max_completion_tokens"], MAX_TOKENS);
         assert!(parsed.get("reasoning_effort").is_none());
         assert!(parsed.get("max_tokens").is_none());
