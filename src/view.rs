@@ -253,7 +253,9 @@ pub(crate) fn draw_model(frame: &mut Frame, area: Rect, items: &[lua::ModelChoic
         "model  j/k  enter  esc",
         Style::default().fg(splash::ASH),
     ))];
-    for (i, item) in items.iter().enumerate() {
+    let visible = area.height.saturating_sub(1) as usize;
+    let start = picker_start(cursor, visible);
+    for (i, item) in items.iter().enumerate().skip(start).take(visible) {
         let alias = item
             .alias
             .as_deref()
@@ -277,6 +279,14 @@ pub(crate) fn draw_model(frame: &mut Frame, area: Rect, items: &[lua::ModelChoic
         )));
     }
     frame.render_widget(Paragraph::new(lines), area);
+}
+
+fn picker_start(cursor: usize, visible: usize) -> usize {
+    if visible == 0 {
+        0
+    } else {
+        cursor.saturating_add(1).saturating_sub(visible)
+    }
 }
 
 pub(crate) fn draw_resume(
@@ -717,5 +727,18 @@ pub(crate) fn shorten_home(path: PathBuf) -> String {
             }
         }
         None => path.display().to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::picker_start;
+
+    #[test]
+    fn model_picker_keeps_cursor_in_visible_rows() {
+        assert_eq!(picker_start(0, 4), 0);
+        assert_eq!(picker_start(3, 4), 0);
+        assert_eq!(picker_start(4, 4), 1);
+        assert_eq!(picker_start(20, 4), 17);
     }
 }
