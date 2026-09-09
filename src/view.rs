@@ -248,14 +248,30 @@ pub(crate) fn notice_lines(notice: &str, width: usize) -> Vec<Line<'static>> {
         .collect()
 }
 
-pub(crate) fn draw_model(frame: &mut Frame, area: Rect, items: &[lua::ModelChoice], cursor: usize) {
+pub(crate) fn draw_model(
+    frame: &mut Frame,
+    area: Rect,
+    items: &[lua::ModelChoice],
+    cursor: usize,
+    query: Option<&str>,
+) {
+    let header = match query {
+        Some(query) => format!("model  /{query}"),
+        None => "model  / search  j/k  enter  esc".into(),
+    };
     let mut lines = vec![Line::from(Span::styled(
-        "model  j/k  enter  esc",
+        header,
         Style::default().fg(splash::ASH),
     ))];
     let visible = area.height.saturating_sub(1) as usize;
     let start = picker_start(cursor, visible);
-    for (i, item) in items.iter().enumerate().skip(start).take(visible) {
+    for (i, item) in items
+        .iter()
+        .filter(|item| query.is_none_or(|query| commands::model::matches_query(item, query)))
+        .enumerate()
+        .skip(start)
+        .take(visible)
+    {
         let alias = item
             .alias
             .as_deref()
@@ -447,7 +463,12 @@ pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
         draw_thinking_editor(frame, area, app, cursor);
         return;
     }
-    if let Mode::Model { items, cursor } = &app.mode {
+    if let Mode::Model {
+        items,
+        cursor,
+        query,
+    } = &app.mode
+    {
         let block = Block::default()
             .borders(Borders::TOP | Borders::BOTTOM)
             .border_style(Style::default().fg(splash::DUST));
@@ -462,7 +483,7 @@ pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
             .constraints([Constraint::Min(1), Constraint::Length(picker_h)])
             .split(inner);
         draw_editor_input(frame, chunks[0], app);
-        draw_model(frame, chunks[1], items, *cursor);
+        draw_model(frame, chunks[1], items, *cursor, query.as_deref());
         return;
     }
     if let Some(search) = &app.search {

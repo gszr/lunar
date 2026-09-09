@@ -738,6 +738,57 @@ mod tests {
     }
 
     #[test]
+    fn model_search_filters_navigation_and_escape_clears_first() {
+        let mut app = configured_app();
+        let grok = app.config.clone().unwrap();
+        let mut gpt = grok.clone();
+        gpt.provider = "openai".into();
+        gpt.model = "gpt-5".into();
+        app.mode = Mode::Model {
+            items: vec![
+                crate::lua::ModelChoice {
+                    provider: "xai".into(),
+                    alias: Some("grok".into()),
+                    id: "grok".into(),
+                    config: Some(grok),
+                    error: None,
+                },
+                crate::lua::ModelChoice {
+                    provider: "openai".into(),
+                    alias: Some("gpt5".into()),
+                    id: "gpt-5".into(),
+                    config: Some(gpt),
+                    error: None,
+                },
+            ],
+            cursor: 0,
+            query: None,
+        };
+
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Char('/')));
+        for c in "OPEN".chars() {
+            on_key(&mut app, key(KeyModifiers::SHIFT, KeyCode::Char(c)));
+        }
+        assert!(matches!(
+            &app.mode,
+            Mode::Model {
+                query: Some(query),
+                ..
+            } if query == "OPEN"
+        ));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Esc));
+        assert!(matches!(app.mode, Mode::Model { query: None, .. }));
+
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Char('/')));
+        for c in "open".chars() {
+            on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Char(c)));
+        }
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Enter));
+        assert_eq!(app.config.as_ref().unwrap().provider, "openai");
+        assert!(matches!(app.mode, Mode::Chat));
+    }
+
+    #[test]
     fn page_up_leaves_follow() {
         let mut app = tall_app();
         on_key(&mut app, key(KeyModifiers::NONE, KeyCode::PageUp));

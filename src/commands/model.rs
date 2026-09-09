@@ -19,7 +19,19 @@ pub(crate) fn open_model(app: &mut App) {
     app.mode = Mode::Model {
         items: app.models.clone(),
         cursor,
+        query: None,
     };
+}
+
+pub(crate) fn matches_query(item: &lua::ModelChoice, query: &str) -> bool {
+    let query = query.to_lowercase();
+    query.is_empty()
+        || item.provider.to_lowercase().contains(&query)
+        || item.id.to_lowercase().contains(&query)
+        || item
+            .alias
+            .as_deref()
+            .is_some_and(|alias| alias.to_lowercase().contains(&query))
 }
 
 pub(crate) fn select_model(app: &mut App, item: lua::ModelChoice, persist: bool) {
@@ -49,5 +61,30 @@ pub(crate) fn restore_model(app: &mut App, provider: &str, id: &str) -> bool {
         true
     } else {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::matches_query;
+    use crate::lua::ModelChoice;
+
+    fn choice() -> ModelChoice {
+        ModelChoice {
+            provider: "xAI".into(),
+            alias: Some("grok46".into()),
+            id: "grok-4.6".into(),
+            config: None,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn model_search_matches_provider_alias_and_id_case_insensitively() {
+        let item = choice();
+        assert!(matches_query(&item, "XAI"));
+        assert!(matches_query(&item, "GROK46"));
+        assert!(matches_query(&item, "4.6"));
+        assert!(!matches_query(&item, "openai"));
     }
 }
