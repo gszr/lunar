@@ -216,19 +216,31 @@ fn error_response(status: u16, body: &str) -> String {
 fn should_retry(err: &ureq::Error) -> bool {
     match err {
         ureq::Error::StatusCode(code) => should_retry_status(*code),
-        ureq::Error::Io(e) => matches!(
-            e.kind(),
-            io::ErrorKind::ConnectionReset
-                | io::ErrorKind::ConnectionAborted
-                | io::ErrorKind::TimedOut
-                | io::ErrorKind::BrokenPipe
-                | io::ErrorKind::UnexpectedEof
-                | io::ErrorKind::Interrupted
-                | io::ErrorKind::NotConnected
-        ),
+        ureq::Error::Io(e) => is_connection_error(e),
         ureq::Error::ConnectionFailed | ureq::Error::Timeout(_) => true,
         _ => false,
     }
+}
+
+pub(super) fn stream_error(err: io::Error) -> String {
+    if is_connection_error(&err) {
+        "connection interrupted; check your connection and retry".into()
+    } else {
+        err.to_string()
+    }
+}
+
+fn is_connection_error(err: &io::Error) -> bool {
+    matches!(
+        err.kind(),
+        io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::TimedOut
+            | io::ErrorKind::BrokenPipe
+            | io::ErrorKind::UnexpectedEof
+            | io::ErrorKind::Interrupted
+            | io::ErrorKind::NotConnected
+    )
 }
 
 fn retry_delay(attempt: u32) -> Duration {
@@ -384,6 +396,21 @@ mod tests {
             "bad model"
         );
         assert_eq!(error_response(400, "not json"), "http status: 400");
+    }
+
+    #[test]
+    fn stream_eof_is_actionable() {
+        let err = io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected end of file");
+        assert_eq!(
+            stream_error(err),
+            "connection interrupted; check your connection and retry"
+        );
+    }
+
+    #[test]
+    fn stream_error_preserves_unrelated_errors() {
+        let err = io::Error::new(io::ErrorKind::InvalidData, "bad data");
+        assert_eq!(stream_error(err), "bad data");
     }
 
     #[test]

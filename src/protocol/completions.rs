@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use crate::tools;
 
-use super::http::{collect_tail, parse_usage, post_retry};
+use super::http::{collect_tail, parse_usage, post_retry, stream_error};
 use super::{ChatMessage, Config, StreamEvent, ToolCall};
 
 /// Hard cap on reasoning + answer.
@@ -65,7 +65,7 @@ pub(super) fn stream(
             let _ = tx.send(StreamEvent::Failed("aborted".into()));
             return Ok(());
         }
-        let line = line.map_err(|e| e.to_string())?;
+        let line = line.map_err(stream_error)?;
         crate::debug::event("response", json!({ "line": &line }));
         let Some(data) = line.strip_prefix("data:") else {
             continue;

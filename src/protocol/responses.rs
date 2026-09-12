@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use crate::tools;
 
-use super::http::{parse_usage, post_retry, sse_payload};
+use super::http::{parse_usage, post_retry, sse_payload, stream_error};
 use super::{ChatMessage, Config, StreamEvent, ToolCall};
 
 impl ChatMessage {
@@ -106,7 +106,7 @@ pub(super) fn stream(
             let _ = tx.send(StreamEvent::Failed("aborted".into()));
             return Ok(());
         }
-        let line = line.map_err(|e| e.to_string())?;
+        let line = line.map_err(stream_error)?;
         crate::debug::event("response", json!({ "line": &line }));
         let Some(data) = sse_payload(&line) else {
             continue;
