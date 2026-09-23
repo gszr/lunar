@@ -264,6 +264,7 @@ fn agent() -> Agent {
     AGENT
         .get_or_init(|| {
             Agent::config_builder()
+                .user_agent(crate::USER_AGENT)
                 .http_status_as_error(false)
                 .timeout_global(None)
                 .timeout_connect(Some(Duration::from_secs(30)))
@@ -327,6 +328,7 @@ mod tests {
             let size = stream.read(&mut request).unwrap();
             let request = String::from_utf8_lossy(&request[..size]).to_ascii_lowercase();
             assert!(!request.contains("authorization:"));
+            assert!(request.contains(&format!("user-agent: {}", crate::USER_AGENT)));
             stream
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
                 .unwrap();

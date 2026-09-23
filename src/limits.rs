@@ -68,6 +68,7 @@ fn fetch(base_url: &str) -> Result<Limits, String> {
     let account = crate::auth::chatgpt_account_id(&access)?;
     let url = format!("{}/wham/usage", base_url.trim_end_matches('/'));
     let agent: ureq::Agent = ureq::Agent::config_builder()
+        .user_agent(crate::USER_AGENT)
         .http_status_as_error(false)
         .build()
         .into();
