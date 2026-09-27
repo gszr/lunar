@@ -47,6 +47,7 @@ fn post_body(
     brand: &str,
 ) -> Result<(bool, u16, Value), String> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
+        .user_agent(crate::USER_AGENT)
         .http_status_as_error(false)
         .build()
         .into();

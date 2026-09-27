@@ -23,6 +23,8 @@ mod transcript;
 mod turn;
 mod view;
 
+pub(crate) const USER_AGENT: &str = concat!("lunar-cli/", env!("CARGO_PKG_VERSION"));
+
 use std::io;
 
 use app::App;
