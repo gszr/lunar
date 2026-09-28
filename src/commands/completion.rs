@@ -8,6 +8,10 @@ pub struct Command {
 /// Shown in `/` completion and `/help`. `/q` stays a hidden alias of quit.
 pub const COMMANDS: &[Command] = &[
     Command {
+        name: "btw",
+        description: "ask an independent aside during a turn",
+    },
+    Command {
         name: "compact",
         description: "summarize old context; optional focus instructions",
     },
@@ -132,7 +136,7 @@ mod tests {
     fn slash_lists_all() {
         let found = matches("/");
         assert_eq!(found.len(), COMMANDS.len());
-        assert_eq!(found[0].name, "compact");
+        assert_eq!(found[0].name, "btw");
     }
 
     #[test]

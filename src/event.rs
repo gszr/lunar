@@ -20,7 +20,7 @@ use crate::input::{
     on_search_key, prev_char, reset_history_navigation, start_search, word_left, word_right,
 };
 use crate::transcript::{jump_to_tail, on_mouse, page_delta, scroll_by, scroll_home};
-use crate::turn::{abort_turn, drain_stream, send_prompt};
+use crate::turn::{abort_btw, abort_turn, drain_stream, send_prompt};
 use crate::view::draw;
 
 const RESUME_GAP: Duration = Duration::from_secs(30);
@@ -34,6 +34,7 @@ pub(crate) fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<(
         }
         last_tick = now;
         drain_stream(app);
+        crate::turn::drain_btw(app);
         crate::limits::drain(app);
         drain_auth(app);
         terminal.draw(|frame| draw(frame, app))?;
@@ -394,6 +395,9 @@ fn on_chat_key(app: &mut App, key: KeyEvent) {
     }
     match (key.modifiers, key.code) {
         (KeyModifiers::CONTROL, KeyCode::Char('c')) => app.quit = true,
+        (KeyModifiers::ALT, KeyCode::Esc) if app.btw.is_some() => {
+            abort_btw(app);
+        }
         (_, KeyCode::PageUp) => scroll_by(app, -page_delta(app)),
         (_, KeyCode::PageDown) => scroll_by(app, page_delta(app)),
         (KeyModifiers::CONTROL, KeyCode::Home) => scroll_home(app),
@@ -489,10 +493,14 @@ fn on_chat_key(app: &mut App, key: KeyEvent) {
 }
 
 pub(crate) fn submit(app: &mut App) {
-    if app.cancel.is_some() {
+    let line = app.input.trim().to_string();
+    if app.btw.is_some() {
+        app.notice = Some("a /btw prompt is already running".into());
         return;
     }
-    let line = app.input.trim().to_string();
+    if app.cancel.is_some() && line != "/btw" && !line.starts_with("/btw ") {
+        return;
+    }
     app.input.clear();
     app.cursor = 0;
     if line.is_empty() {

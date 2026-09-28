@@ -32,6 +32,8 @@ pub(crate) fn dispatch(app: &mut App, line: &str) -> bool {
         "/thinking" => thinking::open_thinking(app),
         cmd if let Some(raw) = cmd.strip_prefix("/thinking ") => thinking::apply(app, raw),
         "/mission" => mission::show_mission(app),
+        "/btw" => app.notice = Some("usage: /btw <prompt>".into()),
+        cmd if let Some(prompt) = cmd.strip_prefix("/btw ") => crate::turn::send_btw(app, prompt),
         "/compact" => compact::start_compaction(app, None),
         cmd if let Some(instructions) = cmd.strip_prefix("/compact ") => {
             compact::start_compaction(app, Some(instructions))

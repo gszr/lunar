@@ -80,6 +80,7 @@ pub struct ToolCall {
     pub arguments: String,
 }
 
+#[derive(Clone)]
 pub enum ChatMessage {
     User(String),
     Assistant {

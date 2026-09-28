@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, TryRecvError};
 
-use crate::app::{App, Message, Role};
+use crate::app::{App, Btw, Message, Role};
 use crate::protocol::{self, Config, StreamEvent, ToolCall, ToolResult};
 use crate::transcript::jump_to_tail;
 use crate::{mission, prompt, tools};
@@ -21,18 +21,23 @@ pub(crate) fn drain_stream(app: &mut App) {
             Ok(StreamEvent::Delta(text)) => {
                 if let Some(compacting) = &mut app.compacting {
                     compacting.text.push_str(&text);
-                } else if let Some(last) = app.messages.last_mut()
-                    && matches!(last.role, Role::Assistant)
+                } else if let Some(message) = app
+                    .active_assistant
+                    .and_then(|index| app.messages.get_mut(index))
                 {
-                    last.text.push_str(&text);
+                    if message.text.is_empty() {
+                        app.turn_phase_started = Some(std::time::Instant::now());
+                    }
+                    message.text.push_str(&text);
                 }
             }
             Ok(StreamEvent::Think(text)) => {
                 if app.compacting.is_none()
-                    && let Some(last) = app.messages.last_mut()
-                    && matches!(last.role, Role::Assistant)
+                    && let Some(message) = app
+                        .active_assistant
+                        .and_then(|index| app.messages.get_mut(index))
                 {
-                    last.thinking.push_str(&text);
+                    message.thinking.push_str(&text);
                 }
             }
             Ok(StreamEvent::Usage(usage)) => {
@@ -64,6 +69,93 @@ pub(crate) fn drain_stream(app: &mut App) {
     }
 }
 
+pub(crate) fn abort_btw(app: &mut App) {
+    let Some(btw) = app.btw.take() else {
+        return;
+    };
+    btw.cancel.store(true, Ordering::Relaxed);
+    if let Some(message) = app.messages.get_mut(btw.assistant)
+        && message.text.is_empty()
+    {
+        message.text = "btw: aborted".into();
+    }
+    let text = app
+        .messages
+        .get(btw.assistant)
+        .map(|message| message.text.clone());
+    if let Some(text) = text {
+        persist_value(app, &mission::btw_assistant_line(&text));
+    }
+    app.notice = Some("btw: aborted".into());
+}
+
+pub(crate) fn drain_btw(app: &mut App) {
+    let Some(btw) = app.btw.as_ref() else {
+        return;
+    };
+    let mut end = None;
+    loop {
+        match btw.rx.try_recv() {
+            Ok(StreamEvent::Delta(text)) => {
+                if let Some(message) = app.messages.get_mut(btw.assistant) {
+                    message.text.push_str(&text);
+                }
+            }
+            Ok(StreamEvent::Think(text)) => {
+                if let Some(message) = app.messages.get_mut(btw.assistant) {
+                    message.thinking.push_str(&text);
+                }
+            }
+            Ok(StreamEvent::Usage(usage)) => {
+                app.usage.add(usage);
+                if let Some(mission) = &app.mission
+                    && let Err(err) = mission::append(mission, &mission::btw_usage_line(usage))
+                {
+                    app.notice = Some(format!("mission: {err}"));
+                }
+            }
+            Ok(StreamEvent::Done) => {
+                end = Some(None);
+                break;
+            }
+            Ok(StreamEvent::Failed(err)) => {
+                end = Some(Some(err));
+                break;
+            }
+            Ok(
+                StreamEvent::Tools { .. } | StreamEvent::ToolResults(_) | StreamEvent::CompactDone,
+            ) => {
+                end = Some(Some("/btw cannot use tools".into()));
+                break;
+            }
+            Err(TryRecvError::Empty) => break,
+            Err(TryRecvError::Disconnected) => {
+                end = Some(Some("btw stream ended".into()));
+                break;
+            }
+        }
+    }
+    if let Some(error) = end {
+        let assistant = app.btw.as_ref().map(|btw| btw.assistant);
+        app.btw = None;
+        if let Some(error) = error {
+            if let Some(message) = assistant.and_then(|index| app.messages.get_mut(index))
+                && message.text.is_empty()
+            {
+                message.text = format!("btw: {error}");
+            }
+            app.notice = Some(format!("btw: {error}"));
+        }
+        if let Some(text) = assistant
+            .and_then(|index| app.messages.get(index))
+            .map(|message| message.text.clone())
+            .filter(|text| !text.is_empty())
+        {
+            persist_value(app, &mission::btw_assistant_line(&text));
+        }
+    }
+}
+
 pub(crate) fn finish_stream(app: &mut App, end: StreamEvent) {
     match end {
         StreamEvent::Tools { calls, truncated } => begin_tools(app, calls, truncated),
@@ -73,10 +165,13 @@ pub(crate) fn finish_stream(app: &mut App, end: StreamEvent) {
             crate::limits::refresh(app);
         }
         StreamEvent::Done => {
-            persist_last_assistant(app);
+            persist_active_assistant(app);
             app.stream_rx = None;
             app.cancel = None;
-            pop_empty_assistant(app);
+            remove_empty_active_assistant(app);
+            app.active_assistant = None;
+            app.turn_context = None;
+            app.turn_phase_started = None;
             crate::limits::refresh(app);
         }
         StreamEvent::Failed(err) => {
@@ -89,7 +184,10 @@ pub(crate) fn finish_stream(app: &mut App, end: StreamEvent) {
             finish_failed(app, &err);
             app.stream_rx = None;
             app.cancel = None;
-            pop_empty_assistant(app);
+            remove_empty_active_assistant(app);
+            app.active_assistant = None;
+            app.turn_context = None;
+            app.turn_phase_started = None;
             app.notice = Some(err);
         }
         StreamEvent::Delta(_) | StreamEvent::Think(_) | StreamEvent::Usage(_) => {}
@@ -103,25 +201,31 @@ pub(crate) fn abort_turn(app: &mut App) {
     if app.compacting.take().is_some() {
         app.stream_rx = None;
         app.cancel = None;
+        app.active_assistant = None;
+        app.turn_context = None;
+        app.turn_phase_started = None;
         app.notice = Some("aborted".into());
         return;
     }
     finish_failed(app, "aborted");
     app.stream_rx = None;
     app.cancel = None;
-    pop_empty_assistant(app);
+    remove_empty_active_assistant(app);
+    app.active_assistant = None;
+    app.turn_context = None;
+    app.turn_phase_started = None;
     app.notice = Some("aborted".into());
 }
 
 fn finish_failed(app: &mut App, reason: &str) {
     let calls = app
-        .messages
-        .last()
+        .active_assistant
+        .and_then(|index| app.messages.get(index))
         .filter(|message| matches!(message.role, Role::Assistant))
         .map(|message| message.tool_calls.clone())
         .unwrap_or_default();
     if calls.is_empty() {
-        persist_last_assistant(app);
+        persist_active_assistant(app);
     }
     for call in calls {
         persist_value(app, &mission::tool_line(&call.id, &call.name, reason));
@@ -130,9 +234,12 @@ fn finish_failed(app: &mut App, reason: &str) {
     }
 }
 
-pub(crate) fn pop_empty_assistant(app: &mut App) {
+fn remove_empty_active_assistant(app: &mut App) {
+    let Some(index) = app.active_assistant else {
+        return;
+    };
     if matches!(
-        app.messages.last(),
+        app.messages.get(index),
         Some(Message {
             role: Role::Assistant,
             text,
@@ -141,21 +248,28 @@ pub(crate) fn pop_empty_assistant(app: &mut App) {
             ..
         }) if text.is_empty() && thinking.is_empty() && tool_calls.is_empty()
     ) {
-        app.messages.pop();
+        app.messages.remove(index);
+        if let Some(btw) = &mut app.btw
+            && btw.assistant > index
+        {
+            btw.assistant -= 1;
+        }
     }
 }
 
 pub(crate) fn begin_tools(app: &mut App, calls: Vec<ToolCall>, truncated: bool) {
-    if let Some(last) = app.messages.last_mut()
-        && matches!(last.role, Role::Assistant)
+    if let Some(last) = app
+        .active_assistant
+        .and_then(|index| app.messages.get_mut(index))
     {
         last.tool_calls = calls.clone();
     }
-    persist_last_assistant(app);
+    persist_active_assistant(app);
     if truncated {
         apply_tool_results(app, skipped_truncated(&calls));
         return;
     }
+    app.turn_phase_started = Some(std::time::Instant::now());
     let Some(cancel) = app.cancel.clone() else {
         return;
     };
@@ -239,6 +353,9 @@ pub(crate) fn apply_tool_results(app: &mut App, results: Vec<ToolResult>) {
     if app.rounds >= MAX_ROUNDS {
         app.stream_rx = None;
         app.cancel = None;
+        app.active_assistant = None;
+        app.turn_context = None;
+        app.turn_phase_started = None;
         app.notice = Some(format!(
             "tool-round limit reached ({MAX_ROUNDS}); submit \"continue\" to proceed"
         ));
@@ -281,8 +398,11 @@ pub(crate) fn persist_value(app: &mut App, value: &serde_json::Value) {
     }
 }
 
-pub(crate) fn persist_last_assistant(app: &mut App) {
-    let Some(last) = app.messages.last() else {
+pub(crate) fn persist_active_assistant(app: &mut App) {
+    let Some(last) = app
+        .active_assistant
+        .and_then(|index| app.messages.get(index))
+    else {
         return;
     };
     if !matches!(last.role, Role::Assistant) {
@@ -309,12 +429,109 @@ pub(crate) fn send_prompt(app: &mut App, line: String) {
     app.notice = None;
     app.rounds = 0;
     app.preamble = prompt::preamble();
+    app.turn_context = Some(crate::context::history(
+        app.preamble.as_deref(),
+        app.compaction
+            .as_ref()
+            .map(|compact| (compact.summary.as_str(), compact.first_kept)),
+        &app.messages,
+    ));
     persist_value(app, &mission::user_line(&line));
     app.messages.push(Message::user(line));
     jump_to_tail(app);
     let cancel = Arc::new(AtomicBool::new(false));
     app.cancel = Some(cancel);
+    app.turn_phase_started = Some(std::time::Instant::now());
     continue_turn(app);
+}
+
+pub(crate) fn btw_snapshot(app: &App) -> String {
+    let active = app
+        .active_assistant
+        .and_then(|index| app.messages.get(index));
+    let tools = active
+        .filter(|message| !message.tool_calls.is_empty())
+        .map(|message| message.tool_calls.as_slice())
+        .unwrap_or_default();
+    let phase = if !tools.is_empty() {
+        "running tools"
+    } else if active.is_some_and(|message| !message.text.is_empty()) {
+        "streaming answer"
+    } else {
+        "thinking/reasoning"
+    };
+    let elapsed = app
+        .turn_phase_started
+        .map(|started| started.elapsed().as_secs())
+        .unwrap_or_default();
+    let mut snapshot = format!(
+        "Harness status snapshot taken when this aside was submitted:\n- Main turn phase: {phase}\n- Time in this phase: {elapsed}s\n- Completed tool rounds: {}",
+        app.rounds
+    );
+    if !tools.is_empty() {
+        snapshot.push_str(&format!("\n- Tools currently running: {}", tools.len()));
+        for call in tools {
+            snapshot.push_str(&format!(
+                "\n  - {} with arguments: {}",
+                call.name, call.arguments
+            ));
+        }
+    }
+    if let Some(message) = active {
+        if !message.thinking.is_empty() {
+            snapshot.push_str("\n- Reasoning so far:\n");
+            snapshot.push_str(&message.thinking);
+        }
+        if !message.text.is_empty() {
+            snapshot.push_str("\n- Answer so far:\n");
+            snapshot.push_str(&message.text);
+        }
+    }
+    snapshot
+}
+
+pub(crate) fn send_btw(app: &mut App, prompt: &str) {
+    let prompt = prompt.trim();
+    if prompt.is_empty() {
+        app.notice = Some("usage: /btw <prompt>".into());
+        return;
+    }
+    if app.cancel.is_none() {
+        app.notice = Some("/btw is only available during a turn".into());
+        return;
+    }
+    if app.btw.is_some() {
+        app.notice = Some("a /btw prompt is already running".into());
+        return;
+    }
+    let Some(cfg) = app.config.clone() else {
+        app.notice = Some("no model configured".into());
+        return;
+    };
+    let Some(mut history) = app.turn_context.clone() else {
+        app.notice = Some("no active turn context".into());
+        return;
+    };
+    history.push(crate::protocol::ChatMessage::User(format!(
+        "{}\n\n{}\n\nAside question: {prompt}",
+        btw_snapshot(app),
+        "Use this status only to answer the aside. It is a point-in-time snapshot, not a request to continue or alter the main turn."
+    )));
+    app.messages
+        .push(Message::aside_user(format!("btw: {prompt}")));
+    persist_value(app, &mission::btw_user_line(&format!("btw: {prompt}")));
+    app.messages.push(Message::aside_assistant());
+    let assistant = app.messages.len() - 1;
+    let cancel = Arc::new(AtomicBool::new(false));
+    let (tx, rx) = mpsc::channel();
+    app.btw = Some(Btw {
+        rx,
+        cancel: cancel.clone(),
+        assistant,
+    });
+    jump_to_tail(app);
+    app.notice = None;
+    std::thread::spawn(move || protocol::stream(cfg, history, cancel, tx, None, false));
 }
 
 pub(crate) fn continue_turn(app: &mut App) {
@@ -325,6 +542,8 @@ pub(crate) fn continue_turn(app: &mut App) {
         return;
     };
     app.messages.push(Message::assistant());
+    app.active_assistant = Some(app.messages.len() - 1);
+    app.turn_phase_started = Some(std::time::Instant::now());
     let history = crate::context::history(
         app.preamble.as_deref(),
         app.compaction

@@ -311,14 +311,12 @@ pub fn load(path: &Path) -> io::Result<Loaded> {
                 }
             }
             Some("usage") => {
-                let item = Usage {
-                    input: number(&value, "input"),
-                    output: number(&value, "output"),
-                    cache_read: number(&value, "cache_read"),
-                    cache_write: number(&value, "cache_write"),
-                };
+                let item = parse_usage(&value);
                 usage.add(item);
                 last_prompt = item.prompt();
+            }
+            Some("btw_usage") => {
+                usage.add(parse_usage(&value));
             }
             Some("compaction") => {
                 if let (Some(summary), Some(first_kept)) = (
@@ -339,6 +337,20 @@ pub fn load(path: &Path) -> io::Result<Loaded> {
                 if let Some(text) = value.get("text").and_then(Value::as_str) {
                     messages.push(Message::user(text.to_string()));
                 }
+            }
+            Some("btw_user") => {
+                if let Some(text) = value.get("text").and_then(Value::as_str) {
+                    messages.push(Message::aside_user(text.to_string()));
+                }
+            }
+            Some("btw_assistant") => {
+                let mut message = Message::aside_assistant();
+                message.text = value
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                messages.push(message);
             }
             Some("assistant") => {
                 let mut message = Message::assistant();
@@ -396,8 +408,16 @@ pub fn thinking_line(level: &str) -> Value {
 }
 
 pub fn usage_line(usage: Usage) -> Value {
+    usage_value("usage", usage)
+}
+
+pub fn btw_usage_line(usage: Usage) -> Value {
+    usage_value("btw_usage", usage)
+}
+
+fn usage_value(kind: &str, usage: Usage) -> Value {
     json!({
-        "type": "usage",
+        "type": kind,
         "input": usage.input,
         "output": usage.output,
         "cache_read": usage.cache_read,
@@ -422,6 +442,14 @@ pub fn compaction_line(
 
 pub fn user_line(text: &str) -> Value {
     json!({ "type": "user", "text": text })
+}
+
+pub fn btw_user_line(text: &str) -> Value {
+    json!({ "type": "btw_user", "text": text })
+}
+
+pub fn btw_assistant_line(text: &str) -> Value {
+    json!({ "type": "btw_assistant", "text": text })
 }
 
 pub fn assistant_line(text: &str, tool_calls: &[ToolCall]) -> Value {
@@ -488,7 +516,9 @@ fn read_meta(path: &Path) -> io::Result<Meta> {
                     .and_then(Value::as_str)
                     .map(str::to_string);
             }
-            Some("user" | "assistant" | "tool" | "model" | "thinking") => break,
+            Some(
+                "user" | "assistant" | "tool" | "btw_user" | "btw_assistant" | "model" | "thinking",
+            ) => break,
             _ => {}
         }
     }
@@ -499,6 +529,15 @@ fn read_meta(path: &Path) -> io::Result<Meta> {
         cwd,
         modified,
     })
+}
+
+fn parse_usage(value: &Value) -> Usage {
+    Usage {
+        input: number(value, "input"),
+        output: number(value, "output"),
+        cache_read: number(value, "cache_read"),
+        cache_write: number(value, "cache_write"),
+    }
 }
 
 fn number(value: &Value, name: &str) -> u32 {
@@ -615,6 +654,56 @@ mod tests {
             cwd: Some("/work".into()),
             modified: SystemTime::UNIX_EPOCH,
         }
+    }
+
+    #[test]
+    fn btw_round_trips_without_changing_last_main_prompt() {
+        let dir = std::env::temp_dir().join(format!(
+            "lunar-mission-btw-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("2026-08-19-1.jsonl");
+        let lines = [
+            json!({"type":"header","id":"2026-08-19-1","name":"Btw"}),
+            user_line("main"),
+            usage_line(Usage {
+                input: 10,
+                output: 2,
+                ..Usage::default()
+            }),
+            btw_user_line("btw: side"),
+            btw_assistant_line("answer"),
+            btw_usage_line(Usage {
+                input: 7,
+                output: 3,
+                ..Usage::default()
+            }),
+        ];
+        fs::write(
+            &path,
+            lines
+                .iter()
+                .map(Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n",
+        )
+        .unwrap();
+
+        let loaded = load(&path).unwrap();
+
+        assert_eq!(loaded.messages.len(), 3);
+        assert!(loaded.messages[1].aside);
+        assert!(loaded.messages[2].aside);
+        assert_eq!(loaded.usage.input, 17);
+        assert_eq!(loaded.usage.output, 5);
+        assert_eq!(loaded.last_prompt, 10);
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
