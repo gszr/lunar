@@ -98,6 +98,7 @@ pub(super) fn stream(
 
     let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();
     let mut usage = None;
+    let mut response_model = None;
     let mut truncated = false;
     let mut summary = SummaryState::default();
     let reader = BufReader::new(response.into_parts().1.into_reader());
@@ -112,6 +113,16 @@ pub(super) fn stream(
             continue;
         };
         let value: Value = serde_json::from_str(data).map_err(|e| e.to_string())?;
+        if response_model.is_none() {
+            response_model = value
+                .get("model")
+                .or_else(|| value.pointer("/response/model"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            if let Some(model) = &response_model {
+                let _ = tx.send(StreamEvent::Model(model.clone()));
+            }
+        }
         if let Some(err) = value.get("error").filter(|v| !v.is_null()) {
             let msg = err
                 .get("message")

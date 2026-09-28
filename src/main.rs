@@ -743,7 +743,11 @@ mod tests {
         app.active_assistant = Some(0);
         crate::mission::append(
             app.mission.as_ref().unwrap(),
-            &crate::mission::assistant_line("calling", &app.messages.last().unwrap().tool_calls),
+            &crate::mission::assistant_line(
+                "calling",
+                &app.messages.last().unwrap().tool_calls,
+                None,
+            ),
         )
         .unwrap();
 

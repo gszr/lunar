@@ -350,6 +350,10 @@ pub fn load(path: &Path) -> io::Result<Loaded> {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
+                message.response_model = value
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
                 messages.push(message);
             }
             Some("assistant") => {
@@ -359,6 +363,10 @@ pub fn load(path: &Path) -> io::Result<Loaded> {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
+                message.response_model = value
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
                 message.tool_calls = parse_tool_calls(&value["tool_calls"]);
                 messages.push(message);
             }
@@ -448,12 +456,16 @@ pub fn btw_user_line(text: &str) -> Value {
     json!({ "type": "btw_user", "text": text })
 }
 
-pub fn btw_assistant_line(text: &str) -> Value {
-    json!({ "type": "btw_assistant", "text": text })
+pub fn btw_assistant_line(text: &str, model: Option<&str>) -> Value {
+    let mut value = json!({ "type": "btw_assistant", "text": text });
+    if let Some(model) = model {
+        value["model"] = json!(model);
+    }
+    value
 }
 
-pub fn assistant_line(text: &str, tool_calls: &[ToolCall]) -> Value {
-    json!({
+pub fn assistant_line(text: &str, tool_calls: &[ToolCall], model: Option<&str>) -> Value {
+    let mut value = json!({
         "type": "assistant",
         "text": text,
         "tool_calls": tool_calls.iter().map(|c| json!({
@@ -461,7 +473,11 @@ pub fn assistant_line(text: &str, tool_calls: &[ToolCall]) -> Value {
             "name": c.name,
             "arguments": c.arguments,
         })).collect::<Vec<_>>(),
-    })
+    });
+    if let Some(model) = model {
+        value["model"] = json!(model);
+    }
+    value
 }
 
 pub fn tool_line(id: &str, title: &str, content: &str) -> Value {
@@ -677,7 +693,7 @@ mod tests {
                 ..Usage::default()
             }),
             btw_user_line("btw: side"),
-            btw_assistant_line("answer"),
+            btw_assistant_line("answer", Some("grok-returned")),
             btw_usage_line(Usage {
                 input: 7,
                 output: 3,
@@ -700,6 +716,10 @@ mod tests {
         assert_eq!(loaded.messages.len(), 3);
         assert!(loaded.messages[1].aside);
         assert!(loaded.messages[2].aside);
+        assert_eq!(
+            loaded.messages[2].response_model.as_deref(),
+            Some("grok-returned")
+        );
         assert_eq!(loaded.usage.input, 17);
         assert_eq!(loaded.usage.output, 5);
         assert_eq!(loaded.last_prompt, 10);
@@ -749,7 +769,7 @@ mod tests {
             model_line("xai", "grok-old"),
             thinking_line("low"),
             user_line("hello"),
-            assistant_line("hi", &[]),
+            assistant_line("hi", &[], Some("grok-returned")),
             tool_line("call-1", "read", "contents"),
             usage_line(Usage {
                 input: 10,
@@ -789,6 +809,10 @@ mod tests {
         assert_eq!(loaded.messages.len(), 3);
         assert_eq!(loaded.messages[0].text, "hello");
         assert_eq!(loaded.messages[1].text, "hi");
+        assert_eq!(
+            loaded.messages[1].response_model.as_deref(),
+            Some("grok-returned")
+        );
         assert_eq!(loaded.messages[2].tool_title, "read");
         assert_eq!(loaded.messages[2].text, "contents");
         fs::remove_dir_all(dir).unwrap();

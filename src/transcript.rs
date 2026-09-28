@@ -73,7 +73,11 @@ pub(crate) fn paint_slice(
     let mut lines = Vec::new();
     let mut gap = need_gap;
     for msg in messages {
-        if matches!(msg.role, Role::Assistant) && msg.text.is_empty() && msg.thinking.is_empty() {
+        if matches!(msg.role, Role::Assistant)
+            && msg.text.is_empty()
+            && msg.thinking.is_empty()
+            && msg.response_model.is_none()
+        {
             continue;
         }
         let is_tool = matches!(msg.role, Role::Tool);
@@ -91,6 +95,9 @@ pub(crate) fn paint_slice(
                 }
                 if !msg.text.is_empty() {
                     lines.extend(render::assistant(&msg.text, width));
+                }
+                if let Some(model) = &msg.response_model {
+                    lines.push(render::response_model(model));
                 }
             }
             Role::Tool => lines.extend(render::tool_card(&msg.tool_title, &msg.text, width)),

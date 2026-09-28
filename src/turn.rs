@@ -40,6 +40,15 @@ pub(crate) fn drain_stream(app: &mut App) {
                     message.thinking.push_str(&text);
                 }
             }
+            Ok(StreamEvent::Model(model)) => {
+                if app.compacting.is_none()
+                    && let Some(message) = app
+                        .active_assistant
+                        .and_then(|index| app.messages.get_mut(index))
+                {
+                    message.response_model = Some(model);
+                }
+            }
             Ok(StreamEvent::Usage(usage)) => {
                 if let Some(compacting) = &mut app.compacting {
                     compacting.usage.add(usage);
@@ -79,12 +88,12 @@ pub(crate) fn abort_btw(app: &mut App) {
     {
         message.text = "btw: aborted".into();
     }
-    let text = app
+    let response = app
         .messages
         .get(btw.assistant)
-        .map(|message| message.text.clone());
-    if let Some(text) = text {
-        persist_value(app, &mission::btw_assistant_line(&text));
+        .map(|message| (message.text.clone(), message.response_model.clone()));
+    if let Some((text, model)) = response {
+        persist_value(app, &mission::btw_assistant_line(&text, model.as_deref()));
     }
     app.notice = Some("btw: aborted".into());
 }
@@ -104,6 +113,11 @@ pub(crate) fn drain_btw(app: &mut App) {
             Ok(StreamEvent::Think(text)) => {
                 if let Some(message) = app.messages.get_mut(btw.assistant) {
                     message.thinking.push_str(&text);
+                }
+            }
+            Ok(StreamEvent::Model(model)) => {
+                if let Some(message) = app.messages.get_mut(btw.assistant) {
+                    message.response_model = Some(model);
                 }
             }
             Ok(StreamEvent::Usage(usage)) => {
@@ -146,12 +160,12 @@ pub(crate) fn drain_btw(app: &mut App) {
             }
             app.notice = Some(format!("btw: {error}"));
         }
-        if let Some(text) = assistant
+        if let Some((text, model)) = assistant
             .and_then(|index| app.messages.get(index))
-            .map(|message| message.text.clone())
-            .filter(|text| !text.is_empty())
+            .map(|message| (message.text.clone(), message.response_model.clone()))
+            .filter(|(text, _)| !text.is_empty())
         {
-            persist_value(app, &mission::btw_assistant_line(&text));
+            persist_value(app, &mission::btw_assistant_line(&text, model.as_deref()));
         }
     }
 }
@@ -190,7 +204,10 @@ pub(crate) fn finish_stream(app: &mut App, end: StreamEvent) {
             app.turn_phase_started = None;
             app.notice = Some(err);
         }
-        StreamEvent::Delta(_) | StreamEvent::Think(_) | StreamEvent::Usage(_) => {}
+        StreamEvent::Delta(_)
+        | StreamEvent::Think(_)
+        | StreamEvent::Model(_)
+        | StreamEvent::Usage(_) => {}
     }
 }
 
@@ -411,7 +428,10 @@ pub(crate) fn persist_active_assistant(app: &mut App) {
     if last.text.is_empty() && last.tool_calls.is_empty() {
         return;
     }
-    persist_value(app, &mission::assistant_line(&last.text, &last.tool_calls));
+    persist_value(
+        app,
+        &mission::assistant_line(&last.text, &last.tool_calls, last.response_model.as_deref()),
+    );
 }
 
 pub(crate) fn send_prompt(app: &mut App, line: String) {

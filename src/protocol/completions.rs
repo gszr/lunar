@@ -57,6 +57,7 @@ pub(super) fn stream(
 
     let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();
     let mut usage = None;
+    let mut response_model = None;
     let mut saw_done = false;
     let mut truncated = false;
     let mut reader = BufReader::new(response.into_parts().1.into_reader());
@@ -79,6 +80,12 @@ pub(super) fn stream(
             break;
         }
         let value: Value = serde_json::from_str(data).map_err(|e| e.to_string())?;
+        if response_model.is_none()
+            && let Some(model) = response_model_from(&value)
+        {
+            response_model = Some(model.to_string());
+            let _ = tx.send(StreamEvent::Model(model.to_string()));
+        }
         if let Some(parsed) = parse_usage(&value) {
             usage = Some(parsed);
         }
@@ -181,6 +188,13 @@ pub(super) fn stream(
     Ok(())
 }
 
+fn response_model_from(value: &Value) -> Option<&str> {
+    value
+        .get("model")
+        .or_else(|| value.pointer("/response/model"))
+        .and_then(Value::as_str)
+}
+
 fn body(cfg: &Config, messages: &[ChatMessage], include_tools: bool) -> String {
     let mut body = json!({
         "model": cfg.model,
@@ -219,6 +233,18 @@ fn is_openai_url(base_url: &str) -> bool {
 mod tests {
     use super::*;
     use crate::protocol::Api;
+
+    #[test]
+    fn response_model_accepts_gateway_and_responses_shapes() {
+        assert_eq!(
+            response_model_from(&json!({"model": "gateway-model"})),
+            Some("gateway-model")
+        );
+        assert_eq!(
+            response_model_from(&json!({"response": {"model": "nested-model"}})),
+            Some("nested-model")
+        );
+    }
 
     #[test]
     fn request_caps_completion_tokens() {

@@ -124,6 +124,7 @@ pub enum StreamEvent {
     Delta(String),
     Think(String),
     Usage(Usage),
+    Model(String),
     Tools {
         calls: Vec<ToolCall>,
         truncated: bool,
