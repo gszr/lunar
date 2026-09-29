@@ -122,6 +122,7 @@ mod tests {
             messages: Vec::new(),
             config: None,
             startup_config: None,
+            format_override: None,
             thinking_override: None,
             models: Vec::new(),
             stream_rx: None,
@@ -203,6 +204,28 @@ mod tests {
         assert!(crate::commands::dispatch(&mut app, "/quit extra"));
         assert!(!app.quit);
         assert_eq!(app.notice.as_deref(), Some("unknown command: /quit extra"));
+    }
+
+    #[test]
+    fn format_override_lasts_until_harness_exit() {
+        let mut app = configured_app();
+        assert!(crate::commands::dispatch(&mut app, "/format response"));
+        assert_eq!(app.config.as_ref().unwrap().api, Api::Responses);
+        assert_eq!(app.format_override, Some(Api::Responses));
+
+        crate::commands::mission::new_mission(&mut app);
+        assert_eq!(app.config.as_ref().unwrap().api, Api::Responses);
+    }
+
+    #[test]
+    fn format_accepts_only_public_format_names() {
+        let mut app = configured_app();
+        assert!(crate::commands::dispatch(&mut app, "/format responses"));
+        assert_eq!(app.config.as_ref().unwrap().api, Api::Completions);
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("usage: /format response|chat_completions")
+        );
     }
 
     #[test]

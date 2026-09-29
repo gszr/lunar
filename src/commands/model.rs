@@ -35,10 +35,14 @@ pub(crate) fn matches_query(item: &lua::ModelChoice, query: &str) -> bool {
 }
 
 pub(crate) fn select_model(app: &mut App, item: lua::ModelChoice, persist: bool) {
-    let Some(config) = item.config else {
+    let Some(mut config) = item.config else {
         app.notice = Some(item.error.unwrap_or_else(|| "model is unavailable".into()));
         return;
     };
+    if let Err(err) = super::format::override_config(app.format_override, &mut config) {
+        app.notice = Some(err);
+        return;
+    }
     app.thinking_override = None;
     let default_thinking = config.thinking.clone();
     app.config = Some(config);

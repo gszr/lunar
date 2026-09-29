@@ -28,6 +28,10 @@ pub const COMMANDS: &[Command] = &[
         description: "toggle provider response headers",
     },
     Command {
+        name: "format",
+        description: "set response or chat_completions API format",
+    },
+    Command {
         name: "help",
         description: "commands",
     },

@@ -5,6 +5,7 @@ mod compact;
 mod completion;
 mod config;
 mod context;
+mod format;
 pub(crate) mod mission;
 pub(crate) mod model;
 pub(crate) mod thinking;
@@ -37,6 +38,8 @@ pub(crate) fn dispatch(app: &mut App, line: &str) -> bool {
         "/logout openai" => auth::logout_openai(app),
         "/resume" => mission::open_resume(app),
         "/model" => model::open_model(app),
+        "/format" => app.notice = Some("usage: /format response|chat_completions".into()),
+        cmd if let Some(raw) = cmd.strip_prefix("/format ") => format::apply(app, raw),
         "/thinking" => thinking::open_thinking(app),
         cmd if let Some(raw) = cmd.strip_prefix("/thinking ") => thinking::apply(app, raw),
         "/mission" => mission::show_mission(app),

@@ -12,6 +12,13 @@ pub(crate) fn reload_config(app: &mut App) {
             app.thinking_override = None;
         }
     }
+    let format_error = config
+        .as_mut()
+        .and_then(|config| super::format::override_config(app.format_override, config).err());
+    if let Some(err) = format_error {
+        config = None;
+        app.notice = Some(err);
+    }
     app.config = config;
     app.startup_config = loaded.config;
     app.models = loaded.models;

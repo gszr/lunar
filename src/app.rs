@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use ratatui::text::Line;
 
-use crate::protocol::{Config, StreamEvent, ToolCall, Usage};
+use crate::protocol::{Api, Config, StreamEvent, ToolCall, Usage};
 use crate::{lua, mission};
 
 pub(crate) struct App {
@@ -18,6 +18,7 @@ pub(crate) struct App {
     pub(crate) messages: Vec<Message>,
     pub(crate) config: Option<Config>,
     pub(crate) startup_config: Option<Config>,
+    pub(crate) format_override: Option<Api>,
     pub(crate) thinking_override: Option<String>,
     pub(crate) models: Vec<lua::ModelChoice>,
     pub(crate) stream_rx: Option<Receiver<StreamEvent>>,
@@ -157,6 +158,7 @@ impl App {
             messages: Vec::new(),
             config: loaded.config,
             startup_config,
+            format_override: None,
             thinking_override: None,
             models: loaded.models,
             stream_rx: None,

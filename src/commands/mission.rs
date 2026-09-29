@@ -13,6 +13,12 @@ pub(crate) fn new_mission(app: &mut App) {
     app.compacting = None;
     app.thinking_override = None;
     app.config = app.startup_config.clone();
+    if let Some(config) = &mut app.config
+        && let Err(err) = super::format::override_config(app.format_override, config)
+    {
+        app.config = None;
+        app.notice = Some(err);
+    }
     invalidate_paint(app);
     app.mission = None;
     app.usage = Usage::default();
@@ -83,6 +89,12 @@ pub(crate) fn load_mission(app: &mut App, path: &std::path::Path) {
         Ok(loaded) => {
             app.thinking_override = None;
             app.config = app.startup_config.clone();
+            if let Some(config) = &mut app.config
+                && let Err(err) = super::format::override_config(app.format_override, config)
+            {
+                app.config = None;
+                app.notice = Some(err);
+            }
             app.messages = loaded.messages;
             app.compaction =
                 loaded
