@@ -42,3 +42,9 @@ tokens and confuse the LLM.
 - Conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`).
 - Separate commits for separate concerns.
 - Run `cargo fmt --check` and `cargo clippy` and fix issues before committing.
+
+## Changelog
+
+- You always update the changelog for *user-facing* feature, not internal 
+  changes like CI and automation, describing the change in *user-facing* terms, 
+  not implementation details

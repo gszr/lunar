@@ -22,6 +22,38 @@ fn format_headers(headers: &[(String, String)]) -> String {
         .join("\n")
 }
 
+fn format_usage(usage: protocol::Usage) -> String {
+    let input = usage.prompt();
+    let mut input_line = format!("input: {}", grouped(input));
+    if usage.cache_read > 0 || usage.cache_write > 0 {
+        let mut split = vec![format!("uncached: {}", grouped(usage.input))];
+        if usage.cache_read > 0 {
+            split.push(format!("cache read: {}", grouped(usage.cache_read)));
+        }
+        if usage.cache_write > 0 {
+            split.push(format!("cache write: {}", grouped(usage.cache_write)));
+        }
+        input_line.push_str(&format!(" ({})", split.join(", ")));
+    }
+    format!(
+        "{input_line}\noutput: {}\ntotal: {}",
+        grouped(usage.output),
+        grouped(input.saturating_add(usage.output))
+    )
+}
+
+fn grouped(value: u32) -> String {
+    let raw = value.to_string();
+    let mut out = String::with_capacity(raw.len() + raw.len() / 3);
+    for (index, byte) in raw.bytes().enumerate() {
+        if index > 0 && (raw.len() - index).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(char::from(byte));
+    }
+    out
+}
+
 pub(crate) fn drain_stream(app: &mut App) {
     let Some(rx) = app.stream_rx.as_ref() else {
         return;
@@ -70,6 +102,19 @@ pub(crate) fn drain_stream(app: &mut App) {
                         && let Err(err) = mission::append(m, &mission::usage_line(usage))
                     {
                         app.notice = Some(format!("mission: {err}"));
+                    }
+                }
+                if app.debug_headers {
+                    let index = app.active_assistant.unwrap_or(app.messages.len());
+                    app.messages
+                        .insert(index, Message::debug("usage".into(), format_usage(usage)));
+                    if let Some(active) = &mut app.active_assistant {
+                        *active += 1;
+                    }
+                    if let Some(btw) = &mut app.btw
+                        && btw.assistant >= index
+                    {
+                        btw.assistant += 1;
                     }
                 }
             }
@@ -150,6 +195,13 @@ pub(crate) fn drain_btw(app: &mut App) {
                     && let Err(err) = mission::append(mission, &mission::btw_usage_line(usage))
                 {
                     app.notice = Some(format!("mission: {err}"));
+                }
+                if app.debug_headers {
+                    app.messages.insert(
+                        btw.assistant,
+                        Message::debug("usage".into(), format_usage(usage)),
+                    );
+                    btw.assistant += 1;
                 }
             }
             Ok(StreamEvent::ResponseHeaders { title, headers }) => {

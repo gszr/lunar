@@ -648,6 +648,33 @@ mod tests {
     }
 
     #[test]
+    fn debug_usage_card_shows_per_response_token_split() {
+        let mut app = test_app();
+        app.debug_headers = true;
+        app.messages.push(Message::assistant());
+        app.active_assistant = Some(0);
+        let (tx, rx) = mpsc::channel();
+        tx.send(crate::protocol::StreamEvent::Usage(Usage {
+            input: 8_000,
+            output: 620,
+            cache_read: 4_340,
+            cache_write: 0,
+        }))
+        .unwrap();
+        app.stream_rx = Some(rx);
+
+        crate::turn::drain_stream(&mut app);
+
+        assert!(app.messages[0].debug);
+        assert_eq!(app.messages[0].tool_title, "usage");
+        assert_eq!(
+            app.messages[0].text,
+            "input: 12,340 (uncached: 8,000, cache read: 4,340)\noutput: 620\ntotal: 12,960"
+        );
+        assert_eq!(app.active_assistant, Some(1));
+    }
+
+    #[test]
     fn working_text_is_thinking_until_tools() {
         let mut app = test_app();
         app.messages.push(Message::assistant());

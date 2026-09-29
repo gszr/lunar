@@ -51,7 +51,7 @@ All notable changes to **Lunar** are documented in this file.
 - **Token accounting**: the footer separates cumulative input into uncached, cache-read, and cache-write tokens, shows output totals, and restores mission usage and latest prompt size on resume.
 - **OpenAI subscription limits**: the footer can show each rolling usage window's remaining percentage and relative reset time, refreshed at startup and after completed turns.
 - **HTTP diagnostics**: `--debug` records model request and response traffic, including HTTP error bodies, in the recorder's debug log.
-- **Transient response headers**: `/debug` toggles response-header cards for provider requests, including retries and tool-loop rounds, without persisting them or adding them to model context.
+- **Transient request diagnostics**: `/debug` toggles cards for provider response headers and each response's parsed token usage, including retries and tool-loop rounds, without persisting them or adding them to model context.
 - **Request identification**: outbound model requests identify Lunar to providers.
 - **Resilient HTTP streaming**: transient POST failures retry up to three times with cancellable exponential backoff; completed Completions streams are briefly drained for usage and then in the background so pooled sockets can be reused.
 - **Computer-resume detection**: an active stream interrupted by system sleep is stopped as stale while preserving partial output and returning control to the user.
