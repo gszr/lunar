@@ -11,6 +11,17 @@ use crate::{mission, prompt, tools};
 
 const MAX_ROUNDS: u32 = 100;
 
+fn format_headers(headers: &[(String, String)]) -> String {
+    if headers.is_empty() {
+        return "(no response headers)".into();
+    }
+    headers
+        .iter()
+        .map(|(name, value)| format!("{name}: {value}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub(crate) fn drain_stream(app: &mut App) {
     let Some(rx) = app.stream_rx.as_ref() else {
         return;
@@ -62,6 +73,19 @@ pub(crate) fn drain_stream(app: &mut App) {
                     }
                 }
             }
+            Ok(StreamEvent::ResponseHeaders { title, headers }) => {
+                let index = app.active_assistant.unwrap_or(app.messages.len());
+                app.messages
+                    .insert(index, Message::debug(title, format_headers(&headers)));
+                if let Some(active) = &mut app.active_assistant {
+                    *active += 1;
+                }
+                if let Some(btw) = &mut app.btw
+                    && btw.assistant >= index
+                {
+                    btw.assistant += 1;
+                }
+            }
             Ok(other) => {
                 end = Some(other);
                 break;
@@ -99,7 +123,7 @@ pub(crate) fn abort_btw(app: &mut App) {
 }
 
 pub(crate) fn drain_btw(app: &mut App) {
-    let Some(btw) = app.btw.as_ref() else {
+    let Some(btw) = app.btw.as_mut() else {
         return;
     };
     let mut end = None;
@@ -127,6 +151,12 @@ pub(crate) fn drain_btw(app: &mut App) {
                 {
                     app.notice = Some(format!("mission: {err}"));
                 }
+            }
+            Ok(StreamEvent::ResponseHeaders { title, headers }) => {
+                let index = btw.assistant;
+                app.messages
+                    .insert(index, Message::debug(title, format_headers(&headers)));
+                btw.assistant += 1;
             }
             Ok(StreamEvent::Done) => {
                 end = Some(None);
@@ -207,7 +237,8 @@ pub(crate) fn finish_stream(app: &mut App, end: StreamEvent) {
         StreamEvent::Delta(_)
         | StreamEvent::Think(_)
         | StreamEvent::Model(_)
-        | StreamEvent::Usage(_) => {}
+        | StreamEvent::Usage(_)
+        | StreamEvent::ResponseHeaders { .. } => {}
     }
 }
 
@@ -551,7 +582,10 @@ pub(crate) fn send_btw(app: &mut App, prompt: &str) {
     });
     jump_to_tail(app);
     app.notice = None;
-    std::thread::spawn(move || protocol::stream(cfg, history, cancel, tx, None, false));
+    let debug_headers = app.debug_headers;
+    std::thread::spawn(move || {
+        protocol::stream(cfg, history, cancel, tx, None, false, debug_headers)
+    });
 }
 
 pub(crate) fn continue_turn(app: &mut App) {
@@ -574,5 +608,8 @@ pub(crate) fn continue_turn(app: &mut App) {
     let (tx, rx) = mpsc::channel();
     app.stream_rx = Some(rx);
     let cache_key = app.mission.as_ref().map(|m| m.id.clone());
-    std::thread::spawn(move || protocol::stream(cfg, history, cancel, tx, cache_key, true));
+    let debug_headers = app.debug_headers;
+    std::thread::spawn(move || {
+        protocol::stream(cfg, history, cancel, tx, cache_key, true, debug_headers)
+    });
 }

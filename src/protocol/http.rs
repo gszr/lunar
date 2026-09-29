@@ -21,6 +21,7 @@ pub(super) fn post_retry(
     cancel: &AtomicBool,
     session: Option<&str>,
     account: Option<&str>,
+    debug_headers: Option<&mpsc::Sender<super::StreamEvent>>,
 ) -> Result<ureq::http::Response<ureq::Body>, String> {
     let mut attempt = 0;
     loop {
@@ -70,6 +71,7 @@ pub(super) fn post_retry(
         let response = request.send(body);
         match response {
             Ok(response) if response.status().is_success() => {
+                send_response_headers(debug_headers, "POST", url, &response);
                 crate::debug::event(
                     "response_start",
                     json!({
@@ -80,6 +82,7 @@ pub(super) fn post_retry(
                 return Ok(response);
             }
             Ok(response) => {
+                send_response_headers(debug_headers, "POST", url, &response);
                 let status = response.status().as_u16();
                 let retry = attempt < MAX_RETRIES && should_retry_status(status);
                 let delay = retry.then(|| retry_delay(attempt));
@@ -120,6 +123,42 @@ pub(super) fn post_retry(
             }
         }
     }
+}
+
+fn send_response_headers(
+    tx: Option<&mpsc::Sender<super::StreamEvent>>,
+    method: &str,
+    url: &str,
+    response: &ureq::http::Response<ureq::Body>,
+) {
+    let Some(tx) = tx else {
+        return;
+    };
+    let headers = response
+        .headers()
+        .iter()
+        .map(|(name, value)| {
+            (
+                name.as_str().to_string(),
+                value
+                    .to_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|_| format!("{:?}", value.as_bytes())),
+            )
+        })
+        .collect();
+    let endpoint = url
+        .split_once("://")
+        .map(|(_, rest)| rest.find('/').map_or("/", |index| &rest[index..]))
+        .unwrap_or(url);
+    let title = format!(
+        "{method} {endpoint} {} {}",
+        response.status().as_u16(),
+        response.status().canonical_reason().unwrap_or("")
+    )
+    .trim_end()
+    .to_string();
+    let _ = tx.send(super::StreamEvent::ResponseHeaders { title, headers });
 }
 
 /// Usage often arrives after finish_reason. Wait briefly for it, then keep
@@ -319,7 +358,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_api_key_omits_authorization_header() {
+    fn empty_api_key_omits_authorization_and_emits_response_headers() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
@@ -330,10 +369,13 @@ mod tests {
             assert!(!request.contains("authorization:"));
             assert!(request.contains(&format!("user-agent: {}", crate::USER_AGENT)));
             stream
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nX-Test: one\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                )
                 .unwrap();
         });
         let cancel = AtomicBool::new(false);
+        let (tx, rx) = mpsc::channel();
         post_retry(
             &format!("http://{address}/chat/completions"),
             "",
@@ -341,8 +383,18 @@ mod tests {
             &cancel,
             None,
             None,
+            Some(&tx),
         )
         .unwrap();
+        match rx.recv().unwrap() {
+            super::super::StreamEvent::ResponseHeaders { title, headers } => {
+                assert_eq!(title, "POST /chat/completions 200 OK");
+                assert!(headers.iter().any(|(name, value)| {
+                    name.eq_ignore_ascii_case("x-test") && value == "one"
+                }));
+            }
+            _ => panic!("expected response headers"),
+        }
         server.join().unwrap();
     }
 

@@ -118,6 +118,7 @@ mod tests {
             input: String::new(),
             cursor: 0,
             notice: None,
+            debug_headers: false,
             messages: Vec::new(),
             config: None,
             startup_config: None,
@@ -202,6 +203,17 @@ mod tests {
         assert!(crate::commands::dispatch(&mut app, "/quit extra"));
         assert!(!app.quit);
         assert_eq!(app.notice.as_deref(), Some("unknown command: /quit extra"));
+    }
+
+    #[test]
+    fn debug_toggles_response_headers() {
+        let mut app = test_app();
+        assert!(crate::commands::dispatch(&mut app, "/debug"));
+        assert!(app.debug_headers);
+        assert_eq!(app.notice.as_deref(), Some("debug: on"));
+        assert!(crate::commands::dispatch(&mut app, "/debug"));
+        assert!(!app.debug_headers);
+        assert_eq!(app.notice.as_deref(), Some("debug: off"));
     }
 
     #[test]

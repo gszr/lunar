@@ -59,7 +59,9 @@ pub(crate) fn prepare(
 
 fn cut_point(messages: &[Message], start: usize, keep_tokens: usize) -> usize {
     let valid: Vec<usize> = (start..messages.len())
-        .filter(|&i| !messages[i].aside && !matches!(messages[i].role, Role::Tool))
+        .filter(|&i| {
+            !messages[i].aside && !messages[i].debug && !matches!(messages[i].role, Role::Tool)
+        })
         .collect();
     let Some(&first) = valid.first() else {
         return start;
@@ -87,7 +89,7 @@ pub(crate) fn estimate_context(summary: &str, messages: &[Message]) -> u32 {
 fn estimate_slice(messages: &[Message]) -> usize {
     messages
         .iter()
-        .filter(|message| !message.aside)
+        .filter(|message| !message.aside && !message.debug)
         .map(estimate_message)
         .sum()
 }
@@ -109,7 +111,7 @@ fn estimate_text(text: &str) -> usize {
 fn serialize(messages: &[Message]) -> String {
     let mut parts = Vec::new();
     for message in messages {
-        if message.aside {
+        if message.aside || message.debug {
             continue;
         }
         match message.role {

@@ -19,6 +19,14 @@ pub(crate) fn dispatch(app: &mut App, line: &str) -> bool {
     match line {
         "/quit" | "/q" => app.quit = true,
         "/help" => app.notice = Some(crate::commands::help()),
+        "/debug" => {
+            app.debug_headers = !app.debug_headers;
+            app.notice = Some(if app.debug_headers {
+                "debug: on".into()
+            } else {
+                "debug: off".into()
+            });
+        }
         "/config" => config::edit_config(app),
         "/new" => mission::new_mission(app),
         "/login" => auth::open_login(app),

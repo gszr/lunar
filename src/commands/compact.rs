@@ -42,6 +42,7 @@ pub(crate) fn start_compaction(app: &mut App, instructions: Option<&str>) {
     app.stream_rx = Some(rx);
     app.notice = None;
     let cache_key = app.mission.as_ref().map(|mission| mission.id.clone());
+    let debug_headers = app.debug_headers;
     std::thread::spawn(move || {
         protocol::stream(
             cfg,
@@ -50,6 +51,7 @@ pub(crate) fn start_compaction(app: &mut App, instructions: Option<&str>) {
             tx,
             cache_key,
             false,
+            debug_headers,
         )
     });
 }

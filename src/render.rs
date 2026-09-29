@@ -61,6 +61,21 @@ pub fn response_model(model: &str) -> Line<'static> {
     ))
 }
 
+pub fn debug_card(title: &str, body: &str, width: usize) -> Vec<Line<'static>> {
+    let title = sanitize_terminal_text(title);
+    let body = sanitize_terminal_text(body);
+    let mut lines = vec![Line::from(Span::styled(
+        title,
+        Style::default().fg(splash::GOLD),
+    ))];
+    lines.extend(
+        body.lines()
+            .flat_map(|line| wrap(line, width))
+            .map(|line| Line::from(Span::styled(line, Style::default().fg(splash::ASH)))),
+    );
+    lines
+}
+
 pub fn tool_card(title: &str, body: &str, width: usize) -> Vec<Line<'static>> {
     let title = sanitize_terminal_text(title);
     let body = sanitize_terminal_text(body);

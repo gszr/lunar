@@ -29,6 +29,7 @@ pub(crate) fn history(
             .iter()
             .filter(|m| {
                 !m.aside
+                    && !m.debug
                     && (!m.text.is_empty()
                         || matches!(m.role, Role::User)
                         || !m.tool_calls.is_empty())
@@ -64,7 +65,7 @@ pub(crate) fn summary(messages: &[Message], compaction: Option<(&str, usize)>) -
         .unwrap_or(0)
         .min(messages.len());
     for message in &messages[start..] {
-        if message.aside {
+        if message.aside || message.debug {
             continue;
         }
         match message.role {
@@ -155,13 +156,14 @@ mod tests {
     use crate::protocol::ToolCall;
 
     #[test]
-    fn history_excludes_asides() {
+    fn history_excludes_asides_and_debug_cards() {
         let mut answer = Message::aside_assistant();
         answer.text = "side answer".into();
         let messages = vec![
             Message::user("main question".into()),
             Message::aside_user("btw: side question".into()),
             answer,
+            Message::debug("debug HTTP 200".into(), "x-test: one".into()),
         ];
 
         let history = history(None, None, &messages);

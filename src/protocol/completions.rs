@@ -49,11 +49,20 @@ pub(super) fn stream(
     cancel: Arc<AtomicBool>,
     tx: &Sender<StreamEvent>,
     tools: bool,
+    debug_headers: bool,
 ) -> Result<(), String> {
     let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
     let body = body(&cfg, &messages, tools);
 
-    let response = post_retry(&url, &cfg.api_key, &body, &cancel, None, None)?;
+    let response = post_retry(
+        &url,
+        &cfg.api_key,
+        &body,
+        &cancel,
+        None,
+        None,
+        debug_headers.then_some(tx),
+    )?;
 
     let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();
     let mut usage = None;

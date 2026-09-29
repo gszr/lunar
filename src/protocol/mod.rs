@@ -130,6 +130,10 @@ pub enum StreamEvent {
         truncated: bool,
     },
     ToolResults(Vec<ToolResult>),
+    ResponseHeaders {
+        title: String,
+        headers: Vec<(String, String)>,
+    },
     Done,
     CompactDone,
     Failed(String),
@@ -142,6 +146,7 @@ pub fn stream(
     tx: Sender<StreamEvent>,
     cache_key: Option<String>,
     tools: bool,
+    debug_headers: bool,
 ) {
     if let Some(provider) = cfg.auth_provider.as_deref() {
         match crate::auth::resolve(provider) {
@@ -153,8 +158,10 @@ pub fn stream(
         }
     }
     let result = match cfg.api {
-        Api::Completions => completions::stream(cfg, messages, cancel, &tx, tools),
-        Api::Responses => responses::stream(cfg, messages, cancel, &tx, cache_key, tools),
+        Api::Completions => completions::stream(cfg, messages, cancel, &tx, tools, debug_headers),
+        Api::Responses => {
+            responses::stream(cfg, messages, cancel, &tx, cache_key, tools, debug_headers)
+        }
         Api::Messages => Err(format!("{} uses messages, not implemented", cfg.model)),
     };
     if let Err(err) = result {

@@ -24,6 +24,10 @@ pub const COMMANDS: &[Command] = &[
         description: "summarize context; /context raw shows contents",
     },
     Command {
+        name: "debug",
+        description: "toggle provider response headers",
+    },
+    Command {
         name: "help",
         description: "commands",
     },

@@ -14,6 +14,7 @@ pub(crate) struct App {
     pub(crate) input: String,
     pub(crate) cursor: usize,
     pub(crate) notice: Option<String>,
+    pub(crate) debug_headers: bool,
     pub(crate) messages: Vec<Message>,
     pub(crate) config: Option<Config>,
     pub(crate) startup_config: Option<Config>,
@@ -135,6 +136,7 @@ pub(crate) struct Message {
     pub(crate) tool_id: String,
     pub(crate) tool_title: String,
     pub(crate) aside: bool,
+    pub(crate) debug: bool,
 }
 
 #[derive(Clone)]
@@ -151,6 +153,7 @@ impl App {
             input: String::new(),
             cursor: 0,
             notice: loaded.notice,
+            debug_headers: false,
             messages: Vec::new(),
             config: loaded.config,
             startup_config,
@@ -205,6 +208,7 @@ impl Message {
             tool_id: String::new(),
             tool_title: String::new(),
             aside: false,
+            debug: false,
         }
     }
 
@@ -224,6 +228,7 @@ impl Message {
             tool_id: String::new(),
             tool_title: String::new(),
             aside: false,
+            debug: false,
         }
     }
 
@@ -231,6 +236,20 @@ impl Message {
         let mut message = Self::assistant();
         message.aside = true;
         message
+    }
+
+    pub(crate) fn debug(title: String, content: String) -> Self {
+        Self {
+            role: Role::Tool,
+            text: content,
+            thinking: String::new(),
+            response_model: None,
+            tool_calls: Vec::new(),
+            tool_id: String::new(),
+            tool_title: title,
+            aside: false,
+            debug: true,
+        }
     }
 
     pub(crate) fn tool(id: String, title: String, content: String) -> Self {
@@ -243,6 +262,7 @@ impl Message {
             tool_id: id,
             tool_title: title,
             aside: false,
+            debug: false,
         }
     }
 }

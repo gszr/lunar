@@ -75,6 +75,7 @@ pub(super) fn stream(
     tx: &Sender<StreamEvent>,
     cache_key: Option<String>,
     tools: bool,
+    debug_headers: bool,
 ) -> Result<(), String> {
     let url = responses_url(&cfg);
     let cache_key = cache_key
@@ -94,6 +95,7 @@ pub(super) fn stream(
         &cancel,
         cache_key.as_deref(),
         account.as_deref(),
+        debug_headers.then_some(tx),
     )?;
 
     let mut calls: BTreeMap<u64, ToolCall> = BTreeMap::new();

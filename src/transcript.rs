@@ -100,6 +100,9 @@ pub(crate) fn paint_slice(
                     lines.push(render::response_model(model));
                 }
             }
+            Role::Tool if msg.debug => {
+                lines.extend(render::debug_card(&msg.tool_title, &msg.text, width))
+            }
             Role::Tool => lines.extend(render::tool_card(&msg.tool_title, &msg.text, width)),
         }
         prev_tool = is_tool;
