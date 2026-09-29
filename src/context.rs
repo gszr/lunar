@@ -28,7 +28,10 @@ pub(crate) fn history(
         messages[start..]
             .iter()
             .filter(|m| {
-                !m.text.is_empty() || matches!(m.role, Role::User) || !m.tool_calls.is_empty()
+                !m.aside
+                    && (!m.text.is_empty()
+                        || matches!(m.role, Role::User)
+                        || !m.tool_calls.is_empty())
             })
             .map(|m| match m.role {
                 Role::User => ChatMessage::User(m.text.clone()),
@@ -61,6 +64,9 @@ pub(crate) fn summary(messages: &[Message], compaction: Option<(&str, usize)>) -
         .unwrap_or(0)
         .min(messages.len());
     for message in &messages[start..] {
+        if message.aside {
+            continue;
+        }
         match message.role {
             Role::User => {
                 users += 1;
@@ -147,6 +153,22 @@ mod tests {
     use super::*;
     use crate::app::Message;
     use crate::protocol::ToolCall;
+
+    #[test]
+    fn history_excludes_asides() {
+        let mut answer = Message::aside_assistant();
+        answer.text = "side answer".into();
+        let messages = vec![
+            Message::user("main question".into()),
+            Message::aside_user("btw: side question".into()),
+            answer,
+        ];
+
+        let history = history(None, None, &messages);
+
+        assert_eq!(history.len(), 1);
+        assert!(matches!(&history[0], ChatMessage::User(text) if text == "main question"));
+    }
 
     #[test]
     fn summary_counts_history_components_without_contents() {

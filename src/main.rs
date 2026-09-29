@@ -105,7 +105,7 @@ mod tests {
     use crate::protocol::{Api, Config, ToolCall, Usage};
     use crate::transcript::painted_lines;
     use crate::transcript::{jump_to_tail, on_mouse};
-    use crate::turn::{abort_turn, run_tools_parallel, skipped_truncated};
+    use crate::turn::{abort_turn, btw_snapshot, run_tools_parallel, skipped_truncated};
     use crate::view::{char_wrap, cursor_xy, stats_line, working_text};
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
@@ -125,6 +125,10 @@ mod tests {
             models: Vec::new(),
             stream_rx: None,
             cancel: None,
+            active_assistant: None,
+            turn_context: None,
+            turn_phase_started: None,
+            btw: None,
             rounds: 0,
             usage: Usage::default(),
             last_prompt: 0,
@@ -622,6 +626,42 @@ mod tests {
     }
 
     #[test]
+    fn btw_snapshot_describes_running_tools() {
+        let mut app = test_app();
+        app.rounds = 2;
+        let mut assistant = Message::assistant();
+        assistant.text = "I will inspect it.".into();
+        assistant.thinking = "Need the source.".into();
+        assistant.tool_calls.push(ToolCall {
+            id: "1".into(),
+            name: "bash".into(),
+            arguments: r#"{"command":"sleep 60"}"#.into(),
+        });
+        app.messages.push(assistant);
+        app.active_assistant = Some(0);
+        app.turn_phase_started = Some(std::time::Instant::now());
+
+        let snapshot = btw_snapshot(&app);
+
+        assert!(snapshot.contains("Main turn phase: running tools"));
+        assert!(snapshot.contains("Completed tool rounds: 2"));
+        assert!(snapshot.contains("bash with arguments: {\"command\":\"sleep 60\"}"));
+        assert!(snapshot.contains("Reasoning so far:\nNeed the source."));
+        assert!(snapshot.contains("Answer so far:\nI will inspect it."));
+    }
+
+    #[test]
+    fn btw_snapshot_describes_thinking_and_streaming() {
+        let mut app = test_app();
+        app.messages.push(Message::assistant());
+        app.active_assistant = Some(0);
+        assert!(btw_snapshot(&app).contains("Main turn phase: thinking/reasoning"));
+
+        app.messages[0].text = "partial".into();
+        assert!(btw_snapshot(&app).contains("Main turn phase: streaming answer"));
+    }
+
+    #[test]
     fn long_clock_gap_only_interrupts_an_active_turn() {
         let before = SystemTime::UNIX_EPOCH + Duration::from_secs(100);
         let after = before + Duration::from_secs(31);
@@ -644,6 +684,7 @@ mod tests {
         let mut assistant = Message::assistant();
         assistant.text = "partial answer".into();
         app.messages.push(assistant);
+        app.active_assistant = Some(0);
 
         interrupt_resumed_turn(&mut app);
 
@@ -663,6 +704,7 @@ mod tests {
         let (_tx, rx) = mpsc::channel();
         app.stream_rx = Some(rx);
         app.messages.push(Message::assistant());
+        app.active_assistant = Some(0);
         on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Esc));
         assert!(app.cancel.is_none());
         assert!(app.stream_rx.is_none());
@@ -698,9 +740,14 @@ mod tests {
             },
         ];
         app.messages.push(assistant);
+        app.active_assistant = Some(0);
         crate::mission::append(
             app.mission.as_ref().unwrap(),
-            &crate::mission::assistant_line("calling", &app.messages.last().unwrap().tool_calls),
+            &crate::mission::assistant_line(
+                "calling",
+                &app.messages.last().unwrap().tool_calls,
+                None,
+            ),
         )
         .unwrap();
 

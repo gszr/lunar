@@ -54,6 +54,13 @@ pub fn assistant(text: &str, width: usize) -> Vec<Line<'static>> {
     markdown::render(&sanitize_terminal_text(text), width)
 }
 
+pub fn response_model(model: &str) -> Line<'static> {
+    Line::from(Span::styled(
+        format!("model: {}", sanitize_terminal_text(model)),
+        Style::default().fg(splash::ASH),
+    ))
+}
+
 pub fn tool_card(title: &str, body: &str, width: usize) -> Vec<Line<'static>> {
     let title = sanitize_terminal_text(title);
     let body = sanitize_terminal_text(body);

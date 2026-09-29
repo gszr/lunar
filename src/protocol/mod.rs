@@ -80,6 +80,7 @@ pub struct ToolCall {
     pub arguments: String,
 }
 
+#[derive(Clone)]
 pub enum ChatMessage {
     User(String),
     Assistant {
@@ -123,6 +124,7 @@ pub enum StreamEvent {
     Delta(String),
     Think(String),
     Usage(Usage),
+    Model(String),
     Tools {
         calls: Vec<ToolCall>,
         truncated: bool,

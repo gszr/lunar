@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Receiver;
+use std::time::Instant;
 
 use ratatui::text::Line;
 
@@ -20,6 +21,10 @@ pub(crate) struct App {
     pub(crate) models: Vec<lua::ModelChoice>,
     pub(crate) stream_rx: Option<Receiver<StreamEvent>>,
     pub(crate) cancel: Option<Arc<AtomicBool>>,
+    pub(crate) active_assistant: Option<usize>,
+    pub(crate) turn_context: Option<Vec<crate::protocol::ChatMessage>>,
+    pub(crate) turn_phase_started: Option<Instant>,
+    pub(crate) btw: Option<Btw>,
     pub(crate) rounds: u32,
     pub(crate) usage: Usage,
     pub(crate) last_prompt: u32,
@@ -48,6 +53,12 @@ pub(crate) struct App {
     pub(crate) auth_brand: Option<&'static str>,
     pub(crate) limits: Option<crate::limits::Limits>,
     pub(crate) limits_rx: Option<Receiver<crate::limits::Limits>>,
+}
+
+pub(crate) struct Btw {
+    pub(crate) rx: Receiver<StreamEvent>,
+    pub(crate) cancel: Arc<AtomicBool>,
+    pub(crate) assistant: usize,
 }
 
 pub(crate) struct Compaction {
@@ -114,15 +125,19 @@ pub(crate) enum Mode {
     },
 }
 
+#[derive(Clone)]
 pub(crate) struct Message {
     pub(crate) role: Role,
     pub(crate) text: String,
     pub(crate) thinking: String,
+    pub(crate) response_model: Option<String>,
     pub(crate) tool_calls: Vec<ToolCall>,
     pub(crate) tool_id: String,
     pub(crate) tool_title: String,
+    pub(crate) aside: bool,
 }
 
+#[derive(Clone)]
 pub(crate) enum Role {
     User,
     Assistant,
@@ -143,6 +158,10 @@ impl App {
             models: loaded.models,
             stream_rx: None,
             cancel: None,
+            active_assistant: None,
+            turn_context: None,
+            turn_phase_started: None,
+            btw: None,
             rounds: 0,
             usage: Usage::default(),
             last_prompt: 0,
@@ -181,10 +200,18 @@ impl Message {
             role: Role::User,
             text,
             thinking: String::new(),
+            response_model: None,
             tool_calls: Vec::new(),
             tool_id: String::new(),
             tool_title: String::new(),
+            aside: false,
         }
+    }
+
+    pub(crate) fn aside_user(text: String) -> Self {
+        let mut message = Self::user(text);
+        message.aside = true;
+        message
     }
 
     pub(crate) fn assistant() -> Self {
@@ -192,10 +219,18 @@ impl Message {
             role: Role::Assistant,
             text: String::new(),
             thinking: String::new(),
+            response_model: None,
             tool_calls: Vec::new(),
             tool_id: String::new(),
             tool_title: String::new(),
+            aside: false,
         }
+    }
+
+    pub(crate) fn aside_assistant() -> Self {
+        let mut message = Self::assistant();
+        message.aside = true;
+        message
     }
 
     pub(crate) fn tool(id: String, title: String, content: String) -> Self {
@@ -203,9 +238,11 @@ impl Message {
             role: Role::Tool,
             text: content,
             thinking: String::new(),
+            response_model: None,
             tool_calls: Vec::new(),
             tool_id: id,
             tool_title: title,
+            aside: false,
         }
     }
 }
