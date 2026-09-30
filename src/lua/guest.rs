@@ -18,6 +18,7 @@ pub(super) struct Guest {
 pub(super) struct RawDefaults {
     pub(super) provider: Option<String>,
     pub(super) model: Option<String>,
+    pub(super) thinking: Option<String>,
 }
 
 #[derive(Clone)]
@@ -76,6 +77,7 @@ pub(super) fn parse(table: &Table) -> Result<Guest, String> {
         Ok(Value::Table(defaults)) => Some(RawDefaults {
             provider: field_string(&defaults, "provider"),
             model: field_string(&defaults, "model"),
+            thinking: field_string(&defaults, "thinking").filter(|level| !level.is_empty()),
         }),
         Ok(Value::Nil) => None,
         _ => return Err("init.lua defaults is not a table".into()),

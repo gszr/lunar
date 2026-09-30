@@ -35,5 +35,6 @@ return {
   defaults = {
     provider = "xai",
     model = "grok46",
+    thinking = "high",
   },
 }

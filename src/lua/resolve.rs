@@ -57,7 +57,16 @@ fn choices(
     for (provider_key, provider) in &guest.providers {
         let (models, _) = resolve_listed(&guest.models, &provider.models);
         for model in models {
-            let result = provider_config(provider_key, provider, &model, providers);
+            let result = provider_config(
+                provider_key,
+                provider,
+                &model,
+                guest
+                    .defaults
+                    .as_ref()
+                    .and_then(|defaults| defaults.thinking.as_deref()),
+                providers,
+            );
             let (config, error) = match result {
                 Ok(config) => (Some(config), None),
                 Err(error) => (None, Some(error)),
@@ -85,6 +94,7 @@ fn provider_config(
     provider_key: &str,
     provider: &ProviderDef,
     model: &ResolvedModel,
+    default_thinking: Option<&str>,
     providers: &mut BTreeMap<String, Result<ResolvedProvider, String>>,
 ) -> Result<Config, String> {
     if model.api == Api::Messages
@@ -110,7 +120,10 @@ fn provider_config(
         window: model.window.or_else(|| protocol::guess_window(&model.id)),
         api: model.api,
         auth_provider: provider.auth_provider,
-        thinking: model.thinking.clone(),
+        thinking: default_thinking
+            .filter(|level| model.thinking_levels.iter().any(|allowed| allowed == level))
+            .unwrap_or(&model.thinking)
+            .to_string(),
         thinking_levels: model.thinking_levels.clone(),
     })
 }
@@ -202,7 +215,13 @@ fn config_from_lua(
         Some(model) => model,
         None => return Err(join_parts(skips, format!("unknown model: {model_key}"))),
     };
-    match provider_config(provider_key, provider, chosen, providers) {
+    match provider_config(
+        provider_key,
+        provider,
+        chosen,
+        defaults.thinking.as_deref(),
+        providers,
+    ) {
         Ok(config) => Ok((config, skips)),
         Err(err) => Err(join_parts(skips, err)),
     }

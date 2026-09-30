@@ -156,6 +156,39 @@ fn project_without_defaults_inherits_user_defaults() {
 }
 
 #[test]
+fn project_defaults_can_override_user_thinking_default() {
+    let _e = isolate(&[("XAI_API_KEY", "k")]);
+    let user = write_init(
+        &scratch(),
+        r#"return {
+  models = {
+    grok = {
+      id = "grok",
+      thinking = { "low", "high", default = "low" },
+    },
+  },
+  providers = {
+    xai = {
+      base_url = "https://api.x.ai/v1",
+      key_name = "XAI_API_KEY",
+      models = { "grok" },
+    },
+  },
+  defaults = { provider = "xai", model = "grok", thinking = "low" },
+}"#,
+    );
+    let project = write_init(
+        &scratch(),
+        r#"return {
+  defaults = { provider = "xai", model = "grok", thinking = "high" },
+}"#,
+    );
+
+    let loaded = load_paths(&user, &project);
+    assert_eq!(loaded.config.unwrap().thinking, "high");
+}
+
+#[test]
 fn missing_file_is_unconfigured() {
     let _e = isolate(&[]);
     let loaded = load_path(&scratch().join("init.lua"));
@@ -262,6 +295,64 @@ return {
     let other = other.config.as_ref().unwrap();
     assert_eq!(other.thinking, "off");
     assert_eq!(other.thinking_levels, ["off"]);
+}
+
+#[test]
+fn defaults_thinking_takes_priority_when_the_model_supports_it() {
+    let _env = isolate(&[("XAI_API_KEY", "key")]);
+    let src = r#"
+return {
+  models = {
+    grok = {
+      id = "grok",
+      thinking = { "low", "high", "max", default = "low" },
+    },
+  },
+  providers = {
+    xai = {
+      base_url = "https://api.x.ai/v1",
+      key_name = "XAI_API_KEY",
+      models = { "grok" },
+    },
+  },
+  defaults = { provider = "xai", model = "grok", thinking = "high" },
+}
+"#;
+    let loaded = load_path(&write_init(&scratch(), src));
+    assert_eq!(loaded.config.unwrap().thinking, "high");
+    assert_eq!(loaded.models[0].config.as_ref().unwrap().thinking, "high");
+}
+
+#[test]
+fn unsupported_defaults_thinking_falls_back_to_the_model_default() {
+    let _env = isolate(&[("XAI_API_KEY", "key")]);
+    let src = r#"
+return {
+  models = {
+    supported = {
+      id = "supported",
+      thinking = { "low", "high", default = "low" },
+    },
+    unsupported = {
+      id = "unsupported",
+      thinking = { "off", default = "off" },
+    },
+  },
+  providers = {
+    xai = {
+      base_url = "https://api.x.ai/v1",
+      key_name = "XAI_API_KEY",
+      models = { "supported", "unsupported" },
+    },
+  },
+  defaults = { provider = "xai", model = "unsupported", thinking = "high" },
+}
+"#;
+    let loaded = load_path(&write_init(&scratch(), src));
+    assert_eq!(loaded.config.unwrap().thinking, "off");
+    assert_eq!(loaded.models[0].config.as_ref().unwrap().thinking, "high");
+    assert_eq!(loaded.models[1].config.as_ref().unwrap().thinking, "off");
+    assert_eq!(loaded.notice, None);
 }
 
 #[test]

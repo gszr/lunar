@@ -32,7 +32,7 @@ All notable changes to **Lunar** are documented in this file.
 - **Searchable, scrolling model picker**: large catalogs remain navigable and can be filtered by provider, alias, or wire model ID.
 - **Per-model protocol selection**: model definitions select `completions`, `responses`, or catalog-only `messages`; omitted APIs use Completions.
 - **Runtime API format switching**: `/format response|chat_completions` overrides the live request format until Lunar exits, without changing Lua configuration or mission history.
-- **Per-model thinking levels**: each model defines its ordered wire values and default. `/thinking` exposes only those values, persists the selected level in the mission, and maps it to each supported protocol.
+- **Per-model thinking levels and preferred default**: each model defines its ordered wire values and fallback default, while `defaults.thinking` can choose a preferred default whenever the selected model supports it. `/thinking` exposes only the model’s values, persists the selected level in the mission, and maps it to each supported protocol.
 - **Flexible provider credentials**: providers can read an environment variable, run a shell command, use Lunar-managed authentication, or explicitly send no Authorization header.
 - **Dynamic provider URLs**: `base_url_cmd` resolves a provider URL through `sh -c`, allowing credential and environment tooling to choose an endpoint before the TUI opens.
 - **Unauthenticated providers**: `key_in = "none"` supports local and private HTTP or HTTPS model servers without an Authorization header.

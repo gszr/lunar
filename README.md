@@ -122,6 +122,8 @@ return {
 }
 ```
 
+`defaults.thinking` is optional. It takes priority over each model’s own default when that model supports the value; otherwise Lunar uses the model-specific default.
+
 ```bash
 export XAI_API_KEY=...
 ```
