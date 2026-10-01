@@ -16,7 +16,7 @@ const MAX_RETRIES: u32 = 3;
 
 pub(super) fn post_retry(
     url: &str,
-    api_key: &str,
+    cfg: &super::Config,
     body: &str,
     cancel: &AtomicBool,
     session: Option<&str>,
@@ -31,7 +31,7 @@ pub(super) fn post_retry(
         let mut headers = json!({
             "content-type": "application/json"
         });
-        if !api_key.is_empty() {
+        if !cfg.api_key.is_empty() {
             headers["authorization"] = json!("Bearer [REDACTED]");
         }
         if let Some(session) = session {
@@ -54,8 +54,8 @@ pub(super) fn post_retry(
             }),
         );
         let mut request = agent().post(url).header("Content-Type", "application/json");
-        if !api_key.is_empty() {
-            request = request.header("Authorization", &format!("Bearer {api_key}"));
+        if !cfg.api_key.is_empty() {
+            request = request.header("Authorization", &format!("Bearer {}", cfg.api_key));
         }
         if let Some(session) = session {
             request = request
@@ -116,7 +116,7 @@ pub(super) fn post_retry(
                     }),
                 );
                 if !retry {
-                    return Err(err.to_string());
+                    return Err(request_error(&cfg.provider, err));
                 }
                 sleep_cancel(delay.unwrap(), cancel)?;
                 attempt += 1;
@@ -261,9 +261,32 @@ fn should_retry(err: &ureq::Error) -> bool {
     }
 }
 
-pub(super) fn stream_error(err: io::Error) -> String {
+fn request_error(provider: &str, err: ureq::Error) -> String {
+    if !is_transport_error(&err) {
+        return err.to_string();
+    }
+    match err {
+        ureq::Error::Io(err) => format!("Failed connecting to {provider}: {err}"),
+        err => format!("Failed connecting to {provider}: {err}"),
+    }
+}
+
+fn is_transport_error(err: &ureq::Error) -> bool {
+    match err {
+        ureq::Error::Io(e) => is_connection_error(e),
+        ureq::Error::Timeout(_)
+        | ureq::Error::HostNotFound
+        | ureq::Error::ConnectionFailed
+        | ureq::Error::Tls(_)
+        | ureq::Error::Rustls(_)
+        | ureq::Error::TlsRequired => true,
+        _ => false,
+    }
+}
+
+pub(super) fn stream_error(provider: &str, err: io::Error) -> String {
     if is_connection_error(&err) {
-        "connection interrupted; check your connection and retry".into()
+        format!("Failed connecting to {provider}: {err}")
     } else {
         err.to_string()
     }
@@ -272,7 +295,8 @@ pub(super) fn stream_error(err: io::Error) -> String {
 fn is_connection_error(err: &io::Error) -> bool {
     matches!(
         err.kind(),
-        io::ErrorKind::ConnectionReset
+        io::ErrorKind::ConnectionRefused
+            | io::ErrorKind::ConnectionReset
             | io::ErrorKind::ConnectionAborted
             | io::ErrorKind::TimedOut
             | io::ErrorKind::BrokenPipe
@@ -376,9 +400,20 @@ mod tests {
         });
         let cancel = AtomicBool::new(false);
         let (tx, rx) = mpsc::channel();
+        let cfg = super::super::Config {
+            api_key: String::new(),
+            base_url: format!("http://{address}"),
+            model: "test".into(),
+            provider: "local".into(),
+            window: None,
+            api: super::super::Api::Completions,
+            auth_provider: None,
+            thinking: "off".into(),
+            thinking_levels: vec!["off".into()],
+        };
         post_retry(
             &format!("http://{address}/chat/completions"),
-            "",
+            &cfg,
             "{}",
             &cancel,
             None,
@@ -453,18 +488,26 @@ mod tests {
     }
 
     #[test]
-    fn stream_eof_is_actionable() {
+    fn stream_eof_names_provider_and_cause() {
         let err = io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected end of file");
         assert_eq!(
-            stream_error(err),
-            "connection interrupted; check your connection and retry"
+            stream_error("xai", err),
+            "Failed connecting to xai: unexpected end of file"
         );
     }
 
     #[test]
     fn stream_error_preserves_unrelated_errors() {
         let err = io::Error::new(io::ErrorKind::InvalidData, "bad data");
-        assert_eq!(stream_error(err), "bad data");
+        assert_eq!(stream_error("xai", err), "bad data");
+    }
+
+    #[test]
+    fn request_transport_error_names_provider_and_cause() {
+        assert_eq!(
+            request_error("openai", ureq::Error::HostNotFound),
+            "Failed connecting to openai: host not found"
+        );
     }
 
     #[test]

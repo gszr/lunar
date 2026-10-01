@@ -90,7 +90,7 @@ pub(super) fn stream(
     };
     let response = post_retry(
         &url,
-        &cfg.api_key,
+        &cfg,
         &body,
         &cancel,
         cache_key.as_deref(),
@@ -109,7 +109,7 @@ pub(super) fn stream(
             let _ = tx.send(StreamEvent::Failed("aborted".into()));
             return Ok(());
         }
-        let line = line.map_err(stream_error)?;
+        let line = line.map_err(|err| stream_error(&cfg.provider, err))?;
         crate::debug::event("response", json!({ "line": &line }));
         let Some(data) = sse_payload(&line) else {
             continue;

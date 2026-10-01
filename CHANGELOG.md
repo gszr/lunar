@@ -74,6 +74,7 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🐞 Fixed
 
+- **Provider connection failures are actionable**: DNS, connection, TLS, timeout, reset, and unexpected EOF errors identify the configured provider and retain the underlying cause.
 - **Stream completion no longer waits forever**: a provider `finish_reason` ends the visible turn even if `[DONE]` or EOF is delayed, while trailing usage is still collected.
 - **Usage after `finish_reason` is retained**: Lunar waits briefly for the provider's final usage chunk before returning the connection to the pool.
 - **OpenAI tool calls use the correct wire shape**: Chat Completions tools interoperate with OpenAI-compatible providers.
