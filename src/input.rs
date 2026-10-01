@@ -92,36 +92,83 @@ pub(crate) fn history_down(app: &mut App) {
     app.cursor = app.input.len();
 }
 
-pub(crate) fn line_up(s: &str, cursor: usize) -> usize {
-    let cursor = cursor.min(s.len());
-    let line_start = s[..cursor].rfind('\n').map_or(0, |i| i + 1);
-    if line_start == 0 {
-        return cursor;
+pub(crate) fn line_up(s: &str, cursor: usize, width: usize) -> usize {
+    let (row, column) = visual_position(s, cursor, width);
+    row.checked_sub(1)
+        .map_or(cursor, |row| visual_offset(s, row, column, width))
+}
+
+pub(crate) fn line_down(s: &str, cursor: usize, width: usize) -> usize {
+    let (row, column) = visual_position(s, cursor, width);
+    let last_row = visual_position(s, s.len(), width).0;
+    if row >= last_row {
+        cursor
+    } else {
+        visual_offset(s, row + 1, column, width)
     }
-    let column = s[line_start..cursor].chars().count();
-    let previous_end = line_start - 1;
-    let previous_start = s[..previous_end].rfind('\n').map_or(0, |i| i + 1);
-    char_offset(s, previous_start, previous_end, column)
 }
 
-pub(crate) fn line_down(s: &str, cursor: usize) -> usize {
-    let cursor = cursor.min(s.len());
-    let line_start = s[..cursor].rfind('\n').map_or(0, |i| i + 1);
-    let Some(next_start) = s[cursor..].find('\n').map(|i| cursor + i + 1) else {
-        return cursor;
-    };
-    let column = s[line_start..cursor].chars().count();
-    let next_end = s[next_start..]
-        .find('\n')
-        .map_or(s.len(), |i| next_start + i);
-    char_offset(s, next_start, next_end, column)
+fn visual_position(s: &str, cursor: usize, width: usize) -> (usize, usize) {
+    let mut row = 0;
+    let mut column = 0;
+    let mut wrapped = false;
+    for (offset, c) in s.char_indices() {
+        if offset >= cursor.min(s.len()) {
+            break;
+        }
+        if c == '\n' {
+            if !wrapped {
+                row += 1;
+            }
+            column = 0;
+            wrapped = false;
+        } else {
+            column += 1;
+            wrapped = false;
+            if column == width.max(1) {
+                row += 1;
+                column = 0;
+                wrapped = true;
+            }
+        }
+    }
+    (row, column)
 }
 
-fn char_offset(s: &str, start: usize, end: usize, column: usize) -> usize {
-    s[start..end]
+fn visual_offset(s: &str, target_row: usize, target_column: usize, width: usize) -> usize {
+    let mut row = 0;
+    let mut column = 0;
+    let mut wrapped = false;
+    let mut best = 0;
+    for (offset, c) in s
         .char_indices()
-        .nth(column)
-        .map_or(end, |(i, _)| start + i)
+        .map(|(offset, c)| (offset, Some(c)))
+        .chain(std::iter::once((s.len(), None)))
+    {
+        if row == target_row && column <= target_column {
+            best = offset;
+        }
+        if row > target_row || (row == target_row && column > target_column) {
+            break;
+        }
+        let Some(c) = c else { break };
+        if c == '\n' {
+            if !wrapped {
+                row += 1;
+            }
+            column = 0;
+            wrapped = false;
+        } else {
+            column += 1;
+            wrapped = false;
+            if column == width.max(1) {
+                row += 1;
+                column = 0;
+                wrapped = true;
+            }
+        }
+    }
+    best
 }
 
 pub(crate) fn reset_history_navigation(app: &mut App) {

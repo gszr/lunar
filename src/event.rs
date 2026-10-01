@@ -80,6 +80,11 @@ pub(crate) fn on_paste(app: &mut App, text: &str) {
 }
 
 pub(crate) fn on_key(app: &mut App, key: KeyEvent) {
+    let width = ratatui::crossterm::terminal::size().map_or(u16::MAX, |(width, _)| width);
+    on_key_with_width(app, key, width);
+}
+
+pub(crate) fn on_key_with_width(app: &mut App, key: KeyEvent, width: u16) {
     if app.auth_rx.is_some() {
         if key.code == KeyCode::Esc
             && let Some(cancel) = &app.auth_cancel
@@ -127,7 +132,7 @@ pub(crate) fn on_key(app: &mut App, key: KeyEvent) {
             let cursor = *cursor;
             on_resume_key(app, key, len, cursor);
         }
-        Mode::Chat => on_chat_key(app, key),
+        Mode::Chat => on_chat_key(app, key, width),
     }
 }
 
@@ -381,7 +386,7 @@ fn on_resume_key(app: &mut App, key: KeyEvent, len: usize, cursor: usize) {
     }
 }
 
-fn on_chat_key(app: &mut App, key: KeyEvent) {
+fn on_chat_key(app: &mut App, key: KeyEvent, width: u16) {
     if app.search.is_some() {
         on_search_key(app, key);
         return;
@@ -462,11 +467,23 @@ fn on_chat_key(app: &mut App, key: KeyEvent) {
         }
         (_, KeyCode::Home) => app.cursor = 0,
         (_, KeyCode::End) => app.cursor = app.input.len(),
-        (_, KeyCode::Up) if app.input.contains('\n') => {
-            app.cursor = line_up(&app.input, app.cursor);
+        (_, KeyCode::Up)
+            if app.input.contains('\n')
+                || crate::view::cursor_xy(&app.input, app.cursor, width.max(1) as usize).0 > 0 =>
+        {
+            app.cursor = line_up(&app.input, app.cursor, width.max(1) as usize);
         }
-        (_, KeyCode::Down) if app.input.contains('\n') => {
-            app.cursor = line_down(&app.input, app.cursor);
+        (_, KeyCode::Down)
+            if app.input.contains('\n')
+                || crate::view::cursor_xy(&app.input, app.cursor, width.max(1) as usize).0
+                    < crate::view::cursor_xy(
+                        &app.input,
+                        app.input.len(),
+                        width.max(1) as usize,
+                    )
+                    .0 =>
+        {
+            app.cursor = line_down(&app.input, app.cursor, width.max(1) as usize);
         }
         (_, KeyCode::Up) => history_up(app),
         (_, KeyCode::Down) => history_down(app),

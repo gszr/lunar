@@ -609,6 +609,18 @@ pub(crate) fn draw_picker_editor(
     frame.render_widget(Paragraph::new(lines), chunks[1]);
 }
 
+fn editor_window(mut lines: Vec<String>, row: u16, height: u16) -> (Vec<String>, u16) {
+    if lines.len() <= height as usize {
+        return (lines, row);
+    }
+    let max_start = lines.len() - height as usize;
+    let start = (row as usize)
+        .saturating_sub(height.saturating_sub(1) as usize)
+        .min(max_start);
+    lines = lines[start..start + height as usize].to_vec();
+    (lines, row.saturating_sub(start as u16))
+}
+
 pub(crate) fn draw_editor_input(frame: &mut Frame, area: Rect, app: &App) {
     if area.height == 0 || area.width == 0 {
         return;
@@ -618,18 +630,14 @@ pub(crate) fn draw_editor_input(frame: &mut Frame, area: Rect, app: &App) {
     } else {
         app.input.clone()
     };
-    let mut lines = editor_lines(&shown, area.width);
+    let lines = editor_lines(&shown, area.width);
     let shown_cursor = if matches!(app.mode, Mode::ApiKey) {
         shown.len()
     } else {
         app.cursor
     };
-    let (mut row, col) = cursor_xy(&shown, shown_cursor, area.width as usize);
-    if lines.len() > area.height as usize {
-        let skip = lines.len() - area.height as usize;
-        lines = lines[skip..].to_vec();
-        row = row.saturating_sub(skip as u16);
-    }
+    let (row, col) = cursor_xy(&shown, shown_cursor, area.width as usize);
+    let (lines, row) = editor_window(lines, row, area.height);
     let styled: Vec<Line> = lines
         .into_iter()
         .map(|s| Line::from(Span::styled(s, Style::default().fg(splash::BONE))))
@@ -753,7 +761,15 @@ pub(crate) fn shorten_home(path: PathBuf) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::picker_start;
+    use super::{editor_window, picker_start};
+
+    #[test]
+    fn editor_window_follows_cursor_above_and_below_visible_rows() {
+        let lines: Vec<String> = (0..12).map(|i| i.to_string()).collect();
+        assert_eq!(editor_window(lines.clone(), 11, 8).0[0], "4");
+        assert_eq!(editor_window(lines.clone(), 3, 8).0[0], "0");
+        assert_eq!(editor_window(lines, 8, 8).0[0], "1");
+    }
 
     #[test]
     fn model_picker_keeps_cursor_in_visible_rows() {

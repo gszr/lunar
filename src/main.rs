@@ -538,6 +538,25 @@ mod tests {
     }
 
     #[test]
+    fn wrapped_arrows_move_cursor_in_buffer() {
+        let mut app = test_app();
+        app.history = vec!["previous prompt".into()];
+        app.input = "abcdefghijkl".into();
+        app.cursor = app.input.len();
+
+        crate::event::on_key_with_width(&mut app, key(KeyModifiers::NONE, KeyCode::Up), 4);
+        assert_eq!(app.input, "abcdefghijkl");
+        assert_eq!(app.cursor, 8);
+        crate::event::on_key_with_width(&mut app, key(KeyModifiers::NONE, KeyCode::Up), 4);
+        assert_eq!(app.cursor, 4);
+        crate::event::on_key_with_width(&mut app, key(KeyModifiers::NONE, KeyCode::Up), 4);
+        assert_eq!(app.cursor, 0);
+
+        crate::event::on_key_with_width(&mut app, key(KeyModifiers::NONE, KeyCode::Down), 4);
+        assert_eq!(app.cursor, 4);
+    }
+
+    #[test]
     fn up_from_typed_command_walks_history() {
         let mut app = test_app();
         app.history = vec!["previous prompt".into()];

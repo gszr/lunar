@@ -89,7 +89,7 @@ All notable changes to **Lunar** are documented in this file.
 - **Context remains cache-stable during a turn**: file changes made by tools are not injected until the next user submission.
 - **Transcript streaming stays responsive**: completed message paint is cached and only the in-flight tail is rewrapped each frame.
 - **Scrolling preserves reading position**: streamed output and notices do not snap a scrolled-up transcript to the tail.
-- **Multiline editing follows visual intent**: arrow keys navigate wrapped and hard-newline prompts correctly.
+- **Multiline editing follows visual intent**: arrow keys navigate wrapped and hard-newline prompts correctly, including long prompts beyond the editor's eight-line viewport.
 - **Prompt history remains reachable**: Up moves into prior submissions after a unique slash-command match instead of cycling a one-item completion list.
 - **Mission recency is accurate**: `/resume` orders missions by modification time so recently active work appears first.
 - **Mission usage survives resume**: cumulative totals and current context size are reconstructed from JSONL records.
