@@ -27,6 +27,7 @@ All notable changes to **Lunar** are documented in this file.
 - **Slash command completion**: typing `/` opens command suggestions; Tab or arrows cycle matches and Enter accepts them.
 - **Built-in help and CLI help**: `/help` lists the complete command surface and `lunar --help` documents launch options.
 - **Lua 5.5 configuration**: Lunar embeds vendored Lua and loads a returned table containing model aliases, providers, and optional defaults from `~/.lunar/control/init.lua`.
+- **Lua modules from control**: `init.lua` can `require` files from `~/.lunar/control/<module>.lua` and `~/.lunar/control/<module>/init.lua`.
 - **Project configuration overrides**: CWD `.lunar/init.lua` loads after user configuration and replaces matching models and providers while retaining unmatched user entries.
 - **Model catalog and picker**: `/model` lists configured providers and ordered model entries, supports local and globally aliased model definitions, and applies a selected model to the running mission.
 - **Searchable, scrolling model picker**: large catalogs remain navigable and can be filtered by provider, alias, or wire model ID.

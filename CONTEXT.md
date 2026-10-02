@@ -20,7 +20,7 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 | Workflow in the binary | None |
 | Extension model | Slots (replaceable parts). Hook bus does **not** ship in v0. S only for now |
 | Config | User `~/.lunar/control/init.lua`, overridden by CWD `.lunar/init.lua`. No model configuration via `LUNAR_*`. `LUNAR_HOME` and `LUNAR_PROMPT_BUDGET` stay env. On startup, legacy root files move into `control/` and `recorder/`; existing destinations are not overwritten, directory contents merge around conflicts, and unresolved legacy paths remain readable |
-| Lua load | `~/.lunar/control/init.lua`, then CWD `.lunar/init.lua` (or `$LUNAR_HOME/control/init.lua` for user config). No auto-load directories. Syntax/runtime error in either = notice, glass opens, cannot send |
+| Lua load | `~/.lunar/control/init.lua`, then CWD `.lunar/init.lua` (or `$LUNAR_HOME/control/init.lua` for user config). No auto-load directories. `require` in either file searches only `~/.lunar/control/?.lua` and `~/.lunar/control/?/init.lua`. Syntax/runtime error in either = notice, glass opens, cannot send |
 | Trust | Not implemented. Project `.lunar/init.lua` runs automatically this slice |
 | Language | Lua 5.5.1, vendored via `mlua` (`lua55` + `vendored`). Embed this slice |
 | Lua guest API | `init.lua` returns one table containing optional `models`, `providers`, and `defaults` tables. The registrar form does not exist. **No `lunar.on`** (hook bus is not v0) |
@@ -48,7 +48,8 @@ You open `lunar` and talk. The binary does not dictate workflow (no MCP, sub-age
 ~/.lunar/                    # or $LUNAR_HOME
   control/                   # user-authored Lua
     init.lua                 # user setup; this slice
-    lua/
+    <module>.lua             # optional; require("module")
+    <module>/init.lua
   recorder/                  # Lunar-owned files
     missions/                # flat; cwd is in the jsonl header
       2026-08-19-1.jsonl     # date-local N, monotonic for the day
@@ -75,7 +76,7 @@ Model configuration lives in `init.lua`. These host settings remain environment 
 
 ## User and project `init.lua`
 
-Host runs `~/.lunar/control/init.lua` (or `$LUNAR_HOME/control/init.lua`) and then CWD `.lunar/init.lua` once at startup. Both return the same shape. Project `models` and `providers` replace matching user entries by key while unmatched user entries remain. Project `defaults`, when present, replaces user `defaults`; when omitted, user defaults remain. There is no trust check this slice. The optional top-level fields are `models`, `providers`, and `defaults`; the old registrar form does not exist. **No `lunar.on`.**
+Host runs `~/.lunar/control/init.lua` (or `$LUNAR_HOME/control/init.lua`) and then CWD `.lunar/init.lua` once at startup. Both return the same shape. Either file may `require` modules from `~/.lunar/control/<module>.lua` or `~/.lunar/control/<module>/init.lua`; project and CWD paths are not searched. Project `models` and `providers` replace matching user entries by key while unmatched user entries remain. Project `defaults`, when present, replaces user `defaults`; when omitted, user defaults remain. There is no trust check this slice. The optional top-level fields are `models`, `providers`, and `defaults`; the old registrar form does not exist. **No `lunar.on`.**
 
 ```lua
 return {

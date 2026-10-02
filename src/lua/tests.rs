@@ -126,7 +126,7 @@ fn project_config_overrides_user_config_by_key() {
 }"#,
     );
 
-    let loaded = load_paths(&user, &project);
+    let loaded = load_paths(&user, &project, &user_dir);
     let config = loaded.config.unwrap();
     assert_eq!(config.model, "project-model");
     assert_eq!(config.base_url, "https://project.example/v1");
@@ -151,15 +151,16 @@ fn project_without_defaults_inherits_user_defaults() {
         r#"return { models = { extra = { id = "extra" } } }"#,
     );
 
-    let loaded = load_paths(&user, &project);
+    let loaded = load_paths(&user, &project, &user_dir);
     assert_eq!(loaded.config.unwrap().model, "grok-4.6");
 }
 
 #[test]
 fn project_defaults_can_override_user_thinking_default() {
     let _e = isolate(&[("XAI_API_KEY", "k")]);
+    let user_dir = scratch();
     let user = write_init(
-        &scratch(),
+        &user_dir,
         r#"return {
   models = {
     grok = {
@@ -184,7 +185,7 @@ fn project_defaults_can_override_user_thinking_default() {
 }"#,
     );
 
-    let loaded = load_paths(&user, &project);
+    let loaded = load_paths(&user, &project, &user_dir);
     assert_eq!(loaded.config.unwrap().thinking, "high");
 }
 
@@ -195,6 +196,101 @@ fn missing_file_is_unconfigured() {
     assert!(loaded.config.is_none());
     assert!(loaded.models.is_empty());
     assert_eq!(loaded.notice, None);
+}
+
+#[test]
+fn user_control_modules_can_be_required() {
+    let _e = isolate(&[("XAI_API_KEY", "k")]);
+    let user_dir = scratch();
+    fs::write(
+        user_dir.join("models.lua"),
+        "return { grok = { id = 'from-file' } }\n",
+    )
+    .unwrap();
+    fs::create_dir(user_dir.join("providers")).unwrap();
+    fs::write(
+        user_dir.join("providers/init.lua"),
+        r#"return {
+  xai = {
+    base_url = "https://api.x.ai/v1",
+    key_name = "XAI_API_KEY",
+    models = { "grok" },
+  },
+}"#,
+    )
+    .unwrap();
+    let path = write_init(
+        &user_dir,
+        r#"return {
+  models = require("models"),
+  providers = require("providers"),
+  defaults = { provider = "xai", model = "grok" },
+}"#,
+    );
+
+    let loaded = load_path(&path);
+
+    assert_eq!(loaded.config.unwrap().model, "from-file");
+}
+
+#[test]
+fn project_init_requires_from_user_control() {
+    let _e = isolate(&[("XAI_API_KEY", "k")]);
+    let user_dir = scratch();
+    fs::write(
+        user_dir.join("models.lua"),
+        "return { grok = { id = 'from-control' } }\n",
+    )
+    .unwrap();
+    let project = write_init(
+        &scratch(),
+        r#"return {
+  models = require("models"),
+  providers = {
+    xai = {
+      base_url = "https://api.x.ai/v1",
+      key_name = "XAI_API_KEY",
+      models = { "grok" },
+    },
+  },
+  defaults = { provider = "xai", model = "grok" },
+}"#,
+    );
+
+    let loaded = load_paths(&user_dir.join("init.lua"), &project, &user_dir);
+
+    assert_eq!(loaded.config.unwrap().model, "from-control");
+}
+
+#[test]
+fn require_does_not_search_project_or_cwd() {
+    let _e = isolate(&[("XAI_API_KEY", "k")]);
+    let user_dir = scratch();
+    let project_dir = scratch();
+    fs::write(
+        project_dir.join("models.lua"),
+        "return { grok = { id = 'from-project' } }\n",
+    )
+    .unwrap();
+    let project = write_init(
+        &project_dir,
+        r#"return {
+  models = require("models"),
+  providers = {
+    xai = {
+      base_url = "https://api.x.ai/v1",
+      key_name = "XAI_API_KEY",
+      models = { "grok" },
+    },
+  },
+  defaults = { provider = "xai", model = "grok" },
+}"#,
+    );
+
+    let loaded = load_paths(&user_dir.join("init.lua"), &project, &user_dir);
+
+    assert!(loaded.config.is_none());
+    assert!(loaded.notice.unwrap().contains("module 'models'"));
 }
 
 #[test]
