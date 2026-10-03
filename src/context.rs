@@ -32,12 +32,15 @@ pub(crate) fn history(
                     && !m.debug
                     && (!m.text.is_empty()
                         || matches!(m.role, Role::User)
+                        || !m.thinking.is_empty()
                         || !m.tool_calls.is_empty())
             })
             .map(|m| match m.role {
                 Role::User => ChatMessage::User(m.text.clone()),
                 Role::Assistant => ChatMessage::Assistant {
                     content: m.text.clone(),
+                    thinking: m.thinking.clone(),
+                    thinking_signature: m.thinking_signature.clone(),
                     tool_calls: m.tool_calls.clone(),
                 },
                 Role::Tool => ChatMessage::Tool {
@@ -129,6 +132,7 @@ fn format_history(history: Vec<ChatMessage>) -> String {
             ChatMessage::Assistant {
                 content,
                 tool_calls,
+                ..
             } => {
                 if !content.is_empty() {
                     let _ = write!(out, "\n\n[assistant]\n{content}");
@@ -206,6 +210,8 @@ mod tests {
             ChatMessage::User("instructions".into()),
             ChatMessage::Assistant {
                 content: "checking".into(),
+                thinking: String::new(),
+                thinking_signature: String::new(),
                 tool_calls: vec![ToolCall {
                     id: "call-1".into(),
                     name: "read".into(),
@@ -247,7 +253,7 @@ mod tests {
         assert!(matches!(&history[1], ChatMessage::User(text) if text == "question"));
         assert!(matches!(
             &history[2],
-            ChatMessage::Assistant { content, tool_calls }
+            ChatMessage::Assistant { content, tool_calls, .. }
                 if content == "checking"
                     && tool_calls[0].id == "call-1"
                     && tool_calls[0].name == "read"

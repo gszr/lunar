@@ -9,7 +9,8 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, Ke
 
 use crate::app::{App, Mode};
 use crate::commands::auth::{
-    drain_auth, open_xai_login, save_api_key, start_openai_oauth, start_xai_oauth,
+    drain_auth, open_xai_login, save_anthropic_code, save_api_key, start_anthropic_oauth,
+    start_openai_oauth, start_xai_oauth,
 };
 use crate::commands::mission::load_mission;
 use crate::commands::model::select_model;
@@ -70,7 +71,7 @@ pub(crate) fn interrupt_resumed_turn(app: &mut App) {
 }
 
 pub(crate) fn on_paste(app: &mut App, text: &str) {
-    if !matches!(app.mode, Mode::Chat) || app.search.is_some() {
+    if !matches!(app.mode, Mode::Chat | Mode::LoginCode) || app.search.is_some() {
         return;
     }
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
@@ -96,6 +97,7 @@ pub(crate) fn on_key_with_width(app: &mut App, key: KeyEvent, width: u16) {
     match &app.mode {
         Mode::LoginProvider { cursor } => on_login_provider_key(app, key, *cursor),
         Mode::LoginMethod { cursor } => on_login_method_key(app, key, *cursor),
+        Mode::LoginCode => on_login_code(app, key),
         Mode::ApiKey => on_api_key(app, key),
         Mode::Context { .. } => on_context_key(app, key),
         Mode::Thinking { cursor } => on_thinking_key(app, key, *cursor),
@@ -140,7 +142,8 @@ fn on_login_provider_key(app: &mut App, key: KeyEvent, cursor: usize) {
     match key.code {
         KeyCode::Esc => app.mode = Mode::Chat,
         KeyCode::Enter if cursor == 0 => open_xai_login(app),
-        KeyCode::Enter => start_openai_oauth(app),
+        KeyCode::Enter if cursor == 1 => start_openai_oauth(app),
+        KeyCode::Enter => start_anthropic_oauth(app),
         KeyCode::Up | KeyCode::Char('k') => {
             app.mode = Mode::LoginProvider {
                 cursor: cursor.saturating_sub(1),
@@ -148,7 +151,7 @@ fn on_login_provider_key(app: &mut App, key: KeyEvent, cursor: usize) {
         }
         KeyCode::Down | KeyCode::Char('j') => {
             app.mode = Mode::LoginProvider {
-                cursor: (cursor + 1).min(1),
+                cursor: (cursor + 1).min(2),
             }
         }
         _ => {}
@@ -198,6 +201,27 @@ fn on_context_key(app: &mut App, key: KeyEvent) {
         (KeyModifiers::CONTROL, KeyCode::End) => *scroll = max,
         (_, KeyCode::Up | KeyCode::Char('k')) => *scroll = scroll.saturating_sub(1),
         (_, KeyCode::Down | KeyCode::Char('j')) => *scroll = scroll.saturating_add(1).min(max),
+        _ => {}
+    }
+}
+
+fn on_login_code(app: &mut App, key: KeyEvent) {
+    match (key.modifiers, key.code) {
+        (_, KeyCode::Esc) => {
+            app.mode = Mode::Chat;
+            app.input.clear();
+            app.cursor = 0;
+            app.auth_prompt = None;
+            app.auth_brand = None;
+            app.anthropic_verifier = None;
+        }
+        (_, KeyCode::Enter) => save_anthropic_code(app),
+        (_, KeyCode::Backspace) => {
+            let from = prev_char(&app.input, app.cursor);
+            app.input.replace_range(from..app.cursor, "");
+            app.cursor = from;
+        }
+        (m, KeyCode::Char(c)) if m.is_empty() || m == KeyModifiers::SHIFT => insert_input(app, c),
         _ => {}
     }
 }

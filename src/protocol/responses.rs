@@ -23,6 +23,7 @@ impl ChatMessage {
             ChatMessage::Assistant {
                 content,
                 tool_calls,
+                ..
             } => {
                 let mut items = Vec::new();
                 if !content.is_empty() {
@@ -410,6 +411,8 @@ mod tests {
             ChatMessage::User("hi".into()),
             ChatMessage::Assistant {
                 content: "calling".into(),
+                thinking: String::new(),
+                thinking_signature: String::new(),
                 tool_calls: vec![ToolCall {
                     id: "call_1".into(),
                     name: "read".into(),

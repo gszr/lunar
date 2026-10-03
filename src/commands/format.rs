@@ -33,6 +33,9 @@ pub(crate) fn override_config(api: Option<Api>, config: &mut Config) -> Result<(
     if api == Api::Completions && config.auth_provider.as_deref() == Some("openai") {
         return Err("OpenAI subscription auth requires response format".into());
     }
+    if config.auth_provider.as_deref() == Some("anthropic") && api != Api::Messages {
+        return Err("Anthropic subscription auth requires messages format".into());
+    }
     config.api = api;
     Ok(())
 }

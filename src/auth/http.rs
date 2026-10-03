@@ -68,7 +68,7 @@ fn post_body(
     Ok((ok, status, value))
 }
 
-fn form_encode(s: &str) -> String {
+pub(super) fn form_encode(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
         if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {

@@ -53,6 +53,7 @@ pub(crate) struct App {
     pub(crate) auth_cancel: Option<Arc<AtomicBool>>,
     pub(crate) auth_prompt: Option<AuthPrompt>,
     pub(crate) auth_brand: Option<&'static str>,
+    pub(crate) anthropic_verifier: Option<String>,
     pub(crate) limits: Option<crate::limits::Limits>,
     pub(crate) limits_rx: Option<Receiver<crate::limits::Limits>>,
 }
@@ -106,6 +107,7 @@ pub(crate) enum Mode {
     LoginMethod {
         cursor: usize,
     },
+    LoginCode,
     ApiKey,
     Context {
         text: String,
@@ -132,6 +134,7 @@ pub(crate) struct Message {
     pub(crate) role: Role,
     pub(crate) text: String,
     pub(crate) thinking: String,
+    pub(crate) thinking_signature: String,
     pub(crate) response_model: Option<String>,
     pub(crate) tool_calls: Vec<ToolCall>,
     pub(crate) tool_id: String,
@@ -193,6 +196,7 @@ impl App {
             auth_cancel: None,
             auth_prompt: None,
             auth_brand: None,
+            anthropic_verifier: None,
             limits: None,
             limits_rx: None,
         }
@@ -205,6 +209,7 @@ impl Message {
             role: Role::User,
             text,
             thinking: String::new(),
+            thinking_signature: String::new(),
             response_model: None,
             tool_calls: Vec::new(),
             tool_id: String::new(),
@@ -225,6 +230,7 @@ impl Message {
             role: Role::Assistant,
             text: String::new(),
             thinking: String::new(),
+            thinking_signature: String::new(),
             response_model: None,
             tool_calls: Vec::new(),
             tool_id: String::new(),
@@ -245,6 +251,7 @@ impl Message {
             role: Role::Tool,
             text: content,
             thinking: String::new(),
+            thinking_signature: String::new(),
             response_model: None,
             tool_calls: Vec::new(),
             tool_id: String::new(),
@@ -259,6 +266,7 @@ impl Message {
             role: Role::Tool,
             text: content,
             thinking: String::new(),
+            thinking_signature: String::new(),
             response_model: None,
             tool_calls: Vec::new(),
             tool_id: id,

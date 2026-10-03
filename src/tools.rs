@@ -43,6 +43,31 @@ pub fn completions_definitions() -> Value {
     )
 }
 
+pub fn messages_definitions(oauth: bool) -> Value {
+    Value::Array(
+        definitions_list()
+            .into_iter()
+            .map(|mut definition| {
+                let object = definition.as_object_mut().unwrap();
+                if oauth && let Some(name) = object.get("name").and_then(Value::as_str) {
+                    let wire = match name {
+                        "read" => "Read",
+                        "write" => "Write",
+                        "edit" => "Edit",
+                        "bash" => "Bash",
+                        other => other,
+                    };
+                    object.insert("name".into(), json!(wire));
+                }
+                if let Some(parameters) = object.remove("parameters") {
+                    object.insert("input_schema".into(), parameters);
+                }
+                definition
+            })
+            .collect(),
+    )
+}
+
 fn definitions_list() -> Vec<Value> {
     vec![
         json!({

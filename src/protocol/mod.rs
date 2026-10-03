@@ -1,7 +1,8 @@
-//! Completions and Responses streams. Generic OpenAI-shaped HTTP. No branded providers.
+//! Completions, Responses, and Messages streams.
 
 mod completions;
 mod http;
+mod messages;
 mod responses;
 
 use std::sync::Arc;
@@ -85,6 +86,8 @@ pub enum ChatMessage {
     User(String),
     Assistant {
         content: String,
+        thinking: String,
+        thinking_signature: String,
         tool_calls: Vec<ToolCall>,
     },
     Tool {
@@ -123,6 +126,7 @@ impl Usage {
 pub enum StreamEvent {
     Delta(String),
     Think(String),
+    ThinkSignature(String),
     Usage(Usage),
     Model(String),
     Tools {
@@ -162,7 +166,7 @@ pub fn stream(
         Api::Responses => {
             responses::stream(cfg, messages, cancel, &tx, cache_key, tools, debug_headers)
         }
-        Api::Messages => Err(format!("{} uses messages, not implemented", cfg.model)),
+        Api::Messages => messages::stream(cfg, messages, cancel, &tx, tools, debug_headers),
     };
     if let Err(err) = result {
         let _ = tx.send(StreamEvent::Failed(err));

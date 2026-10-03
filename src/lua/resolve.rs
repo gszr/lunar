@@ -97,16 +97,21 @@ fn provider_config(
     default_thinking: Option<&str>,
     providers: &mut BTreeMap<String, Result<ResolvedProvider, String>>,
 ) -> Result<Config, String> {
-    if model.api == Api::Messages
-        || (provider.key_in == "auth"
-            && provider.auth_provider.as_deref() == Some("openai")
-            && model.api != Api::Responses)
-    {
-        let name = model.alias.as_deref().unwrap_or(model.id.as_str());
-        return Err(format!(
-            "{name} uses {}, not implemented",
-            model.api.as_str()
-        ));
+    if provider.key_in == "auth" {
+        match (provider.auth_provider.as_deref(), model.api) {
+            (Some("openai"), api) if api != Api::Responses => {
+                let name = model.alias.as_deref().unwrap_or(model.id.as_str());
+                return Err(format!("{name} uses {}, not implemented", api.as_str()));
+            }
+            (Some("anthropic"), api) if api != Api::Messages => {
+                let name = model.alias.as_deref().unwrap_or(model.id.as_str());
+                return Err(format!(
+                    "{name} uses {}, Anthropic subscription auth requires messages",
+                    api.as_str()
+                ));
+            }
+            _ => {}
+        }
     }
     let provider = providers
         .entry(provider_key.to_string())
@@ -140,7 +145,7 @@ fn resolve_provider(
                 .as_deref()
                 .filter(|s| !s.is_empty())
                 .ok_or_else(|| format!("{provider_key} has no auth_provider"))?;
-            if !matches!(auth_provider, "xai" | "openai") {
+            if !matches!(auth_provider, "xai" | "openai" | "anthropic") {
                 return Err(format!(
                     "{provider_key} has unknown auth_provider: {auth_provider}"
                 ));
@@ -313,6 +318,7 @@ pub(super) fn default_auth_base(auth_provider: Option<&str>) -> Option<&'static 
     match auth_provider {
         Some("xai") => Some("https://api.x.ai/v1"),
         Some("openai") => Some("https://chatgpt.com/backend-api"),
+        Some("anthropic") => Some("https://api.anthropic.com"),
         _ => None,
     }
 }

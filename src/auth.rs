@@ -1,5 +1,6 @@
 //! Lunar-managed credentials in `$LUNAR_HOME/recorder/auth.json`.
 
+mod anthropic;
 mod http;
 mod openai;
 mod store;
@@ -47,6 +48,14 @@ pub fn chatgpt_account_id(access: &str) -> Result<String, String> {
     openai::chatgpt_account_id(access)
 }
 
+pub fn anthropic_authorize() -> Result<(String, String), String> {
+    anthropic::authorize()
+}
+
+pub fn exchange_anthropic(input: &str, verifier: &str) -> Result<Credential, String> {
+    anthropic::exchange(input, verifier)
+}
+
 pub fn resolve(provider: &str) -> Result<String, String> {
     let path = store::path();
     let mut credentials = store::load(&path)?;
@@ -66,6 +75,7 @@ pub fn resolve(provider: &str) -> Result<String, String> {
             let fresh = match provider {
                 "xai" => xai::refresh(&refresh),
                 "openai" => openai::refresh(&refresh),
+                "anthropic" => anthropic::refresh(&refresh),
                 _ => Err(format!("unknown auth provider: {provider}")),
             }?;
             let access = match &fresh {

@@ -2,5 +2,7 @@ Copy one of these to `~/.lunar/control/init.lua` (or `$LUNAR_HOME/control/init.l
 
 - `xai.lua` — xAI Completions, API key from `XAI_API_KEY`
 - `openai.lua` — ChatGPT Plus/Pro, credential from `/login openai`
+- `anthropic.lua` — Claude Pro/Max, credential from `/login anthropic`
+- `anthropic.lua` — Claude Pro/Max, credential from `/login anthropic`
 
 `defaults` must name both `provider` and `model`. The token never sits in Lua.
