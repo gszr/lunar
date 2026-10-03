@@ -57,7 +57,7 @@ All notable changes to **Lunar** are documented in this file.
 - **Resilient HTTP streaming**: transient POST failures retry up to three times with cancellable exponential backoff; completed Completions streams are briefly drained for usage and then in the background so pooled sockets can be reused.
 - **Computer-resume detection**: an active stream interrupted by system sleep is stopped as stale while preserving partial output and returning control to the user.
 - **Storage separation and migration**: user-authored Lua lives under `control/`, Lunar-owned missions, auth, history, logs, and tool output live under `recorder/`, and legacy root paths migrate without overwriting existing destinations.
-- **Optional Lunar attribution skill**: a bundled, manually installed skill adds Lunar attribution when an agent creates a pull request or issue.
+- **Optional Lunar attribution skill**: a bundled, manually installed skill adds Lunar attribution, including the model used, when an agent creates a pull request or issue.
 - **Optional standup skill**: a bundled, manually installed skill summarizes recent GitHub activity into a concise standup update.
 - **Release automation**: GitHub Actions run checks and build release artifacts, with Homebrew and Cargo installation documented.
 
