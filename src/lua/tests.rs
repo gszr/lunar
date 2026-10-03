@@ -587,7 +587,7 @@ return {
 }
 
 #[test]
-fn messages_api_cannot_send() {
+fn messages_api_resolves() {
     let _e = isolate(&[("XAI_API_KEY", "k")]);
     let src = r#"
 return {
@@ -602,11 +602,11 @@ return {
 }
 "#;
     let loaded = load_path(&write_init(&scratch(), src));
-    assert!(loaded.config.is_none());
-    assert_eq!(
-        loaded.notice.as_deref(),
-        Some("claude-opus-4 uses messages, not implemented")
-    );
+    let cfg = loaded.config.unwrap();
+    assert_eq!(cfg.model, "claude-opus-4");
+    assert_eq!(cfg.api, Api::Messages);
+    assert_eq!(cfg.base_url, "https://api.anthropic.com");
+    assert_eq!(loaded.notice, None);
 }
 
 #[test]
@@ -1010,8 +1010,35 @@ fn auth_provider_fills_omitted_base_url() {
         resolve::default_auth_base(Some("xai")),
         Some("https://api.x.ai/v1")
     );
+    assert_eq!(
+        resolve::default_auth_base(Some("anthropic")),
+        Some("https://api.anthropic.com")
+    );
     assert_eq!(resolve::default_auth_base(Some("other")), None);
     assert_eq!(resolve::default_auth_base(None), None);
+}
+
+#[test]
+fn anthropic_auth_completions_cannot_send() {
+    let _e = isolate(&[]);
+    let src = r#"
+return {
+  providers = {
+  anthropic = {
+    key_in = "auth",
+    auth_provider = "anthropic",
+    models = { { id = "claude-opus-4", api = "completions" } },
+  },
+},
+  defaults = { provider = "anthropic", model = "claude-opus-4" },
+}
+"#;
+    let loaded = load_path(&write_init(&scratch(), src));
+    assert!(loaded.config.is_none());
+    assert_eq!(
+        loaded.notice.as_deref(),
+        Some("claude-opus-4 uses completions, Anthropic subscription auth requires messages")
+    );
 }
 
 #[test]

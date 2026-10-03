@@ -31,6 +31,7 @@ pub(crate) fn drain_auth(app: &mut App) {
             app.auth_rx = None;
             app.auth_cancel = None;
             app.auth_prompt = None;
+            app.anthropic_verifier = None;
             app.notice = Some(format!("logged in to {brand}"));
             reload_config(app);
         }
@@ -39,6 +40,7 @@ pub(crate) fn drain_auth(app: &mut App) {
             app.auth_rx = None;
             app.auth_cancel = None;
             app.auth_prompt = None;
+            app.anthropic_verifier = None;
             app.notice = Some(err);
         }
         None => {}
@@ -67,6 +69,54 @@ pub(crate) fn start_xai_oauth(app: &mut App) {
             })
             .and_then(|credential| auth::save_oauth("xai", credential))
     });
+}
+
+pub(crate) fn start_anthropic_oauth(app: &mut App) {
+    app.mode = Mode::Chat;
+    match auth::anthropic_authorize() {
+        Ok((url, verifier)) => {
+            let browser_opened = webbrowser::open(&url).is_ok();
+            app.auth_prompt = Some(AuthPrompt {
+                url,
+                code: "code#state".into(),
+                browser_opened,
+            });
+            app.auth_brand = Some("Anthropic");
+            app.anthropic_verifier = Some(verifier);
+            app.mode = Mode::LoginCode;
+            app.input.clear();
+            app.cursor = 0;
+            app.notice = None;
+        }
+        Err(err) => app.notice = Some(err),
+    }
+}
+
+pub(crate) fn save_anthropic_code(app: &mut App) {
+    let input = std::mem::take(&mut app.input);
+    app.cursor = 0;
+    let Some(verifier) = app.anthropic_verifier.take() else {
+        app.mode = Mode::Chat;
+        app.auth_prompt = None;
+        app.auth_brand = None;
+        app.notice = Some("Anthropic login expired; run /login anthropic".into());
+        return;
+    };
+    app.mode = Mode::Chat;
+    app.auth_prompt = None;
+    match auth::exchange_anthropic(&input, &verifier)
+        .and_then(|credential| auth::save_oauth("anthropic", credential))
+    {
+        Ok(()) => {
+            app.auth_brand = None;
+            app.notice = Some("logged in to Anthropic".into());
+            reload_config(app);
+        }
+        Err(err) => {
+            app.auth_brand = None;
+            app.notice = Some(err);
+        }
+    }
 }
 
 pub(crate) fn start_openai_oauth(app: &mut App) {
@@ -127,6 +177,10 @@ pub(crate) fn logout_xai(app: &mut App) {
 
 pub(crate) fn logout_openai(app: &mut App) {
     logout_provider(app, "openai", "OpenAI");
+}
+
+pub(crate) fn logout_anthropic(app: &mut App) {
+    logout_provider(app, "anthropic", "Anthropic");
 }
 
 fn logout_provider(app: &mut App, provider: &str, brand: &str) {

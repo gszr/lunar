@@ -31,8 +31,24 @@ pub(super) fn post_retry(
         let mut headers = json!({
             "content-type": "application/json"
         });
+        let messages = cfg.api == super::Api::Messages;
+        let oauth =
+            cfg.auth_provider.as_deref() == Some("anthropic") || cfg.api_key.contains("sk-ant-oat");
         if !cfg.api_key.is_empty() {
-            headers["authorization"] = json!("Bearer [REDACTED]");
+            if messages && !oauth {
+                headers["x-api-key"] = json!("[REDACTED]");
+            } else {
+                headers["authorization"] = json!("Bearer [REDACTED]");
+            }
+        }
+        if messages {
+            headers["anthropic-version"] = json!("2023-06-01");
+            headers["anthropic-dangerous-direct-browser-access"] = json!("true");
+            if oauth {
+                headers["user-agent"] = json!("claude-cli/2.1.280");
+                headers["x-app"] = json!("cli");
+                headers["anthropic-beta"] = json!("claude-code-20250219,oauth-2025-04-20");
+            }
         }
         if let Some(session) = session {
             headers["session_id"] = json!(session);
@@ -55,7 +71,22 @@ pub(super) fn post_retry(
         );
         let mut request = agent().post(url).header("Content-Type", "application/json");
         if !cfg.api_key.is_empty() {
-            request = request.header("Authorization", &format!("Bearer {}", cfg.api_key));
+            if messages && !oauth {
+                request = request.header("x-api-key", &cfg.api_key);
+            } else {
+                request = request.header("Authorization", &format!("Bearer {}", cfg.api_key));
+            }
+        }
+        if messages {
+            request = request
+                .header("anthropic-version", "2023-06-01")
+                .header("anthropic-dangerous-direct-browser-access", "true");
+            if oauth {
+                request = request
+                    .header("User-Agent", "claude-cli/2.1.280")
+                    .header("x-app", "cli")
+                    .header("anthropic-beta", "claude-code-20250219,oauth-2025-04-20");
+            }
         }
         if let Some(session) = session {
             request = request

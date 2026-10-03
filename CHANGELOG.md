@@ -6,6 +6,15 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🚀 Added
 
+- **Anthropic Messages API**: models can select `api = "messages"`. Lunar streams text, thinking, tools, and usage from `{base_url}/v1/messages`.
+- **Claude Pro/Max authentication**: `/login anthropic` runs Anthropic's copy-code OAuth flow. Lunar opens the Claude authorize URL, you paste `code#state`, and tokens are stored in the recorder. `/logout anthropic` removes them.
+- **Claude Code request identity on Anthropic OAuth**: subscription requests send Claude Code user-agent, beta, and system identity headers so Anthropic accepts the token. API-key Messages requests stay ordinary `x-api-key` traffic.
+
+### 🐞 Fixed
+
+- **Anthropic Messages OAuth no longer sends `betas` in the JSON body**: those flags belong on the `anthropic-beta` header. The extra body field made Anthropic reject the request with `betas: Extra inputs are not permitted`.
+- **Anthropic thinking survives tool rounds**: Lunar keeps the thinking signature and replays it on the next Messages request, so later tool rounds are not rejected.
+
 - **Pi-shaped terminal glass**: Lunar opens directly into a four-band terminal UI with a header, scrollable transcript, growing editor, and two-line footer. The empty transcript uses Lunar's Lua-logo moon splash and disappears after the first prompt.
 - **Streaming Chat Completions**: assistant text and reasoning stream into the glass through a reused HTTP agent, with visible working states and cancellable turns.
 - **OpenAI Responses support**: models can select the Responses protocol in Lua. Lunar replays converted history, requests reasoning summaries, disables response storage, and sends mission cache and affinity identifiers.
@@ -57,7 +66,7 @@ All notable changes to **Lunar** are documented in this file.
 - **Resilient HTTP streaming**: transient POST failures retry up to three times with cancellable exponential backoff; completed Completions streams are briefly drained for usage and then in the background so pooled sockets can be reused.
 - **Computer-resume detection**: an active stream interrupted by system sleep is stopped as stale while preserving partial output and returning control to the user.
 - **Storage separation and migration**: user-authored Lua lives under `control/`, Lunar-owned missions, auth, history, logs, and tool output live under `recorder/`, and legacy root paths migrate without overwriting existing destinations.
-- **Optional Lunar attribution skill**: a bundled, manually installed skill adds Lunar attribution when an agent creates a pull request or issue.
+- **Optional Lunar attribution skill**: a bundled, manually installed skill adds Lunar attribution, including the model used, when an agent creates a pull request or issue.
 - **Optional standup skill**: a bundled, manually installed skill summarizes recent GitHub activity into a concise standup update.
 - **Release automation**: GitHub Actions run checks and build release artifacts, with Homebrew and Cargo installation documented.
 

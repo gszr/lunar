@@ -157,6 +157,7 @@ mod tests {
             auth_cancel: None,
             auth_prompt: None,
             auth_brand: None,
+            anthropic_verifier: None,
             limits: None,
             limits_rx: None,
         }

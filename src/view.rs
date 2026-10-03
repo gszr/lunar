@@ -69,14 +69,30 @@ pub(crate) fn editor_height(input: &str, cursor: usize, width: u16) -> u16 {
 }
 
 pub(crate) fn auth_editor_height(app: &App, width: u16) -> Option<u16> {
-    app.auth_rx.as_ref()?;
+    if app.auth_rx.is_none() && !matches!(app.mode, Mode::LoginCode) {
+        return None;
+    }
     let text = auth_prompt_text(app);
-    Some((char_wrap(&text, width.max(1) as usize).len() as u16).min(EDITOR_MAX_LINES) + 2)
+    let extra = u16::from(matches!(app.mode, Mode::LoginCode));
+    Some(
+        (char_wrap(&text, width.max(1) as usize).len() as u16)
+            .saturating_add(extra)
+            .min(EDITOR_MAX_LINES)
+            + 2,
+    )
 }
 
 pub(crate) fn auth_prompt_text(app: &App) -> String {
     let brand = app.auth_brand.unwrap_or("xAI");
     match &app.auth_prompt {
+        Some(prompt) if brand == "Anthropic" && prompt.browser_opened => format!(
+            "Sign in to Anthropic\nOpen: {}\nPaste the code Anthropic shows (code#state), then Enter. Esc cancels",
+            prompt.url
+        ),
+        Some(prompt) if brand == "Anthropic" => format!(
+            "Sign in to Anthropic\nOpen: {}\nCouldn’t open your browser. Copy and paste the URL above, then paste the displayed code (code#state) and press Enter. Esc cancels",
+            prompt.url
+        ),
         Some(prompt) if prompt.browser_opened => format!(
             "Sign in to {brand}\nOpen: {}\nCode: {}\nWaiting for authorization…  Esc cancels",
             prompt.url, prompt.code
@@ -92,7 +108,7 @@ pub(crate) fn auth_prompt_text(app: &App) -> String {
 pub(crate) fn model_picker_height(app: &App) -> u16 {
     match &app.mode {
         Mode::Model { items, .. } => items.len().saturating_add(1).min(u16::MAX as usize) as u16,
-        Mode::LoginProvider { .. } => 3,
+        Mode::LoginProvider { .. } => 4,
         Mode::LoginMethod { .. } => 3,
         Mode::Thinking { .. } => 1,
         _ => 0,
@@ -437,13 +453,17 @@ pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
         draw_auth_editor(frame, area, app);
         return;
     }
+    if matches!(app.mode, Mode::LoginCode) {
+        draw_login_code_editor(frame, area, app);
+        return;
+    }
     if let Mode::LoginProvider { cursor } = &app.mode {
         draw_picker_editor(
             frame,
             area,
             app,
             "login  j/k  enter  esc",
-            &["xAI", "OpenAI"],
+            &["xAI", "OpenAI", "Anthropic"],
             *cursor,
         );
         return;
@@ -570,6 +590,30 @@ pub(crate) fn draw_auth_editor(frame: &mut Frame, area: Rect, app: &App) {
         .map(|line| Line::from(Span::styled(line, Style::default().fg(splash::BONE))))
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn draw_login_code_editor(frame: &mut Frame, area: Rect, app: &App) {
+    let block = Block::default()
+        .borders(Borders::TOP | Borders::BOTTOM)
+        .border_style(Style::default().fg(splash::GOLD));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.height == 0 {
+        return;
+    }
+    let prompt = char_wrap(&auth_prompt_text(app), inner.width.max(1) as usize);
+    let prompt_h = (prompt.len() as u16).min(inner.height.saturating_sub(1));
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(prompt_h), Constraint::Min(1)])
+        .split(inner);
+    let lines: Vec<Line> = prompt
+        .into_iter()
+        .take(prompt_h as usize)
+        .map(|line| Line::from(Span::styled(line, Style::default().fg(splash::BONE))))
+        .collect();
+    frame.render_widget(Paragraph::new(lines), chunks[0]);
+    draw_editor_input(frame, chunks[1], app);
 }
 
 pub(crate) fn draw_picker_editor(

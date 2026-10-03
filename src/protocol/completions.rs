@@ -23,10 +23,12 @@ impl ChatMessage {
             ChatMessage::Assistant {
                 content,
                 tool_calls,
+                ..
             } if tool_calls.is_empty() => json!({"role": "assistant", "content": content}),
             ChatMessage::Assistant {
                 content,
                 tool_calls,
+                ..
             } => json!({
                 "role": "assistant",
                 "content": if content.is_empty() { Value::Null } else { Value::String(content.clone()) },

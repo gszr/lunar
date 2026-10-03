@@ -83,6 +83,15 @@ pub(crate) fn drain_stream(app: &mut App) {
                     message.thinking.push_str(&text);
                 }
             }
+            Ok(StreamEvent::ThinkSignature(signature)) => {
+                if app.compacting.is_none()
+                    && let Some(message) = app
+                        .active_assistant
+                        .and_then(|index| app.messages.get_mut(index))
+                {
+                    message.thinking_signature.push_str(&signature);
+                }
+            }
             Ok(StreamEvent::Model(model)) => {
                 if app.compacting.is_none()
                     && let Some(message) = app
@@ -184,6 +193,7 @@ pub(crate) fn drain_btw(app: &mut App) {
                     message.thinking.push_str(&text);
                 }
             }
+            Ok(StreamEvent::ThinkSignature(_)) => {}
             Ok(StreamEvent::Model(model)) => {
                 if let Some(message) = app.messages.get_mut(btw.assistant) {
                     message.response_model = Some(model);
@@ -288,6 +298,7 @@ pub(crate) fn finish_stream(app: &mut App, end: StreamEvent) {
         }
         StreamEvent::Delta(_)
         | StreamEvent::Think(_)
+        | StreamEvent::ThinkSignature(_)
         | StreamEvent::Model(_)
         | StreamEvent::Usage(_)
         | StreamEvent::ResponseHeaders { .. } => {}
