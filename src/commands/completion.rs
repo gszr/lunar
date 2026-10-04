@@ -133,7 +133,9 @@ pub fn help() -> String {
         .map(|command| format!("/{}", command.name))
         .collect::<Vec<_>>()
         .join("  ");
-    format!("{commands}\n\ntab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits")
+    format!(
+        "{commands}\n\n@ file    tab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits"
+    )
 }
 
 #[cfg(test)]

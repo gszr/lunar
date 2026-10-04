@@ -4,6 +4,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::app::{App, HistorySearch};
 use crate::commands;
+use crate::files;
 
 pub(crate) fn start_search(app: &mut App) {
     app.search = Some(HistorySearch {
@@ -177,6 +178,9 @@ pub(crate) fn reset_history_navigation(app: &mut App) {
 }
 
 pub(crate) fn on_complete_key(app: &mut App, key: KeyEvent, submit: fn(&mut App)) -> bool {
+    if let Some(rows) = file_rows(app) {
+        return on_file_key(app, key, &rows);
+    }
     let n = commands::matches(&app.input).len();
     if n == 0 {
         return false;
@@ -206,11 +210,72 @@ pub(crate) fn on_complete_key(app: &mut App, key: KeyEvent, submit: fn(&mut App)
     }
 }
 
+pub(crate) fn file_rows(app: &App) -> Option<Vec<files::Row>> {
+    if app.files_closed {
+        return None;
+    }
+    let (_, query) = files::at_token(&app.input, app.cursor)?;
+    let found = files::search(&files::cwd(), query);
+    let rows = files::rows(&found);
+    if files::file_count(&rows) == 0 {
+        None
+    } else {
+        Some(rows)
+    }
+}
+
+fn on_file_key(app: &mut App, key: KeyEvent, rows: &[files::Row]) -> bool {
+    let selected = files::clamp_selected(app.complete_sel, rows);
+    match (key.modifiers, key.code) {
+        (_, KeyCode::Tab) | (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
+            app.complete_sel = files::cycle(selected, rows, 1);
+            true
+        }
+        (_, KeyCode::Down) => {
+            app.complete_sel = files::cycle(selected, rows, 1);
+            true
+        }
+        (_, KeyCode::BackTab) | (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+            app.complete_sel = files::cycle(selected, rows, -1);
+            true
+        }
+        (_, KeyCode::Up) => {
+            app.complete_sel = files::cycle(selected, rows, -1);
+            true
+        }
+        (m, KeyCode::Enter) if m.is_empty() => {
+            accept_file(app, rows, selected);
+            true
+        }
+        (_, KeyCode::Esc) => {
+            app.files_closed = true;
+            app.complete_sel = 0;
+            true
+        }
+        _ => false,
+    }
+}
+
+fn accept_file(app: &mut App, rows: &[files::Row], selected: usize) {
+    let Some((start, _)) = files::at_token(&app.input, app.cursor) else {
+        return;
+    };
+    let Some(files::Row::File(file)) = rows.get(selected) else {
+        return;
+    };
+    let replacement = format!("{} ", file.path);
+    app.input.replace_range(start..app.cursor, &replacement);
+    app.cursor = start + replacement.len();
+    app.complete_sel = 0;
+    app.files_closed = false;
+}
+
 pub(crate) fn insert_input(app: &mut App, c: char) {
     reset_history_navigation(app);
     app.input.insert(app.cursor, c);
     app.cursor += c.len_utf8();
     app.complete_sel = 0;
+    app.files_closed = false;
 }
 
 pub(crate) fn accept_complete(app: &mut App, submit: fn(&mut App)) {

@@ -11,7 +11,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::app::{App, Message, Mode, Role};
 use crate::protocol::Config;
-use crate::{commands, lua, mission, splash, transcript};
+use crate::{commands, files, lua, mission, splash, transcript};
 
 pub(crate) const EDITOR_MAX_LINES: u16 = 8;
 
@@ -121,13 +121,24 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
         editor_height(app.input.as_str(), app.cursor, frame.area().width)
             .saturating_add(model_picker_height(app))
     });
-    let found = if app.search.is_none() {
+    let file_rows = if app.search.is_none() {
+        crate::input::file_rows(app)
+    } else {
+        None
+    };
+    let found = if file_rows.is_none() && app.search.is_none() {
         commands::matches(&app.input)
     } else {
         Vec::new()
     };
     let selected = commands::clamp_selected(app.complete_sel, found.len());
-    let complete_h = if found.is_empty() {
+    let file_selected = file_rows
+        .as_deref()
+        .map(|rows| files::clamp_selected(app.complete_sel, rows))
+        .unwrap_or(0);
+    let complete_h = if let Some(rows) = &file_rows {
+        files::visible(rows, file_selected).1.len() as u16
+    } else if found.is_empty() {
         0
     } else {
         commands::visible(&found, selected).1.len() as u16
@@ -152,7 +163,9 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
         draw_working(frame, chunks[2], working_text(app));
     }
     draw_editor(frame, chunks[3], app);
-    if complete_h > 0 {
+    if let Some(rows) = &file_rows {
+        draw_files(frame, chunks[4], rows, file_selected);
+    } else if complete_h > 0 {
         draw_complete(frame, chunks[4], &found, selected);
     }
     draw_footer(frame, chunks[5], app);
@@ -448,6 +461,42 @@ pub(crate) fn draw_complete(
     frame.render_widget(Paragraph::new(lines), area);
 }
 
+pub(crate) fn draw_files(frame: &mut Frame, area: Rect, rows: &[files::Row], selected: usize) {
+    let (start, view) = files::visible(rows, selected);
+    let width = area.width.max(1) as usize;
+    let lines: Vec<Line> = view
+        .iter()
+        .enumerate()
+        .map(|(i, row)| match row {
+            files::Row::Header(kind) => Line::from(Span::styled(
+                format!("  {kind}"),
+                Style::default().fg(splash::DUST),
+            )),
+            files::Row::File(file) => {
+                let sel = start + i == selected;
+                let marker = if sel { "→ " } else { "  " };
+                let mut path = file.path.clone();
+                let room = width.saturating_sub(marker.len());
+                if path.chars().count() > room && room > 1 {
+                    path = path.chars().take(room.saturating_sub(1)).collect();
+                    path.push('…');
+                }
+                Line::from(vec![
+                    Span::styled(
+                        marker,
+                        Style::default().fg(if sel { splash::GOLD } else { splash::DUST }),
+                    ),
+                    Span::styled(
+                        path,
+                        Style::default().fg(if sel { splash::GOLD } else { splash::BONE }),
+                    ),
+                ])
+            }
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), area);
+}
+
 pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
     if app.auth_rx.is_some() {
         draw_auth_editor(frame, area, app);
@@ -653,6 +702,52 @@ pub(crate) fn draw_picker_editor(
     frame.render_widget(Paragraph::new(lines), chunks[1]);
 }
 
+fn style_editor_lines(input: &str, lines: &[String], _width: usize) -> Vec<Line<'static>> {
+    let gold = files::existing_paths(input, &files::cwd());
+    let mut offset = 0;
+    let mut styled = Vec::new();
+    for line in lines {
+        styled.push(style_editor_line(line, offset, &gold));
+        offset += line.len();
+        if offset < input.len() && input.as_bytes().get(offset) == Some(&b'\n') {
+            offset += 1;
+        }
+    }
+    styled
+}
+
+fn style_editor_line(line: &str, start: usize, gold: &[(usize, usize)]) -> Line<'static> {
+    let end = start + line.len();
+    let mut spans = Vec::new();
+    let mut cursor = 0;
+    for &(span_start, span_end) in gold {
+        if span_end <= start || span_start >= end {
+            continue;
+        }
+        let from = span_start.saturating_sub(start);
+        let to = span_end.min(end) - start;
+        if from > cursor {
+            spans.push(bone(&line[cursor..from]));
+        }
+        spans.push(Span::styled(
+            line[from..to].to_string(),
+            Style::default().fg(splash::GOLD),
+        ));
+        cursor = to;
+    }
+    if cursor < line.len() {
+        spans.push(bone(&line[cursor..]));
+    }
+    if spans.is_empty() {
+        spans.push(bone(line));
+    }
+    Line::from(spans)
+}
+
+fn bone(text: &str) -> Span<'static> {
+    Span::styled(text.to_string(), Style::default().fg(splash::BONE))
+}
+
 fn editor_window(mut lines: Vec<String>, row: u16, height: u16) -> (Vec<String>, u16) {
     if lines.len() <= height as usize {
         return (lines, row);
@@ -682,10 +777,14 @@ pub(crate) fn draw_editor_input(frame: &mut Frame, area: Rect, app: &App) {
     };
     let (row, col) = cursor_xy(&shown, shown_cursor, area.width as usize);
     let (lines, row) = editor_window(lines, row, area.height);
-    let styled: Vec<Line> = lines
-        .into_iter()
-        .map(|s| Line::from(Span::styled(s, Style::default().fg(splash::BONE))))
-        .collect();
+    let styled = if matches!(app.mode, Mode::ApiKey) {
+        lines
+            .into_iter()
+            .map(|s| Line::from(Span::styled(s, Style::default().fg(splash::BONE))))
+            .collect()
+    } else {
+        style_editor_lines(&shown, &lines, area.width as usize)
+    };
     frame.render_widget(Paragraph::new(styled), area);
 
     let cursor_x = area.x + col.min(area.width.saturating_sub(1));
