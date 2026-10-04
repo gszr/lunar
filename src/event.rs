@@ -78,6 +78,7 @@ pub(crate) fn on_paste(app: &mut App, text: &str) {
     app.input.insert_str(app.cursor, &text);
     app.cursor += text.len();
     app.complete_sel = 0;
+    app.files_closed = false;
 }
 
 pub(crate) fn on_key(app: &mut App, key: KeyEvent) {
@@ -435,9 +436,14 @@ fn on_chat_key(app: &mut App, key: KeyEvent, width: u16) {
             if app.cancel.is_some() {
                 abort_turn(app);
             } else {
-                app.input.clear();
-                app.cursor = 0;
-                app.complete_sel = 0;
+                if crate::input::file_rows(app).is_some() {
+                    app.files_closed = true;
+                    app.complete_sel = 0;
+                } else {
+                    app.input.clear();
+                    app.cursor = 0;
+                    app.complete_sel = 0;
+                }
             }
         }
         (KeyModifiers::CONTROL, KeyCode::Char('a')) => app.cursor = 0,
@@ -469,25 +475,30 @@ fn on_chat_key(app: &mut App, key: KeyEvent, width: u16) {
             app.input.replace_range(from..app.cursor, "");
             app.cursor = from;
             app.complete_sel = 0;
+            app.files_closed = false;
         }
         (KeyModifiers::ALT, KeyCode::Char('d')) => {
             let to = word_right(&app.input, app.cursor);
             app.input.replace_range(app.cursor..to, "");
             app.complete_sel = 0;
+            app.files_closed = false;
         }
         (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
             app.input.replace_range(..app.cursor, "");
             app.cursor = 0;
             app.complete_sel = 0;
+            app.files_closed = false;
         }
         (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
             app.input.truncate(app.cursor);
             app.complete_sel = 0;
+            app.files_closed = false;
         }
         (KeyModifiers::CONTROL, KeyCode::Char('d')) | (_, KeyCode::Delete) => {
             let to = next_char(&app.input, app.cursor);
             app.input.replace_range(app.cursor..to, "");
             app.complete_sel = 0;
+            app.files_closed = false;
         }
         (_, KeyCode::Home) => app.cursor = 0,
         (_, KeyCode::End) => app.cursor = app.input.len(),

@@ -6,6 +6,7 @@ mod compact;
 mod context;
 mod debug;
 mod event;
+mod files;
 mod history;
 mod input;
 mod limits;
@@ -140,6 +141,7 @@ mod tests {
             mission: None,
             mode: Mode::Chat,
             complete_sel: 0,
+            files_closed: false,
             quit: false,
             scroll: 0,
             follow: true,
@@ -565,6 +567,26 @@ mod tests {
         app.cursor = 5;
         on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Up));
         assert_eq!(app.input, "previous prompt");
+    }
+
+    #[test]
+    fn at_completes_a_path_and_escape_leaves_it() {
+        let mut app = test_app();
+        app.history = vec!["previous prompt".into()];
+        for c in "@Cargo.toml".chars() {
+            on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Char(c)));
+        }
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Up));
+        assert_eq!(app.input, "@Cargo.toml");
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Enter));
+        assert_eq!(app.input, "Cargo.toml ");
+        assert!(app.messages.is_empty());
+
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Char('@')));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Esc));
+        assert!(app.input.ends_with('@'));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Esc));
+        assert!(app.input.is_empty());
     }
 
     #[test]
