@@ -119,7 +119,8 @@ fn load_files(cwd: &Path, global: Option<&Path>) -> Vec<(String, String)> {
 fn load_skills(cwd: &Path, global: Option<&Path>) -> Vec<Skill> {
     let mut skills = BTreeMap::new();
     if let Some(root) = global {
-        load_skills_from(root, "~/.agents/skills", &mut skills);
+        let display_root = root.join("skills").display().to_string();
+        load_skills_from(root, &display_root, &mut skills);
     }
     load_skills_from(&cwd.join(".agents"), ".agents/skills", &mut skills);
     let mut skills: Vec<_> = skills.into_values().collect();
@@ -337,7 +338,8 @@ mod tests {
         assert!(text.contains(".agents/skills/review/SKILL.md"));
         assert!(!text.contains("global-review"));
         assert!(text.contains("ship: Ship globally."));
-        assert!(text.contains("~/.agents/skills/ship/SKILL.md"));
+        assert!(text.contains(&format!("{}/skills/ship/SKILL.md", global.display())));
+        assert!(!text.contains("~/.agents/skills"));
     }
 
     #[test]
