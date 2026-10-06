@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 624 838" role="img" aria-label="Lunar logo and wordmark">
+  <defs>
+    <linearGradient id="moon" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#f9f8ff"/>
+      <stop offset="1" stop-color="#efedfc"/>
+    </linearGradient>
+    <linearGradient id="moon-shade" x1="0" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#dfddfa"/>
+      <stop offset="1" stop-color="#d1cff7"/>
+    </linearGradient>
+    <linearGradient id="crater" x1="0" y1="0" x2="0.2" y2="1">
+      <stop offset="0" stop-color="#bdbbef"/>
+      <stop offset="1" stop-color="#cac8f3"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#aeacf5"/>
+      <stop offset="1" stop-color="#c5c3ff"/>
+    </linearGradient>
+    <radialGradient id="satellite" cx="0.45" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#aaa8f8"/>
+      <stop offset="1" stop-color="#8582d9"/>
+    </radialGradient>
+    <clipPath id="crescent">
+      <path d="M370 75C346 68 320 65 295 68C166 75 61 185 61 313C57 450 165 559 295 559C382 563 458 517 499 443C455 480 407 490 354 484C251 477 174 389 174 283C174 177 258 78 370 75Z"/>
+    </clipPath>
+    <mask id="orbit-cutout" maskUnits="userSpaceOnUse" x="0" y="0" width="624" height="626">
+      <rect width="624" height="626" fill="white"/>
+      <circle cx="531" cy="109" r="72" fill="black"/>
+    </mask>
+  </defs>
+  <g mask="url(#orbit-cutout)">
+    <circle cx="312" cy="313" r="284" fill="#020d36" stroke="#605fbb" stroke-width="8"/>
+    <path d="M370 75C346 68 320 65 295 68C166 75 61 185 61 313C57 450 165 559 295 559C382 563 458 517 499 443C455 480 407 490 354 484C251 477 174 389 174 283C174 177 258 78 370 75Z" fill="url(#moon)"/>
+    <g clip-path="url(#crescent)">
+      <!-- Shaded outer limb and inner crescent edge. -->
+      <path d="M120 154C68 241 70 354 113 430C156 510 222 536 301 536C380 536 449 498 499 443L523 466L449 564L288 579L156 541L76 450L48 335L66 222Z" fill="url(#moon-shade)"/>
+      <path d="M370 75C250 93 157 170 154 277C149 362 193 419 257 454C201 391 171 339 174 283C174 177 258 78 370 75Z" fill="url(#moon-shade)"/>
+      <g fill="url(#crater)">
+        <ellipse cx="220" cy="110" rx="8" ry="6" transform="rotate(-32 220 110)"/>
+        <ellipse cx="152" cy="164" rx="19" ry="13" transform="rotate(-44 152 164)"/>
+        <ellipse cx="145" cy="219" rx="11" ry="14" transform="rotate(33 145 219)"/>
+        <ellipse cx="117" cy="274" rx="10" ry="11"/>
+        <ellipse cx="86" cy="361" rx="7" ry="9"/>
+        <path d="M125 344C118 346 113 354 115 365C114 376 121 387 132 392C141 396 153 392 158 383C162 374 157 358 151 351C145 343 133 341 125 344Z"/>
+        <ellipse cx="197" cy="430" rx="11" ry="9" transform="rotate(34 197 430)"/>
+        <ellipse cx="114" cy="439" rx="8" ry="11" transform="rotate(-40 114 439)"/>
+        <ellipse cx="168" cy="489" rx="16" ry="11" transform="rotate(38 168 489)"/>
+        <path d="M222 464C211 468 211 478 216 487C219 499 230 508 242 507C252 506 261 500 260 489C259 477 251 466 240 463C233 461 227 461 222 464Z"/>
+        <ellipse cx="202" cy="515" rx="7" ry="5" transform="rotate(28 202 515)"/>
+        <ellipse cx="306" cy="504" rx="8" ry="6" transform="rotate(16 306 504)"/>
+        <ellipse cx="465" cy="479" rx="5" ry="5"/>
+      </g>
+    </g>
+  </g>
+  <!-- Satellite and the short orbital connection, over a transparent cutout. -->
+  <path d="M479 156L513 125" fill="none" stroke="#9290dd" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="547" cy="99" r="47" fill="url(#satellite)"/>
+  <!-- Terminal housing, side grips, prompt and cursor. -->
+  <path d="M230 279C214 279 205 291 205 305V321C205 335 214 345 230 345Z" fill="url(#violet)"/>
+  <path d="M520 279C536 279 545 291 545 305V321C545 335 536 345 520 345Z" fill="url(#violet)"/>
+  <rect x="244" y="220" width="262" height="184" rx="33" fill="#020d36" stroke="url(#violet)" stroke-width="12"/>
+  <path d="M299 271L350 313L299 354" fill="none" stroke="#f6f5ff" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="378" y="348" width="71" height="16" rx="8" fill="#f6f5ff"/>
+  <g fill="#020d36">
+  <path d="M57 0V721H189V133H777V0Z" transform="translate(108.000 747.000) scale(0.093426 -0.078000)"/>
+  <path d="M193 0Q155 0 123.5 19.0Q92 38 73.0 69.5Q54 101 54 139V720H186V145Q186 140 189.5 136.5Q193 133 198 133H628Q633 133 637.0 136.5Q641 140 641 145V720H774V139Q774 101 755.0 69.5Q736 38 704.5 19.0Q673 0 635 0H193Z" transform="translate(186.767 747.000) scale(0.093426 -0.078000)"/>
+  <path d="M56 0V720H201L643 194V720H776V0H631L188 527V0Z" transform="translate(270.112 747.000) scale(0.093426 -0.078000)"/>
+  <path d="M58 0V581Q58 619 77.0 650.5Q96 682 127.5 701.0Q159 720 197 720H638Q676 720 708.0 701.0Q740 682 759.0 650.5Q778 619 778 581V0H645V242H190V0H58ZM190 374H645V575Q645 580 641.0 583.5Q637 587 632 587H202Q197 587 193.5 583.5Q190 580 190 575V374Z" transform="translate(353.831 747.000) scale(0.093426 -0.078000)"/>
+  <path d="M630 0 413 259H586L774 37V0ZM56 0V719H636Q674 719 706.0 700.0Q738 681 757.0 649.5Q776 618 776 580V386Q776 348 757.0 316.0Q738 284 706.0 265.5Q674 247 636 247L188 246V0ZM200 380H630Q635 380 639.0 383.0Q643 386 643 391V575Q643 580 639.0 583.5Q635 587 630 587H200Q195 587 191.5 583.5Q188 580 188 575V391Q188 386 191.5 383.0Q195 380 200 380Z" transform="translate(437.924 747.000) scale(0.093426 -0.078000)"/>
+  </g>
+  <g fill="#6c6cc6">
+    <path d="M373 68V16Q373 0 355 0H208Q134 0 93.5 41.0Q53 82 53 155V355Q53 429 93.5 469.5Q134 510 208 510H355Q373 510 373 493V441Q373 425 355 425H222Q150 425 150 351V159Q150 85 222 85H355Q373 85 373 68Z" transform="translate(106.000 799) scale(0.055972 -0.050000)"/>
+    <path d="M296 0H208Q134 0 93.5 41.0Q53 82 53 155V355Q53 429 93.5 469.5Q134 510 208 510H296Q369 510 410.5 469.5Q452 429 452 355V155Q452 82 410.5 41.0Q369 0 296 0ZM222 85H283Q355 85 355 158V352Q355 425 283 425H222Q184 425 167.0 407.5Q150 390 150 352V158Q150 120 167.0 102.5Q184 85 222 85Z" transform="translate(133.706 799) scale(0.055972 -0.050000)"/>
+    <path d="M253 0H202Q130 0 91.5 40.5Q53 81 53 155V355Q53 430 91.5 470.0Q130 510 202 510H253Q330 510 353 457H357V686Q357 703 374 703H438Q455 703 455 686V17Q455 0 438 0H374Q357 0 357 17V53H353Q330 0 253 0ZM357 170V340Q357 425 275 425H222Q150 425 150 351V159Q150 85 222 85H275Q357 85 357 170Z" transform="translate(166.953 799) scale(0.055972 -0.050000)"/>
+    <path d="M68 595V686Q68 702 84 702H149Q165 702 165 686V595Q165 578 149 578H84Q68 578 68 595ZM68 17V493Q68 510 84 510H148Q165 510 165 493V17Q165 7 161.5 3.5Q158 0 149 0H85Q68 0 68 17Z" transform="translate(200.984 799) scale(0.055972 -0.050000)"/>
+    <path d="M143 0H80Q63 0 63 17V493Q63 510 80 510H143Q160 510 160 493V457H164Q188 510 265 510H309Q382 510 421.0 470.0Q460 430 460 355V17Q460 0 442 0H379Q362 0 362 17V351Q362 425 289 425H242Q160 425 160 340V17Q160 0 143 0Z" transform="translate(219.063 799) scale(0.055972 -0.050000)"/>
+    <path d="M249 25H204Q132 25 93.5 65.5Q55 106 55 180V355Q55 429 96.0 469.5Q137 510 210 510H434Q452 510 452 493V-2Q452 -75 410.5 -115.5Q369 -156 296 -156H108Q91 -156 91 -140V-88Q91 -71 108 -71H281Q354 -71 354 3V79H350Q325 25 249 25ZM354 195V415Q354 425 343 425H224Q153 425 153 351V185Q153 111 224 111H272Q354 111 354 195Z" transform="translate(253.038 799) scale(0.055972 -0.050000)"/>
+    <path d="M143 0H80Q63 0 63 17V686Q63 703 80 703H143Q160 703 160 686V457H164Q188 510 265 510H309Q382 510 421.0 470.0Q460 430 460 355V17Q460 0 442 0H379Q362 0 362 17V351Q362 425 289 425H242Q160 425 160 340V17Q160 0 143 0Z" transform="translate(305.203 799) scale(0.055972 -0.050000)"/>
+    <path d="M247 0H208Q134 0 93.5 41.0Q53 82 53 155V355Q53 429 93.5 469.5Q134 510 208 510H432Q450 510 450 493V17Q450 0 432 0H369Q352 0 352 17V53H348Q324 0 247 0ZM352 170V415Q352 425 341 425H222Q150 425 150 351V159Q150 85 222 85H270Q352 85 352 170Z" transform="translate(339.178 799) scale(0.055972 -0.050000)"/>
+    <path d="M143 0H80Q63 0 63 17V493Q63 510 80 510H143Q160 510 160 493V455H164Q174 480 202.5 495.0Q231 510 266 510H303Q320 510 320 493V441Q320 422 303 425H243Q160 425 160 334V17Q160 0 143 0Z" transform="translate(372.873 799) scale(0.055972 -0.050000)"/>
+    <path d="M143 0H80Q63 0 63 17V493Q63 510 80 510H143Q160 510 160 493V457H164Q188 510 265 510H309Q382 510 421.0 470.0Q460 430 460 355V17Q460 0 442 0H379Q362 0 362 17V351Q362 425 289 425H242Q160 425 160 340V17Q160 0 143 0Z" transform="translate(396.661 799) scale(0.055972 -0.050000)"/>
+    <path d="M424 0H208Q134 0 93.5 41.0Q53 82 53 155V355Q53 429 93.5 469.5Q134 510 208 510H290Q364 510 405.0 469.5Q446 429 446 355V228Q446 210 428 210H160Q149 210 149 200V157Q149 84 222 84H424Q442 84 442 66V16Q442 0 424 0ZM160 278H339Q349 278 349 288V352Q349 390 332.0 407.5Q315 425 277 425H222Q184 425 167.0 407.5Q150 390 150 352V288Q150 278 160 278Z" transform="translate(430.636 799) scale(0.055972 -0.050000)"/>
+    <path d="M245 0H61Q44 0 44 17V66Q44 82 61 82H229Q294 82 294 127V139Q294 179 247 200L138 252Q87 276 64.0 305.0Q41 334 41 381Q41 510 184 510H350Q366 510 366 493V444Q366 427 350 427H204Q174 427 158.0 416.5Q142 406 142 389V378Q142 346 193 322L303 266Q355 243 374.5 211.5Q394 180 394 130Q394 0 245 0Z" transform="translate(463.267 799) scale(0.055972 -0.050000)"/>
+    <path d="M245 0H61Q44 0 44 17V66Q44 82 61 82H229Q294 82 294 127V139Q294 179 247 200L138 252Q87 276 64.0 305.0Q41 334 41 381Q41 510 184 510H350Q366 510 366 493V444Q366 427 350 427H204Q174 427 158.0 416.5Q142 406 142 389V378Q142 346 193 322L303 266Q355 243 374.5 211.5Q394 180 394 130Q394 0 245 0Z" transform="translate(492.652 799) scale(0.055972 -0.050000)"/>
+  </g>
+</svg>

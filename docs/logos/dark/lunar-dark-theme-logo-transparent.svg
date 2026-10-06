@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 624 626" role="img" aria-label="Lunar logo">
+  <defs>
+    <linearGradient id="moon" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#f9f8ff"/>
+      <stop offset="1" stop-color="#efedfc"/>
+    </linearGradient>
+    <linearGradient id="moon-shade" x1="0" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#dfddfa"/>
+      <stop offset="1" stop-color="#d1cff7"/>
+    </linearGradient>
+    <linearGradient id="crater" x1="0" y1="0" x2="0.2" y2="1">
+      <stop offset="0" stop-color="#bdbbef"/>
+      <stop offset="1" stop-color="#cac8f3"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#aeacf5"/>
+      <stop offset="1" stop-color="#c5c3ff"/>
+    </linearGradient>
+    <radialGradient id="satellite" cx="0.45" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#aaa8f8"/>
+      <stop offset="1" stop-color="#8582d9"/>
+    </radialGradient>
+    <clipPath id="crescent">
+      <path d="M370 75C346 68 320 65 295 68C166 75 61 185 61 313C57 450 165 559 295 559C382 563 458 517 499 443C455 480 407 490 354 484C251 477 174 389 174 283C174 177 258 78 370 75Z"/>
+    </clipPath>
+    <mask id="orbit-cutout" maskUnits="userSpaceOnUse" x="0" y="0" width="624" height="626">
+      <rect width="624" height="626" fill="white"/>
+      <circle cx="531" cy="109" r="72" fill="black"/>
+    </mask>
+  </defs>
+  <g mask="url(#orbit-cutout)">
+    <circle cx="312" cy="313" r="284" fill="#161f56" stroke="#605fbb" stroke-width="8"/>
+    <path d="M370 75C346 68 320 65 295 68C166 75 61 185 61 313C57 450 165 559 295 559C382 563 458 517 499 443C455 480 407 490 354 484C251 477 174 389 174 283C174 177 258 78 370 75Z" fill="url(#moon)"/>
+    <g clip-path="url(#crescent)">
+      <!-- Shaded outer limb and inner crescent edge. -->
+      <path d="M120 154C68 241 70 354 113 430C156 510 222 536 301 536C380 536 449 498 499 443L523 466L449 564L288 579L156 541L76 450L48 335L66 222Z" fill="url(#moon-shade)"/>
+      <path d="M370 75C250 93 157 170 154 277C149 362 193 419 257 454C201 391 171 339 174 283C174 177 258 78 370 75Z" fill="url(#moon-shade)"/>
+      <g fill="url(#crater)">
+        <ellipse cx="220" cy="110" rx="8" ry="6" transform="rotate(-32 220 110)"/>
+        <ellipse cx="152" cy="164" rx="19" ry="13" transform="rotate(-44 152 164)"/>
+        <ellipse cx="145" cy="219" rx="11" ry="14" transform="rotate(33 145 219)"/>
+        <ellipse cx="117" cy="274" rx="10" ry="11"/>
+        <ellipse cx="86" cy="361" rx="7" ry="9"/>
+        <path d="M125 344C118 346 113 354 115 365C114 376 121 387 132 392C141 396 153 392 158 383C162 374 157 358 151 351C145 343 133 341 125 344Z"/>
+        <ellipse cx="197" cy="430" rx="11" ry="9" transform="rotate(34 197 430)"/>
+        <ellipse cx="114" cy="439" rx="8" ry="11" transform="rotate(-40 114 439)"/>
+        <ellipse cx="168" cy="489" rx="16" ry="11" transform="rotate(38 168 489)"/>
+        <path d="M222 464C211 468 211 478 216 487C219 499 230 508 242 507C252 506 261 500 260 489C259 477 251 466 240 463C233 461 227 461 222 464Z"/>
+        <ellipse cx="202" cy="515" rx="7" ry="5" transform="rotate(28 202 515)"/>
+        <ellipse cx="306" cy="504" rx="8" ry="6" transform="rotate(16 306 504)"/>
+        <ellipse cx="465" cy="479" rx="5" ry="5"/>
+      </g>
+    </g>
+  </g>
+  <!-- Satellite and the short orbital connection, over a transparent cutout. -->
+  <path d="M479 156L513 125" fill="none" stroke="#9290dd" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="547" cy="99" r="47" fill="url(#satellite)"/>
+  <!-- Terminal housing, side grips, prompt and cursor. -->
+  <path d="M230 279C214 279 205 291 205 305V321C205 335 214 345 230 345Z" fill="url(#violet)"/>
+  <path d="M520 279C536 279 545 291 545 305V321C545 335 536 345 520 345Z" fill="url(#violet)"/>
+  <rect x="244" y="220" width="262" height="184" rx="33" fill="#161f56" stroke="url(#violet)" stroke-width="12"/>
+  <path d="M299 271L350 313L299 354" fill="none" stroke="#f6f5ff" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="378" y="348" width="71" height="16" rx="8" fill="#f6f5ff"/>
+</svg>

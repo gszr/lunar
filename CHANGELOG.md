@@ -6,6 +6,7 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🚀 Added
 
+- **Transparent SVG logos**: scalable light and dark logo-only and wordmark assets replace the PNGs under `docs/logos/`. The README uses theme-aware SVG wordmarks, preserving the moon craters, crescent shading, orbital rim, satellite, and “coding harness” tagline.
 - **File references**: type `@` to complete a path. A plain query searches the working directory; `~/`, an absolute path, and `../` search that directory and keep the prefix. Matches are grouped by file type and ordered by the newest file. Accepting one places the path in the prompt; an existing path is shown in gold. Lunar does not read the file.
 - **Anthropic Messages API**: models can select `api = "messages"`. Lunar streams text, thinking, tools, and usage from `{base_url}/v1/messages`.
 - **Claude Pro/Max authentication**: `/login anthropic` runs Anthropic's copy-code OAuth flow. Lunar opens the Claude authorize URL, you paste `code#state`, and tokens are stored in the recorder. `/logout anthropic` removes them.

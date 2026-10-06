@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/logos/dark/lunar-dark-theme-with-wordmark-transparent.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/logos/light/lunar-logo-with-wordmark-transparent.png">
-    <img src="docs/logos/light/lunar-logo-with-wordmark-transparent.png" alt="Lunar" width="220">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logos/dark/lunar-dark-theme-with-wordmark-transparent.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/logos/light/lunar-logo-with-wordmark-transparent.svg">
+    <img src="docs/logos/light/lunar-logo-with-wordmark-transparent.svg" alt="Lunar" width="220">
   </picture>
 </p>
 
