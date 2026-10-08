@@ -16,6 +16,7 @@ mod prompt;
 mod protocol;
 mod render;
 mod splash;
+mod stack;
 mod storage;
 mod terminal;
 mod tool_output;
@@ -92,7 +93,7 @@ fn main() -> io::Result<()> {
         }
     }
     if app.notice.is_none() {
-        app.notice = prompt::budget_warning();
+        app.notice = prompt::budget_warning(&app.stack);
     }
     limits::refresh(&mut app);
     event::run(terminal.get_mut(), &mut app)
@@ -126,6 +127,7 @@ mod tests {
             format_override: None,
             thinking_override: None,
             models: Vec::new(),
+            stack: String::new(),
             stream_rx: None,
             cancel: None,
             active_assistant: None,
