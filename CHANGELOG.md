@@ -6,6 +6,7 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🚀 Added
 
+- **Stack references**: list related repositories in `stack.components` with a location and optional notes. Lunar gives the model a compact directory of components so it can inspect the repos relevant to your task, without loading their contents automatically. Paths are resolved for the model, and the references are visible in `/context` and `/context raw`.
 - **Transparent SVG logos**: scalable light and dark logo-only and wordmark assets replace the PNGs under `docs/logos/`. The README uses theme-aware SVG wordmarks, preserving the moon craters, crescent shading, orbital rim, satellite, and “coding harness” tagline.
 - **File references**: type `@` to complete a path. A plain query searches the working directory; `~/`, an absolute path, and `../` search that directory and keep the prefix. Matches are grouped by file type and ordered by the newest file. Accepting one places the path in the prompt; an existing path is shown in gold. Lunar does not read the file.
 - **Anthropic Messages API**: models can select `api = "messages"`. Lunar streams text, thinking, tools, and usage from `{base_url}/v1/messages`.

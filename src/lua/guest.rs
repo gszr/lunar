@@ -11,6 +11,7 @@ pub(super) struct Guest {
     pub(super) models: BTreeMap<String, ModelDef>,
     pub(super) providers: BTreeMap<String, ProviderDef>,
     pub(super) defaults: Option<RawDefaults>,
+    pub(super) stack: BTreeMap<String, crate::stack::Component>,
     pub(super) model_notices: Vec<String>,
     pub(super) provider_notices: Vec<String>,
 }
@@ -54,6 +55,7 @@ impl Guest {
     pub(super) fn merge(&mut self, project: Self) {
         self.models.extend(project.models);
         self.providers.extend(project.providers);
+        self.stack.extend(project.stack);
         if project.defaults.is_some() {
             self.defaults = project.defaults;
         }
@@ -62,7 +64,7 @@ impl Guest {
     }
 }
 
-pub(super) fn parse(table: &Table) -> Result<Guest, String> {
+pub(super) fn parse(table: &Table, base: &std::path::Path) -> Result<Guest, String> {
     let (models, model_notices) = match table.get::<Value>("models") {
         Ok(Value::Table(models)) => parse_models(&models),
         Ok(Value::Nil) => (BTreeMap::new(), Vec::new()),
@@ -86,6 +88,7 @@ pub(super) fn parse(table: &Table) -> Result<Guest, String> {
         models,
         providers,
         defaults,
+        stack: crate::stack::parse(table, base)?,
         model_notices,
         provider_notices,
     })

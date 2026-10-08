@@ -22,14 +22,14 @@ struct Loaded {
     tokens: u32,
 }
 
-pub fn preamble() -> Option<String> {
+pub fn preamble(stack: &str) -> Option<String> {
     let cwd = std::env::current_dir().ok()?;
-    load(&cwd, global_agents().as_deref()).map(|loaded| loaded.text)
+    load(&cwd, global_agents().as_deref(), stack).map(|loaded| loaded.text)
 }
 
-pub fn budget_warning() -> Option<String> {
+pub fn budget_warning(stack: &str) -> Option<String> {
     let cwd = std::env::current_dir().ok()?;
-    let loaded = load(&cwd, global_agents().as_deref())?;
+    let loaded = load(&cwd, global_agents().as_deref(), stack)?;
     let budget = budget_tokens();
     if loaded.tokens > budget {
         Some(format!(
@@ -41,20 +41,20 @@ pub fn budget_warning() -> Option<String> {
     }
 }
 
-pub fn summary() -> (String, usize) {
+pub fn summary(stack: &str) -> (String, usize) {
     match std::env::current_dir() {
-        Ok(cwd) => summary_in(&cwd, global_agents().as_deref()),
+        Ok(cwd) => summary_in(&cwd, global_agents().as_deref(), stack),
         Err(_) => ("no cwd".into(), 0),
     }
 }
 
-fn summary_in(cwd: &Path, global: Option<&Path>) -> (String, usize) {
+fn summary_in(cwd: &Path, global: Option<&Path>, stack: &str) -> (String, usize) {
     let files = load_files(cwd, global);
     let skills = load_skills(cwd, global);
-    if files.is_empty() && skills.is_empty() {
+    if files.is_empty() && skills.is_empty() && stack.is_empty() {
         return ("no preamble".into(), 0);
     }
-    let text = render(&files, &skills);
+    let text = render(&files, &skills, stack);
     let tokens = estimate_tokens(&text);
     let budget = budget_tokens();
     let mut out = format!("preamble  ~{tokens} / {budget} tokens");
@@ -73,16 +73,19 @@ fn summary_in(cwd: &Path, global: Option<&Path>) -> (String, usize) {
             }
         }
     }
+    if !stack.is_empty() {
+        let _ = write!(out, "\n\n{stack}");
+    }
     (out, tokens as usize)
 }
 
-fn load(cwd: &Path, global: Option<&Path>) -> Option<Loaded> {
+fn load(cwd: &Path, global: Option<&Path>, stack: &str) -> Option<Loaded> {
     let files = load_files(cwd, global);
     let skills = load_skills(cwd, global);
-    if files.is_empty() && skills.is_empty() {
+    if files.is_empty() && skills.is_empty() && stack.is_empty() {
         return None;
     }
-    let text = render(&files, &skills);
+    let text = render(&files, &skills, stack);
     let tokens = estimate_tokens(&text);
     Some(Loaded { text, tokens })
 }
@@ -160,7 +163,7 @@ fn load_skills_from(root: &Path, display_root: &str, skills: &mut BTreeMap<Strin
     }
 }
 
-fn render(files: &[(String, String)], skills: &[Skill]) -> String {
+fn render(files: &[(String, String)], skills: &[Skill], stack: &str) -> String {
     let mut out = String::new();
     for (name, body) in files {
         if !out.is_empty() {
@@ -184,6 +187,12 @@ fn render(files: &[(String, String)], skills: &[Skill]) -> String {
                 );
             }
         }
+    }
+    if !stack.is_empty() {
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        out.push_str(stack);
     }
     out
 }
@@ -277,7 +286,20 @@ mod tests {
     #[test]
     fn empty_cwd_is_none() {
         let dir = scratch();
-        assert!(load(&dir, None).is_none());
+        assert!(load(&dir, None, "").is_none());
+    }
+
+    #[test]
+    fn stack_only_context_is_visible_and_counted() {
+        let dir = scratch();
+        let stack = "# Stack\n\n- backend: `/repos/backend` — Admin API";
+        let loaded = load(&dir, None, stack).unwrap();
+        assert_eq!(loaded.text, stack);
+        let (summary, tokens) = summary_in(&dir, None, stack);
+        assert!(summary.contains(stack));
+        assert_eq!(tokens, estimate_tokens(stack) as usize);
+        assert_eq!(loaded.tokens as usize, tokens);
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -285,7 +307,7 @@ mod tests {
         let dir = scratch();
         fs::write(dir.join("AGENTS.md"), "be brief").unwrap();
         fs::write(dir.join("CONTEXT.md"), "repo facts").unwrap();
-        let text = load(&dir, None).unwrap().text;
+        let text = load(&dir, None, "").unwrap().text;
         assert!(text.contains("# AGENTS.md"));
         assert!(text.contains("be brief"));
         assert!(text.contains("# CONTEXT.md"));
@@ -298,11 +320,11 @@ mod tests {
         let global = scratch();
         fs::write(global.join("AGENTS.md"), "global rules").unwrap();
 
-        let text = load(&cwd, Some(&global)).unwrap().text;
+        let text = load(&cwd, Some(&global), "").unwrap().text;
         assert!(text.contains("global rules"));
 
         fs::write(cwd.join("AGENTS.md"), "project rules").unwrap();
-        let text = load(&cwd, Some(&global)).unwrap().text;
+        let text = load(&cwd, Some(&global), "").unwrap().text;
         assert!(text.contains("project rules"));
         assert!(!text.contains("global rules"));
     }
@@ -333,7 +355,7 @@ mod tests {
         )
         .unwrap();
 
-        let text = load(&cwd, Some(&global)).unwrap().text;
+        let text = load(&cwd, Some(&global), "").unwrap().text;
         assert!(text.contains("project-review: Project review."));
         assert!(text.contains(".agents/skills/review/SKILL.md"));
         assert!(!text.contains("global-review"));
@@ -352,7 +374,7 @@ mod tests {
             "---\nname: review\ndescription: Review a diff.\n---\n\nDo not paste this body.\n",
         )
         .unwrap();
-        let text = load(&dir, None).unwrap().text;
+        let text = load(&dir, None, "").unwrap().text;
         assert!(text.contains("# Skills"));
         assert!(text.contains("review: Review a diff."));
         assert!(text.contains(".agents/skills/review/SKILL.md"));
@@ -370,7 +392,7 @@ mod tests {
         )
         .unwrap();
 
-        let (summary, _) = summary_in(&dir, None);
+        let (summary, _) = summary_in(&dir, None, "");
         assert!(
             summary
                 .contains("    review  (`.agents/skills/review/SKILL.md`)\n      Review a diff.")
@@ -392,7 +414,7 @@ mod tests {
         let skill = dir.join(".agents").join("skills").join("notes");
         fs::create_dir_all(&skill).unwrap();
         fs::write(skill.join("SKILL.md"), "just a body\n").unwrap();
-        let text = load(&dir, None).unwrap().text;
+        let text = load(&dir, None, "").unwrap().text;
         assert!(text.contains("- notes (`.agents/skills/notes/SKILL.md`)"));
         assert!(!text.contains("just a body"));
     }

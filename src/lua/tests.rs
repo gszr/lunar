@@ -1095,3 +1095,116 @@ fn runtime_error_cannot_send() {
     assert!(loaded.config.is_none());
     assert!(loaded.notice.unwrap().contains("boom"));
 }
+
+#[test]
+fn stack_merges_components_and_resolves_locations_without_reading_repos() {
+    let dir = scratch();
+    let control = dir.join("control");
+    let project = dir.join("project");
+    fs::create_dir_all(&control).unwrap();
+    fs::create_dir_all(project.join(".lunar")).unwrap();
+    fs::create_dir_all(project.join("frontend")).unwrap();
+    fs::write(
+        project.join("frontend/CONTEXT.md"),
+        "DO NOT INCLUDE REPO CONTENTS",
+    )
+    .unwrap();
+    let user = write_init(
+        &control,
+        r#"return {
+        stack = { components = {
+            backend = { location = "old", notes = "Old backend" },
+            shared = { location = "missing", notes = "Shared library" },
+        } },
+    }"#,
+    );
+    let local = write_init(
+        &project.join(".lunar"),
+        r#"return {
+        stack = { components = {
+            backend = { location = ".", notes = "Admin API and Runtime" },
+            frontend = { location = "frontend", notes = "Web UI" },
+            collector = { location = "~/Code/collector" },
+        } },
+    }"#,
+    );
+    let loaded = load_paths(&user, &local, &control);
+    assert!(loaded.notice.is_none(), "{:?}", loaded.notice);
+    assert!(loaded.config.is_none());
+    assert!(loaded.stack.contains(&format!(
+        "backend: `{}` — Admin API and Runtime",
+        project.display()
+    )));
+    assert!(loaded.stack.contains(&format!(
+        "frontend: `{}` — Web UI",
+        project.join("frontend").display()
+    )));
+    assert!(loaded.stack.contains(&format!(
+        "shared: `{}` — Shared library",
+        control.join("missing").display()
+    )));
+    let home = std::env::var_os("HOME").unwrap();
+    let collector = std::path::PathBuf::from(home).join("Code/collector");
+    assert!(
+        loaded
+            .stack
+            .contains(&format!("collector: `{}`", collector.display()))
+    );
+    assert!(!loaded.stack.contains("Old backend"));
+    assert!(!loaded.stack.contains("DO NOT INCLUDE REPO CONTENTS"));
+    let preamble = crate::prompt::preamble(&loaded.stack).unwrap();
+    assert!(preamble.contains(&loaded.stack));
+    let summary = crate::context::summary(&[], None, &loaded.stack);
+    let raw = crate::context::raw(&[], None, &loaded.stack);
+    assert!(summary.contains(&loaded.stack));
+    assert!(raw.contains(&loaded.stack));
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn invalid_stack_reports_a_notice() {
+    let dir = scratch();
+    for (stack, expected) in [
+        ("false", "stack is not a table"),
+        ("{ components = false }", "stack.components is not a table"),
+        (
+            "{ components = { backend = false } }",
+            "named component tables",
+        ),
+        (
+            "{ components = { backend = {} } }",
+            "location must be a string",
+        ),
+        (
+            "{ components = { backend = { location = ' ' } } }",
+            "location is empty",
+        ),
+        (
+            "{ components = { backend = { location = '.', notes = false } } }",
+            "notes must be a string",
+        ),
+    ] {
+        let path = write_init(&dir, &format!("return {{ stack = {stack} }}"));
+        let loaded = load_path(&path);
+        assert!(loaded.notice.as_deref().unwrap().contains(expected));
+        assert!(loaded.stack.is_empty());
+    }
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn omitted_project_stack_preserves_user_components() {
+    let dir = scratch();
+    let control = dir.join("control");
+    let project = dir.join("project/.lunar");
+    fs::create_dir_all(&control).unwrap();
+    fs::create_dir_all(&project).unwrap();
+    let user = write_init(
+        &control,
+        "return { stack = { components = { backend = { location = '/repos/backend' } } } }",
+    );
+    let local = write_init(&project, "return {}");
+    let loaded = load_paths(&user, &local, &control);
+    assert!(loaded.stack.contains("backend: `/repos/backend`"));
+    fs::remove_dir_all(dir).unwrap();
+}
