@@ -46,7 +46,13 @@ fn main() -> io::Result<()> {
     };
     let migration_errors = storage::migrate();
     tool_output::cleanup();
-    let loaded = lua::load();
+    let loaded = match lua::load() {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            eprintln!("{error}\n\nFix this file and restart Lunar.");
+            std::process::exit(1);
+        }
+    };
     let mut terminal = terminal::Terminal::init();
     let mut app = App::new(loaded);
     if app.notice.is_none() && !migration_errors.is_empty() {
