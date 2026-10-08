@@ -3,7 +3,13 @@ use crate::view::draw;
 use crate::{lua, terminal};
 
 pub(crate) fn reload_config(app: &mut App) {
-    let loaded = lua::load();
+    let loaded = match lua::load() {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            app.notice = Some(error);
+            return;
+        }
+    };
     let mut config = loaded.config.clone();
     if let (Some(config), Some(level)) = (&mut config, app.thinking_override.as_deref()) {
         if config.allows_thinking(level) {
