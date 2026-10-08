@@ -24,7 +24,7 @@ pub struct ModelChoice {
     pub error: Option<String>,
 }
 
-pub fn load() -> Loaded {
+pub fn load() -> Result<Loaded, String> {
     let user_path = crate::storage::control("init.lua");
     let project_path = std::env::current_dir()
         .unwrap_or_default()
@@ -36,28 +36,22 @@ pub fn load() -> Loaded {
     )
 }
 
-fn load_paths(user_path: &Path, project_path: &Path, module_root: &Path) -> Loaded {
-    let user = match parse_path(
+fn load_paths(user_path: &Path, project_path: &Path, module_root: &Path) -> Result<Loaded, String> {
+    let user = parse_path(
         user_path,
         module_root,
         user_path.parent().unwrap_or(module_root),
-    ) {
-        Ok(guest) => guest,
-        Err(notice) => return failed(notice),
-    };
-    let project = match parse_path(
+    )?;
+    let project = parse_path(
         project_path,
         module_root,
         project_path
             .parent()
             .and_then(Path::parent)
             .unwrap_or(module_root),
-    ) {
-        Ok(guest) => guest,
-        Err(notice) => return failed(notice),
-    };
+    )?;
     match (user, project) {
-        (None, None) => empty(),
+        (None, None) => Ok(empty()),
         (Some(guest), None) | (None, Some(guest)) => resolve::loaded(&guest),
         (Some(mut user), Some(project)) => {
             user.merge(project);
@@ -67,23 +61,20 @@ fn load_paths(user_path: &Path, project_path: &Path, module_root: &Path) -> Load
 }
 
 #[cfg(test)]
-fn load_path(path: &Path) -> Loaded {
-    match parse_path(
-        path,
-        path.parent().unwrap_or_else(|| Path::new(".")),
-        path.parent().unwrap_or_else(|| Path::new(".")),
-    ) {
-        Ok(Some(guest)) => resolve::loaded(&guest),
-        Ok(None) => empty(),
-        Err(notice) => failed(notice),
+fn load_path(path: &Path) -> Result<Loaded, String> {
+    let base = path.parent().unwrap_or_else(|| Path::new("."));
+    match parse_path(path, base, base)? {
+        Some(guest) => resolve::loaded(&guest),
+        None => Ok(empty()),
     }
 }
 
 fn parse_path(path: &Path, module_root: &Path, base: &Path) -> Result<Option<Guest>, String> {
-    if !path.is_file() {
-        return Ok(None);
-    }
-    let src = std::fs::read_to_string(path).map_err(|err| format!("init.lua: {err}"))?;
+    let src = match std::fs::read_to_string(path) {
+        Ok(src) => src,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(diagnostic::config(path, None, &err.to_string())),
+    };
     run(path, module_root, base, &src).map(Some)
 }
 
@@ -96,16 +87,8 @@ fn empty() -> Loaded {
     }
 }
 
-fn failed(notice: String) -> Loaded {
-    Loaded {
-        config: None,
-        models: Vec::new(),
-        stack: String::new(),
-        notice: Some(notice),
-    }
-}
-
 fn run(path: &Path, module_root: &Path, base: &Path, src: &str) -> Result<Guest, String> {
+    let lua_error = |err| diagnostic::lua(path, src, err);
     let lua = Lua::new();
     let package: Table = lua.globals().get("package").map_err(lua_error)?;
     let root = module_root.to_string_lossy();
@@ -118,15 +101,18 @@ fn run(path: &Path, module_root: &Path, base: &Path, src: &str) -> Result<Guest,
         .eval::<Value>()
         .map_err(lua_error)?;
     let Value::Table(table) = value else {
-        return Err("init.lua must return a table".into());
+        return Err(diagnostic::config(
+            path,
+            None,
+            "init.lua must return a table",
+        ));
     };
-    guest::parse(&table, base)
+    guest::parse(&table, base, path).map_err(|err| {
+        diagnostic::config(path, None, err.strip_prefix("init.lua ").unwrap_or(&err))
+    })
 }
 
-fn lua_error(err: mlua::Error) -> String {
-    format!("init.lua: {err}")
-}
-
+mod diagnostic;
 mod guest;
 mod resolve;
 #[cfg(test)]
