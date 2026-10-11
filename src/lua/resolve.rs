@@ -14,6 +14,7 @@ pub(super) fn loaded(guest: &Guest) -> Loaded {
         return Loaded {
             config: None,
             models: choices(guest, &mut providers),
+            stack: crate::stack::render(&guest.stack),
             notice: None,
         };
     };
@@ -29,6 +30,7 @@ pub(super) fn loaded(guest: &Guest) -> Loaded {
             Loaded {
                 config: Some(config),
                 models: choices(guest, &mut providers),
+                stack: crate::stack::render(&guest.stack),
                 notice,
             }
         }
@@ -43,6 +45,7 @@ pub(super) fn loaded(guest: &Guest) -> Loaded {
             Loaded {
                 config: None,
                 models: choices(guest, &mut providers),
+                stack: crate::stack::render(&guest.stack),
                 notice: combined,
             }
         }

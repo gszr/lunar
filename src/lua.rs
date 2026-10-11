@@ -11,6 +11,7 @@ use self::guest::Guest;
 pub(crate) struct Loaded {
     pub config: Option<Config>,
     pub models: Vec<ModelChoice>,
+    pub stack: String,
     pub notice: Option<String>,
 }
 
@@ -36,11 +37,22 @@ pub fn load() -> Loaded {
 }
 
 fn load_paths(user_path: &Path, project_path: &Path, module_root: &Path) -> Loaded {
-    let user = match parse_path(user_path, module_root) {
+    let user = match parse_path(
+        user_path,
+        module_root,
+        user_path.parent().unwrap_or(module_root),
+    ) {
         Ok(guest) => guest,
         Err(notice) => return failed(notice),
     };
-    let project = match parse_path(project_path, module_root) {
+    let project = match parse_path(
+        project_path,
+        module_root,
+        project_path
+            .parent()
+            .and_then(Path::parent)
+            .unwrap_or(module_root),
+    ) {
         Ok(guest) => guest,
         Err(notice) => return failed(notice),
     };
@@ -56,25 +68,30 @@ fn load_paths(user_path: &Path, project_path: &Path, module_root: &Path) -> Load
 
 #[cfg(test)]
 fn load_path(path: &Path) -> Loaded {
-    match parse_path(path, path.parent().unwrap_or_else(|| Path::new("."))) {
+    match parse_path(
+        path,
+        path.parent().unwrap_or_else(|| Path::new(".")),
+        path.parent().unwrap_or_else(|| Path::new(".")),
+    ) {
         Ok(Some(guest)) => resolve::loaded(&guest),
         Ok(None) => empty(),
         Err(notice) => failed(notice),
     }
 }
 
-fn parse_path(path: &Path, module_root: &Path) -> Result<Option<Guest>, String> {
+fn parse_path(path: &Path, module_root: &Path, base: &Path) -> Result<Option<Guest>, String> {
     if !path.is_file() {
         return Ok(None);
     }
     let src = std::fs::read_to_string(path).map_err(|err| format!("init.lua: {err}"))?;
-    run(path, module_root, &src).map(Some)
+    run(path, module_root, base, &src).map(Some)
 }
 
 fn empty() -> Loaded {
     Loaded {
         config: None,
         models: Vec::new(),
+        stack: String::new(),
         notice: None,
     }
 }
@@ -83,11 +100,12 @@ fn failed(notice: String) -> Loaded {
     Loaded {
         config: None,
         models: Vec::new(),
+        stack: String::new(),
         notice: Some(notice),
     }
 }
 
-fn run(path: &Path, module_root: &Path, src: &str) -> Result<Guest, String> {
+fn run(path: &Path, module_root: &Path, base: &Path, src: &str) -> Result<Guest, String> {
     let lua = Lua::new();
     let package: Table = lua.globals().get("package").map_err(lua_error)?;
     let root = module_root.to_string_lossy();
@@ -102,7 +120,7 @@ fn run(path: &Path, module_root: &Path, src: &str) -> Result<Guest, String> {
     let Value::Table(table) = value else {
         return Err("init.lua must return a table".into());
     };
-    guest::parse(&table)
+    guest::parse(&table, base)
 }
 
 fn lua_error(err: mlua::Error) -> String {

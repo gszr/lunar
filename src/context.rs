@@ -53,8 +53,12 @@ pub(crate) fn history(
 }
 
 /// Summarize the context known before the next user message.
-pub(crate) fn summary(messages: &[Message], compaction: Option<(&str, usize)>) -> String {
-    let (mut out, preamble_tokens) = prompt::summary();
+pub(crate) fn summary(
+    messages: &[Message],
+    compaction: Option<(&str, usize)>,
+    stack: &str,
+) -> String {
+    let (mut out, preamble_tokens) = prompt::summary(stack);
     let mut users = 0;
     let mut assistants = 0;
     let mut tool_calls = 0;
@@ -112,8 +116,8 @@ pub(crate) fn summary(messages: &[Message], compaction: Option<(&str, usize)>) -
 }
 
 /// Display the complete context known before the next user message.
-pub(crate) fn raw(messages: &[Message], compaction: Option<(&str, usize)>) -> String {
-    let preamble = prompt::preamble();
+pub(crate) fn raw(messages: &[Message], compaction: Option<(&str, usize)>, stack: &str) -> String {
+    let preamble = prompt::preamble(stack);
     let history = history(preamble.as_deref(), compaction, messages);
     format_history(history)
 }
@@ -191,7 +195,7 @@ mod tests {
             Message::tool("call-1".into(), "read".into(), "secret result".into()),
         ];
 
-        let summary = summary(&messages, None);
+        let summary = summary(&messages, None, "");
         assert!(summary.contains("history  ~"));
         assert!(summary.contains("total  ~"));
         assert!(summary.contains("user messages      1  ~4 tokens"));
