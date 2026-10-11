@@ -6,63 +6,71 @@ use std::process::Command;
 use crate::protocol::{self, Api, Config};
 
 use super::guest::{Guest, Listed, ModelDef, ProviderDef, RawDefaults};
-use super::{Loaded, ModelChoice};
+use super::{Loaded, ModelChoice, diagnostic};
 
-pub(super) fn loaded(guest: &Guest) -> Loaded {
-    let mut providers = BTreeMap::new();
-    let Some(defaults) = &guest.defaults else {
-        return Loaded {
-            config: None,
-            models: choices(guest, &mut providers),
-            stack: crate::stack::render(&guest.stack),
-            notice: None,
-        };
-    };
-    match config_from_lua(guest, defaults, &mut providers) {
-        Ok((config, extra)) => {
-            let notice = join_notices(
-                guest
-                    .model_notices
-                    .iter()
-                    .chain(guest.provider_notices.iter())
-                    .chain(extra.iter()),
-            );
-            Loaded {
-                config: Some(config),
-                models: choices(guest, &mut providers),
-                stack: crate::stack::render(&guest.stack),
-                notice,
-            }
+pub(super) fn loaded(guest: &Guest) -> Result<Loaded, String> {
+    // Validate references before running any credential helpers.
+    for (name, provider) in &guest.providers {
+        let (models, errors) = resolve_listed(&guest.models, &provider.models);
+        if !errors.is_empty() {
+            return Err(diagnostic::config(
+                &provider.source,
+                Some(&format!("providers.{name}.models")),
+                &errors.join("\n"),
+            ));
         }
-        Err(notice) => {
-            let combined = join_notices(
-                guest
-                    .model_notices
-                    .iter()
-                    .chain(guest.provider_notices.iter())
-                    .chain(std::iter::once(&notice)),
-            );
-            Loaded {
-                config: None,
-                models: choices(guest, &mut providers),
-                stack: crate::stack::render(&guest.stack),
-                notice: combined,
-            }
+        for model in &models {
+            validate_api(provider, model).map_err(|err| {
+                diagnostic::config(
+                    &provider.source,
+                    Some(&format!("providers.{name}.models")),
+                    &err,
+                )
+            })?;
         }
     }
+    let selected = guest
+        .defaults
+        .as_ref()
+        .map(|defaults| selected_model(guest, defaults))
+        .transpose()?;
+    let mut providers = BTreeMap::new();
+    for (name, provider) in &guest.providers {
+        let resolved = resolve_provider(name, provider).map_err(|err| {
+            diagnostic::config(&provider.source, Some(&format!("providers.{name}")), &err)
+        })?;
+        providers.insert(name.clone(), resolved);
+    }
+    let models = choices(guest, &providers);
+    let (config, notice) = match selected {
+        Some((provider, model)) => {
+            let choice = models
+                .iter()
+                .find(|choice| {
+                    choice.provider == provider
+                        && choice.id == model.id
+                        && choice.alias == model.alias
+                })
+                .unwrap();
+            (choice.config.clone(), choice.error.clone())
+        }
+        None => (None, None),
+    };
+    Ok(Loaded {
+        config,
+        models,
+        stack: crate::stack::render(&guest.stack),
+        notice,
+    })
 }
 
-fn choices(
-    guest: &Guest,
-    providers: &mut BTreeMap<String, Result<ResolvedProvider, String>>,
-) -> Vec<ModelChoice> {
+fn choices(guest: &Guest, providers: &BTreeMap<String, ResolvedProvider>) -> Vec<ModelChoice> {
     let mut out = Vec::new();
     for (provider_key, provider) in &guest.providers {
         let (models, _) = resolve_listed(&guest.models, &provider.models);
         for model in models {
             let result = provider_config(
                 provider_key,
-                provider,
                 &model,
                 guest
                     .defaults
@@ -88,18 +96,35 @@ fn choices(
 
 #[derive(Clone)]
 struct ResolvedProvider {
-    api_key: String,
+    api_key: Result<String, String>,
     base_url: String,
     auth_provider: Option<String>,
 }
 
 fn provider_config(
     provider_key: &str,
-    provider: &ProviderDef,
     model: &ResolvedModel,
     default_thinking: Option<&str>,
-    providers: &mut BTreeMap<String, Result<ResolvedProvider, String>>,
+    providers: &BTreeMap<String, ResolvedProvider>,
 ) -> Result<Config, String> {
+    let provider = &providers[provider_key];
+    Ok(Config {
+        api_key: provider.api_key.clone()?,
+        base_url: provider.base_url.clone(),
+        model: model.id.clone(),
+        provider: provider_key.to_string(),
+        window: model.window.or_else(|| protocol::guess_window(&model.id)),
+        api: model.api,
+        auth_provider: provider.auth_provider.clone(),
+        thinking: default_thinking
+            .filter(|level| model.thinking_levels.iter().any(|allowed| allowed == level))
+            .unwrap_or(&model.thinking)
+            .to_string(),
+        thinking_levels: model.thinking_levels.clone(),
+    })
+}
+
+fn validate_api(provider: &ProviderDef, model: &ResolvedModel) -> Result<(), String> {
     if provider.key_in == "auth" {
         match (provider.auth_provider.as_deref(), model.api) {
             (Some("openai"), api) if api != Api::Responses => {
@@ -116,24 +141,7 @@ fn provider_config(
             _ => {}
         }
     }
-    let provider = providers
-        .entry(provider_key.to_string())
-        .or_insert_with(|| resolve_provider(provider_key, provider))
-        .clone()?;
-    Ok(Config {
-        api_key: provider.api_key,
-        base_url: provider.base_url,
-        model: model.id.clone(),
-        provider: provider_key.to_string(),
-        window: model.window.or_else(|| protocol::guess_window(&model.id)),
-        api: model.api,
-        auth_provider: provider.auth_provider,
-        thinking: default_thinking
-            .filter(|level| model.thinking_levels.iter().any(|allowed| allowed == level))
-            .unwrap_or(&model.thinking)
-            .to_string(),
-        thinking_levels: model.thinking_levels.clone(),
-    })
+    Ok(())
 }
 
 fn resolve_provider(
@@ -178,18 +186,18 @@ fn resolve_provider(
     };
     let api_key = match provider.key_in.as_str() {
         "env" => match provider.key_cmd.as_deref().filter(|s| !s.is_empty()) {
-            Some(command) => command_value(provider_key, "key_cmd", command)?,
+            Some(command) => command_value(provider_key, "key_cmd", command),
             None => {
                 let key_name = provider
                     .key_name
                     .as_deref()
                     .filter(|s| !s.is_empty())
                     .ok_or_else(|| format!("{provider_key} has no key_name or key_cmd"))?;
-                nonempty(key_name).ok_or_else(|| format!("missing {key_name}"))?
+                nonempty(key_name).ok_or_else(|| format!("missing {key_name}"))
             }
         },
-        "auth" => crate::auth::resolve(auth_provider.as_deref().unwrap())?,
-        "none" => String::new(),
+        "auth" => crate::auth::resolve(auth_provider.as_deref().unwrap()),
+        "none" => Ok(String::new()),
         _ => unreachable!(),
     };
     Ok(ResolvedProvider {
@@ -199,42 +207,42 @@ fn resolve_provider(
     })
 }
 
-fn config_from_lua(
+fn selected_model<'a>(
     guest: &Guest,
-    defaults: &RawDefaults,
-    providers: &mut BTreeMap<String, Result<ResolvedProvider, String>>,
-) -> Result<(Config, Vec<String>), String> {
-    let provider_key = defaults
-        .provider
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| "defaults needs provider and model".to_string())?;
-    let model_key = defaults
-        .model
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| "defaults needs provider and model".to_string())?;
-    let provider = guest
-        .providers
-        .get(provider_key)
-        .ok_or_else(|| format!("unknown provider: {provider_key}"))?;
-    let (listed, skips) = resolve_listed(&guest.models, &provider.models);
-    let chosen = match pick_model(&listed, model_key) {
-        Some(model) => model,
-        None => return Err(join_parts(skips, format!("unknown model: {model_key}"))),
-    };
-    match provider_config(
-        provider_key,
-        provider,
-        chosen,
-        defaults.thinking.as_deref(),
-        providers,
-    ) {
-        Ok(config) => Ok((config, skips)),
-        Err(err) => Err(join_parts(skips, err)),
-    }
+    defaults: &'a RawDefaults,
+) -> Result<(&'a str, ResolvedModel), String> {
+    let provider_key = defaults.provider.as_str();
+    let model_key = defaults.model.as_str();
+    let provider = guest.providers.get(provider_key).ok_or_else(|| {
+        diagnostic::config(
+            &defaults.source,
+            Some("defaults.provider"),
+            &format!(
+                "unknown provider: {provider_key}\nAvailable providers: {}",
+                available(guest.providers.keys().cloned())
+            ),
+        )
+    })?;
+    let (listed, _) = resolve_listed(&guest.models, &provider.models);
+    let chosen = pick_model(&listed, model_key).ok_or_else(|| {
+        diagnostic::config(
+            &defaults.source,
+            Some("defaults.model"),
+            &format!(
+                "unknown model: {model_key}\nAvailable models for {provider_key}: {}",
+                available(listed.iter().map(|model| {
+                    match &model.alias {
+                        Some(alias) if alias != &model.id => format!("{alias} ({})", model.id),
+                        _ => model.id.clone(),
+                    }
+                }))
+            ),
+        )
+    })?;
+    Ok((provider_key, chosen.clone()))
 }
 
+#[derive(Clone)]
 struct ResolvedModel {
     alias: Option<String>,
     id: String,
@@ -283,16 +291,6 @@ fn pick_model<'a>(listed: &'a [ResolvedModel], key: &str) -> Option<&'a Resolved
         .or_else(|| listed.iter().find(|m| m.id == key))
 }
 
-fn join_notices<'a>(parts: impl Iterator<Item = &'a String>) -> Option<String> {
-    let text = parts.cloned().collect::<Vec<_>>().join("\n");
-    if text.is_empty() { None } else { Some(text) }
-}
-
-fn join_parts(mut parts: Vec<String>, last: String) -> String {
-    parts.push(last);
-    parts.join("\n")
-}
-
 fn nonempty(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|s| !s.is_empty())
 }
@@ -323,5 +321,14 @@ pub(super) fn default_auth_base(auth_provider: Option<&str>) -> Option<&'static 
         Some("openai") => Some("https://chatgpt.com/backend-api"),
         Some("anthropic") => Some("https://api.anthropic.com"),
         _ => None,
+    }
+}
+
+fn available(values: impl Iterator<Item = String>) -> String {
+    let values = values.collect::<Vec<_>>().join(", ");
+    if values.is_empty() {
+        "(none configured)".into()
+    } else {
+        values
     }
 }

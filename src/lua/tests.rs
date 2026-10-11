@@ -126,7 +126,7 @@ fn project_config_overrides_user_config_by_key() {
 }"#,
     );
 
-    let loaded = load_paths(&user, &project, &user_dir);
+    let loaded = load_paths(&user, &project, &user_dir).unwrap();
     let config = loaded.config.unwrap();
     assert_eq!(config.model, "project-model");
     assert_eq!(config.base_url, "https://project.example/v1");
@@ -151,7 +151,7 @@ fn project_without_defaults_inherits_user_defaults() {
         r#"return { models = { extra = { id = "extra" } } }"#,
     );
 
-    let loaded = load_paths(&user, &project, &user_dir);
+    let loaded = load_paths(&user, &project, &user_dir).unwrap();
     assert_eq!(loaded.config.unwrap().model, "grok-4.6");
 }
 
@@ -185,14 +185,14 @@ fn project_defaults_can_override_user_thinking_default() {
 }"#,
     );
 
-    let loaded = load_paths(&user, &project, &user_dir);
+    let loaded = load_paths(&user, &project, &user_dir).unwrap();
     assert_eq!(loaded.config.unwrap().thinking, "high");
 }
 
 #[test]
 fn missing_file_is_unconfigured() {
     let _e = isolate(&[]);
-    let loaded = load_path(&scratch().join("init.lua"));
+    let loaded = load_path(&scratch().join("init.lua")).unwrap();
     assert!(loaded.config.is_none());
     assert!(loaded.models.is_empty());
     assert_eq!(loaded.notice, None);
@@ -228,7 +228,7 @@ fn user_control_modules_can_be_required() {
 }"#,
     );
 
-    let loaded = load_path(&path);
+    let loaded = load_path(&path).unwrap();
 
     assert_eq!(loaded.config.unwrap().model, "from-file");
 }
@@ -257,7 +257,7 @@ fn project_init_requires_from_user_control() {
 }"#,
     );
 
-    let loaded = load_paths(&user_dir.join("init.lua"), &project, &user_dir);
+    let loaded = load_paths(&user_dir.join("init.lua"), &project, &user_dir).unwrap();
 
     assert_eq!(loaded.config.unwrap().model, "from-control");
 }
@@ -287,19 +287,18 @@ fn require_does_not_search_project_or_cwd() {
 }"#,
     );
 
-    let loaded = load_paths(&user_dir.join("init.lua"), &project, &user_dir);
-
-    assert!(loaded.config.is_none());
-    assert!(loaded.notice.unwrap().contains("module 'models'"));
+    let error = load_paths(&user_dir.join("init.lua"), &project, &user_dir)
+        .err()
+        .unwrap();
+    assert!(error.contains("module"), "{error}");
 }
 
 #[test]
 fn syntax_error_cannot_send() {
     let _e = isolate(&[]);
     let path = write_init(&scratch(), "this is not lua {");
-    let loaded = load_path(&path);
-    assert!(loaded.config.is_none());
-    assert!(loaded.notice.as_deref().unwrap().starts_with("init.lua:"));
+    let error = load_path(&path).err().unwrap();
+    assert!(error.contains("init.lua"), "{error}");
 }
 
 #[test]
@@ -318,7 +317,7 @@ fn no_defaults_has_catalog_but_cannot_send() {
   },
 }"#,
     );
-    let loaded = load_path(&path);
+    let loaded = load_path(&path).unwrap();
     assert!(loaded.config.is_none());
     assert_eq!(loaded.models.len(), 1);
 }
@@ -327,7 +326,7 @@ fn no_defaults_has_catalog_but_cannot_send() {
 fn defaults_resolve_from_lua() {
     let _e = isolate(&[("XAI_API_KEY", "lua-key")]);
     let path = write_init(&scratch(), SAMPLE);
-    let loaded = load_path(&path);
+    let loaded = load_path(&path).unwrap();
     let cfg = loaded.config.expect("resolved");
     assert_eq!(cfg.model, "grok-4.6");
     assert_eq!(cfg.api_key, "lua-key");
@@ -352,7 +351,7 @@ return {
   defaults = { provider = "xai", model = "grok-4.5" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
+    let loaded = load_path(&write_init(&scratch(), src)).unwrap();
     let cfg = loaded.config.unwrap();
     assert_eq!(cfg.model, "grok-4.5");
     assert_eq!(cfg.window, Some(500_000));
@@ -383,7 +382,7 @@ return {
 }
 "#,
     );
-    let loaded = load_path(&path);
+    let loaded = load_path(&path).unwrap();
     let config = loaded.config.unwrap();
     assert_eq!(config.thinking, "high");
     assert_eq!(config.thinking_levels, ["low", "high", "max"]);
@@ -414,7 +413,7 @@ return {
   defaults = { provider = "xai", model = "grok", thinking = "high" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
+    let loaded = load_path(&write_init(&scratch(), src)).unwrap();
     assert_eq!(loaded.config.unwrap().thinking, "high");
     assert_eq!(loaded.models[0].config.as_ref().unwrap().thinking, "high");
 }
@@ -444,7 +443,7 @@ return {
   defaults = { provider = "xai", model = "unsupported", thinking = "high" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
+    let loaded = load_path(&write_init(&scratch(), src)).unwrap();
     assert_eq!(loaded.config.unwrap().thinking, "off");
     assert_eq!(loaded.models[0].config.as_ref().unwrap().thinking, "high");
     assert_eq!(loaded.models[1].config.as_ref().unwrap().thinking, "off");
@@ -467,16 +466,15 @@ return {
   defaults = { provider = "xai", model = "grok" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
-    assert_eq!(loaded.config.unwrap().thinking, "off");
-    assert_eq!(
-        loaded.notice.as_deref(),
-        Some("provider xai thinking is not supported")
+    let error = load_path(&write_init(&scratch(), src)).err().unwrap();
+    assert!(
+        error.contains("provider xai thinking is not supported"),
+        "{error}"
     );
 }
 
 #[test]
-fn invalid_model_thinking_is_skipped() {
+fn invalid_model_thinking_is_fatal() {
     let _env = isolate(&[("XAI_API_KEY", "key")]);
     let src = r#"
 return {
@@ -497,14 +495,15 @@ return {
   defaults = { provider = "xai", model = "ok" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
-    assert_eq!(loaded.models.len(), 1);
-    assert_eq!(loaded.models[0].id, "ok");
-    let notice = loaded.notice.unwrap();
-    assert!(notice.contains("model scalar thinking is not a table of strings"));
-    assert!(notice.contains("model bad_default thinking default is not listed: max"));
-    assert!(notice.contains("unknown alias: scalar"));
-    assert!(notice.contains("unknown alias: bad_default"));
+    let error = load_path(&write_init(&scratch(), src)).err().unwrap();
+    assert!(
+        error.contains("model scalar thinking is not a table of strings"),
+        "{error}"
+    );
+    assert!(
+        error.contains("model bad_default thinking default is not listed: max"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -522,7 +521,7 @@ return {
   defaults = { provider = "xai", model = "grok-4.5" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
+    let loaded = load_path(&write_init(&scratch(), src)).unwrap();
     let cfg = loaded.config.unwrap();
     assert_eq!(cfg.model, "grok-4.5");
     assert_eq!(cfg.api, Api::Completions);
@@ -531,7 +530,7 @@ return {
 }
 
 #[test]
-fn unknown_api_skips_entry() {
+fn unknown_api_is_fatal() {
     let _e = isolate(&[("XAI_API_KEY", "k")]);
     let src = r#"
 return {
@@ -548,15 +547,11 @@ return {
   defaults = { provider = "xai", model = "grok46" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
-    assert!(loaded.config.is_none());
-    assert_eq!(
-        loaded.notice.as_deref(),
-        Some("model grok46 has unknown api: chat\nunknown alias: grok46\nunknown model: grok46")
+    let error = load_path(&write_init(&scratch(), src)).err().unwrap();
+    assert!(
+        error.contains("model grok46 has unknown api: chat"),
+        "{error}"
     );
-    assert_eq!(loaded.models.len(), 1);
-    assert_eq!(loaded.models[0].id, "grok-4.5");
-    assert!(loaded.models[0].config.is_some());
 }
 
 #[test]
@@ -578,7 +573,7 @@ return {
   defaults = { provider = "openai", model = "gpt" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
+    let loaded = load_path(&write_init(&scratch(), src)).unwrap();
     let cfg = loaded.config.unwrap();
     assert_eq!(cfg.model, "gpt-5");
     assert_eq!(cfg.api, Api::Responses);
@@ -601,7 +596,7 @@ return {
   defaults = { provider = "anthropic", model = "claude-opus-4" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
+    let loaded = load_path(&write_init(&scratch(), src)).unwrap();
     let cfg = loaded.config.unwrap();
     assert_eq!(cfg.model, "claude-opus-4");
     assert_eq!(cfg.api, Api::Messages);
@@ -627,7 +622,7 @@ return {
   defaults = { provider = "xai", model = "grok46" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
+    let loaded = load_path(&write_init(&scratch(), src)).unwrap();
     assert_eq!(loaded.config.unwrap().model, "grok-4.6");
     assert_eq!(loaded.notice, None);
 }
@@ -655,7 +650,7 @@ return {
   defaults = { provider = "proxy", model = "gpt-5" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
+    let loaded = load_path(&write_init(&scratch(), src)).unwrap();
     let cfg = loaded.config.unwrap();
     assert_eq!(cfg.model, "gpt-5");
     assert_eq!(cfg.provider(), "proxy");
@@ -680,11 +675,10 @@ return {
   defaults = { provider = "xai" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
-    assert!(loaded.config.is_none());
-    assert_eq!(
-        loaded.notice.as_deref(),
-        Some("defaults needs provider and model")
+    let error = load_path(&write_init(&scratch(), src)).err().unwrap();
+    assert!(
+        error.contains("defaults needs provider and model"),
+        "{error}"
     );
 }
 
@@ -696,9 +690,8 @@ return {
   defaults = { provider = "nope", model = "grok-4.6" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
-    assert!(loaded.config.is_none());
-    assert_eq!(loaded.notice.as_deref(), Some("unknown provider: nope"));
+    let error = load_path(&write_init(&scratch(), src)).err().unwrap();
+    assert!(error.contains("unknown provider: nope"), "{error}");
 }
 
 #[test]
@@ -712,9 +705,8 @@ return {
   defaults = { provider = "xai", model = "missing" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
-    assert!(loaded.config.is_none());
-    assert_eq!(loaded.notice.as_deref(), Some("unknown model: missing"));
+    let error = load_path(&write_init(&scratch(), src)).err().unwrap();
+    assert!(error.contains("unknown model: missing"), "{error}");
 }
 
 #[test]
@@ -728,12 +720,8 @@ return {
   defaults = { provider = "xai", model = "grok-4.6" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
-    assert!(loaded.config.is_none());
-    assert_eq!(
-        loaded.notice.as_deref(),
-        Some("xai has no base_url or base_url_cmd")
-    );
+    let error = load_path(&write_init(&scratch(), src)).err().unwrap();
+    assert!(error.contains("has no base_url"), "{error}");
 }
 
 #[test]
@@ -752,7 +740,7 @@ return {
   defaults = { provider = "xai", model = "grok-4.6" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
+    let loaded = load_path(&write_init(&scratch(), src)).unwrap();
     let config = loaded.config.unwrap();
     assert_eq!(config.base_url, "https://api.x.ai/v1");
     assert_eq!(loaded.notice, None);
@@ -774,12 +762,8 @@ return {
   defaults = { provider = "xai", model = "grok-4.6" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
-    assert!(loaded.config.is_none());
-    assert_eq!(
-        loaded.notice.as_deref(),
-        Some("xai base_url_cmd failed with exit status: 9")
-    );
+    let error = load_path(&write_init(&scratch(), src)).err().unwrap();
+    assert!(error.contains("base_url_cmd"), "{error}");
 }
 
 #[test]
@@ -797,7 +781,7 @@ return {
   defaults = { provider = "xai", model = "grok-4.6" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
+    let loaded = load_path(&write_init(&scratch(), src)).unwrap();
     assert_eq!(loaded.config.unwrap().api_key, "command-key");
     assert_eq!(loaded.notice, None);
 }
@@ -823,7 +807,7 @@ return {{
         count.display()
     );
 
-    let loaded = load_path(&write_init(&dir, &src));
+    let loaded = load_path(&write_init(&dir, &src)).unwrap();
 
     assert!(loaded.config.is_some());
     assert_eq!(loaded.models.len(), 3);
@@ -845,11 +829,13 @@ return {
   defaults = { provider = "xai", model = "grok-4.6" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
+    let loaded = load_path(&write_init(&scratch(), src)).unwrap();
     assert!(loaded.config.is_none());
-    assert_eq!(
-        loaded.notice.as_deref(),
-        Some("xai key_cmd failed with exit status: 7")
+    assert!(
+        loaded
+            .notice
+            .unwrap()
+            .ends_with("xai key_cmd failed with exit status: 7")
     );
 }
 
@@ -864,9 +850,9 @@ return {
   defaults = { provider = "xai", model = "grok-4.6" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
+    let loaded = load_path(&write_init(&scratch(), src)).unwrap();
     assert!(loaded.config.is_none());
-    assert_eq!(loaded.notice.as_deref(), Some("missing XAI_API_KEY"));
+    assert!(loaded.notice.unwrap().ends_with("missing XAI_API_KEY"));
 }
 
 #[test]
@@ -885,11 +871,10 @@ return {
   defaults = { provider = "xai", model = "grok-4.6" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
-    assert!(loaded.config.is_none());
-    assert_eq!(
-        loaded.notice.as_deref(),
-        Some("xai key_in is not env, auth, or none")
+    let error = load_path(&write_init(&scratch(), src)).err().unwrap();
+    assert!(
+        error.contains("key_in is not env, auth, or none"),
+        "{error}"
     );
 }
 
@@ -908,7 +893,7 @@ return {
   defaults = { provider = "ollama", model = "qwen3" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
+    let loaded = load_path(&write_init(&scratch(), src)).unwrap();
     let config = loaded.config.unwrap();
     assert_eq!(config.base_url, "http://localhost:11434/v1");
     assert_eq!(config.api_key, "");
@@ -930,9 +915,8 @@ return {
   defaults = { provider = "ollama", model = "qwen3" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
-    assert!(loaded.config.is_none());
-    assert_eq!(loaded.notice.as_deref(), Some("ollama has no base_url"));
+    let error = load_path(&write_init(&scratch(), src)).err().unwrap();
+    assert!(error.contains("has no base_url"), "{error}");
 }
 
 #[test]
@@ -950,16 +934,12 @@ return {
   defaults = { provider = "typo", model = "gpt-5.4" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
-    assert!(loaded.config.is_none());
-    assert_eq!(
-        loaded.notice.as_deref(),
-        Some("typo has unknown auth_provider: opneai")
-    );
+    let error = load_path(&write_init(&scratch(), src)).err().unwrap();
+    assert!(error.contains("auth_provider"), "{error}");
 }
 
 #[test]
-fn missing_alias_is_skipped() {
+fn missing_alias_is_fatal() {
     let _e = isolate(&[("XAI_API_KEY", "k")]);
     let src = r#"
 return {
@@ -976,10 +956,8 @@ return {
   defaults = { provider = "xai", model = "grok46" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
-    let cfg = loaded.config.unwrap();
-    assert_eq!(cfg.model, "grok-4.6");
-    assert_eq!(loaded.notice.as_deref(), Some("unknown alias: nope"));
+    let error = load_path(&write_init(&scratch(), src)).err().unwrap();
+    assert!(error.contains("unknown alias: nope"), "{error}");
 }
 
 #[test]
@@ -996,7 +974,7 @@ return {
   defaults = { provider = "xai", model = "grok45" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
+    let loaded = load_path(&write_init(&scratch(), src)).unwrap();
     assert_eq!(loaded.config.unwrap().model, "grok-4.5");
 }
 
@@ -1033,11 +1011,10 @@ return {
   defaults = { provider = "anthropic", model = "claude-opus-4" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
-    assert!(loaded.config.is_none());
-    assert_eq!(
-        loaded.notice.as_deref(),
-        Some("claude-opus-4 uses completions, Anthropic subscription auth requires messages")
+    let error = load_path(&write_init(&scratch(), src)).err().unwrap();
+    assert!(
+        error.contains("Anthropic subscription auth requires messages"),
+        "{error}"
     );
 }
 
@@ -1057,43 +1034,37 @@ return {
   defaults = { provider = "openai", model = "gpt-5.4" },
 }
 "#;
-    let loaded = load_path(&write_init(&scratch(), src));
-    assert!(loaded.config.is_none());
-    assert_eq!(
-        loaded.notice.as_deref(),
-        Some("gpt-5.4 uses completions, not implemented")
-    );
+    let error = load_path(&write_init(&scratch(), src)).err().unwrap();
+    assert!(error.contains("not implemented"), "{error}");
 }
 
 #[test]
 fn non_table_return_cannot_send() {
     let _e = isolate(&[]);
-    let loaded = load_path(&write_init(&scratch(), "return nil\n"));
-    assert!(loaded.config.is_none());
-    assert_eq!(
-        loaded.notice.as_deref(),
-        Some("init.lua must return a table")
-    );
+    let error = load_path(&write_init(&scratch(), "return nil\n"))
+        .err()
+        .unwrap();
+    assert!(error.contains("init.lua must return a table"), "{error}");
 }
 
 #[test]
 fn registrar_form_is_not_supported() {
     let _e = isolate(&[]);
-    let loaded = load_path(&write_init(
+    let error = load_path(&write_init(
         &scratch(),
         "lunar.models { grok = { id = 'grok' } }\n",
-    ));
-    assert!(loaded.config.is_none());
-    assert!(loaded.notice.unwrap().contains("global 'lunar'"));
+    ))
+    .err()
+    .unwrap();
+    assert!(error.contains("lunar"), "{error}");
 }
 
 #[test]
 fn runtime_error_cannot_send() {
     let _e = isolate(&[]);
     let path = write_init(&scratch(), "error('boom')\n");
-    let loaded = load_path(&path);
-    assert!(loaded.config.is_none());
-    assert!(loaded.notice.unwrap().contains("boom"));
+    let error = load_path(&path).err().unwrap();
+    assert!(error.contains("init.lua"), "{error}");
 }
 
 #[test]
@@ -1128,7 +1099,7 @@ fn stack_merges_components_and_resolves_locations_without_reading_repos() {
         } },
     }"#,
     );
-    let loaded = load_paths(&user, &local, &control);
+    let loaded = load_paths(&user, &local, &control).unwrap();
     assert!(loaded.notice.is_none(), "{:?}", loaded.notice);
     assert!(loaded.config.is_none());
     assert!(loaded.stack.contains(&format!(
@@ -1162,7 +1133,7 @@ fn stack_merges_components_and_resolves_locations_without_reading_repos() {
 }
 
 #[test]
-fn invalid_stack_reports_a_notice() {
+fn invalid_stack_is_fatal() {
     let dir = scratch();
     for (stack, expected) in [
         ("false", "stack is not a table"),
@@ -1185,9 +1156,8 @@ fn invalid_stack_reports_a_notice() {
         ),
     ] {
         let path = write_init(&dir, &format!("return {{ stack = {stack} }}"));
-        let loaded = load_path(&path);
-        assert!(loaded.notice.as_deref().unwrap().contains(expected));
-        assert!(loaded.stack.is_empty());
+        let error = load_path(&path).err().unwrap();
+        assert!(error.contains(expected), "{error}");
     }
     fs::remove_dir_all(dir).unwrap();
 }
@@ -1204,7 +1174,56 @@ fn omitted_project_stack_preserves_user_components() {
         "return { stack = { components = { backend = { location = '/repos/backend' } } } }",
     );
     let local = write_init(&project, "return {}");
-    let loaded = load_paths(&user, &local, &control);
+    let loaded = load_paths(&user, &local, &control).unwrap();
     assert!(loaded.stack.contains("backend: `/repos/backend`"));
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn invalid_config_names_its_source_even_without_defaults() {
+    let dir = scratch();
+    for src in [
+        "return { models = { bad = {} } }",
+        "return { models = { bad = { id = 'bad', window = 'large' } } }",
+        "return { providers = { bad = { key_in = false } } }",
+        "return { providers = { bad = { models = { [2] = 'missing' } } } }",
+        "return { providers = { bad = { models = { 'missing' } } } }",
+        "return { defaults = { provider = 'missing', model = 'missing' } }",
+        "return { defaults = { provider = 'missing', model = 'missing', thinking = false } }",
+    ] {
+        let path = write_init(&dir, src);
+        let err = load_path(&path).err().unwrap();
+        assert!(err.contains(&format!("File: {}", path.display())), "{err}");
+    }
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn merged_references_use_the_source_of_the_invalid_field() {
+    let dir = scratch();
+    let control = dir.join("control");
+    let project = dir.join("project/.lunar");
+    fs::create_dir_all(&control).unwrap();
+    fs::create_dir_all(&project).unwrap();
+    let user = write_init(
+        &control,
+        "return { providers = { p = { key_in = 'none', base_url = 'http://localhost', models = { 'local_model' } } } }",
+    );
+    let local = write_init(
+        &project,
+        "return { models = { local_model = { id = 'm' } }, defaults = { provider = 'p', model = 'm' } }",
+    );
+    assert!(
+        load_paths(&user, &local, &control)
+            .unwrap()
+            .config
+            .is_some()
+    );
+    fs::write(&local, "return { models = { local_model = { id = 'm' } }, defaults = { provider = 'p', model = 'typo' } }").unwrap();
+    let err = load_paths(&user, &local, &control).err().unwrap();
+    assert!(err.contains(&format!("File: {}", local.display())), "{err}");
+    fs::write(&local, "return {}").unwrap();
+    let err = load_paths(&user, &local, &control).err().unwrap();
+    assert!(err.contains(&format!("File: {}", user.display())), "{err}");
     fs::remove_dir_all(dir).unwrap();
 }
