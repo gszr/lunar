@@ -6,13 +6,17 @@
   </picture>
 </p>
 
+<p align="center">
+  <a href="https://github.com/gszr/lunar/actions/workflows/ci.yml"><img src="https://github.com/gszr/lunar/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/gszr/lunar/releases"><img src="https://img.shields.io/github/v/release/gszr/lunar?sort=semver" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/gszr/lunar" alt="License"></a>
+</p>
+
 <p align="center">A terminal coding harness. You open <code>lunar</code> and code</p>
 
-<p align="center">Simple and fast like <a href="https://github.com/earendil-works/pi">Pi &lt;3</a>, but using Lua for extensions</p>
+<p align="center">Simple and fast like <a href="https://github.com/earendil-works/pi">Pi &lt;3</a>, but using Lua for extensions—no hidden system prompts, no token waste</p>
 
-<p align="center">Lunar gives the model four tools—<code>read</code>, <code>write</code>, <code>edit</code>, and <code>bash</code>. No hidden system prompts</p>
-
-<p align="center">No token wasting on hidden system prompts: a harness that works for <em>you</em></p>
+<p align="center"><img src="docs/demo.gif" alt="Lunar fixing a failing test: read, edit, bash, confirm" width="760"></p>
 
 ## Lunar Agent Harness
 
@@ -50,89 +54,34 @@ Configure Lunar with `~/.lunar/control/init.lua`. A project can override model a
 return {
   models = {
     grok46 = { id = "grok-4.6", window = 500000, api = "completions" },
-    gpt56sol = { id = "gpt-5.6-sol", window = 1000000, api = "responses" },
-    -- gpt56sol = { id = "gpt-5.6-sol", window = 1000000, api = "completions" },
   },
 
   providers = {
-    ollama = {
-      base_url = "http://127.0.0.1:11434/v1",
-      models = {
-        { id = "gemma4:12b", window = 10000, }
-      },
-      key_in = "none",
-    },
-
-    openai = {
-      key_in = "auth",
-      auth_provider = "openai",
-      models = {
-        "gpt56sol",
-      },
-    },
-
-    openai_api = {
-      base_url = "https://api.openai.com/v1",
-      key_cmd = "pass openai_api_key",
-      models = {
-        "gpt56sol",
-      },
-    },
-
-    dev2 = {
-      base_url_cmd = "pass jss_dev2_url",
-      key_in = "env",
-      key_cmd = "pass jss_dev2",
-      models = {
-        "gpt56sol",
-      },
-    },
-
-    stag2 = {
-      base_url_cmd = "pass jss_stag2_url",
-      key_in = "env",
-      key_cmd = "pass jss_stag2",
-      models = {
-        "gpt56sol",
-      },
-    },
-
     xai = {
       base_url = "https://api.x.ai/v1",
-      key_in = "auth",
-      auth_provider = "xai",
-      models = {
-        "grok46",
-      },
-    },
-
-    cheapinf = {
-      base_url = "https://api.cheaperinference.com/v1",
-      key_name = "CHEAP_INF_API_KEY",
-      models = {
-        "gpt56sol",
-      },
+      key_name = "XAI_API_KEY",
+      models = { "grok46" },
     },
   },
 
   defaults = {
-    provider = "openai",
-    model = "gpt-5.6-sol", -- alias, else wire id in that provider's list
+    provider = "xai",
+    model = "grok46", -- alias, else wire id in that provider's list
   },
 }
 ```
-
-`defaults.thinking` is optional. It takes priority over each model’s own default when that model supports the value; otherwise Lunar uses the model-specific default.
 
 ```bash
 export XAI_API_KEY=...
 ```
 
+`defaults.thinking` is optional. It takes priority over each model's own default when that model supports the value; otherwise Lunar uses the model-specific default.
+
 A provider can use `base_url_cmd = "pass lunar/xai-url"` instead of `base_url`, and `key_cmd = "pass my_key"` instead of `key_name`. Commands run through `sh -c` before the TUI opens, so interactive credential helpers such as GPG pinentry work normally. Lunar trims trailing whitespace from stdout. `base_url_cmd` takes precedence over `base_url`; `key_cmd` takes precedence over `key_name`.
 
 Alternatively, let Lunar store the credential. Use `/login` in the TUI: xAI (subscription via device code, or a masked API key), OpenAI (ChatGPT Plus/Pro via device code), or Anthropic (Claude Pro/Max via copy-code). Set `key_in = "auth"` and `auth_provider = "xai"`, `"openai"`, or `"anthropic"` on the provider. `/logout xai`, `/logout openai`, and `/logout anthropic` remove the credential.
 
-For an unauthenticated local server, set `key_in = "none"` and an explicit HTTP or HTTPS `base_url`. Lunar sends no Authorization header:
+For an unauthenticated local server, set `key_in = "none"` and an explicit HTTP or HTTPS `base_url`; Lunar sends no Authorization header:
 
 ```lua
 ollama = {
@@ -142,45 +91,7 @@ ollama = {
 }
 ```
 
-Claude Pro/Max models must set `api = "messages"`. Omitted `base_url` is `https://api.anthropic.com`. `/login anthropic` opens the Claude authorize URL; paste the displayed `code#state` and press Enter:
-
-```lua
-return {
-  providers = {
-    anthropic = {
-      key_in = "auth",
-      auth_provider = "anthropic",
-      models = {
-        { id = "claude-opus-4-6", api = "messages" },
-      },
-    },
-  },
-  defaults = {
-    provider = "anthropic",
-    model = "claude-opus-4-6",
-  },
-}
-```
-
-ChatGPT Plus/Pro models must set `api = "responses"`. Omitted `base_url` is `https://chatgpt.com/backend-api`; Lunar posts to `{base_url}/codex/responses`:
-
-```lua
-return {
-  providers = {
-    openai = {
-      key_in = "auth",
-      auth_provider = "openai",
-      models = {
-        { id = "gpt-5.4", api = "responses" },
-      },
-    },
-  },
-  defaults = {
-    provider = "openai",
-    model = "gpt-5.4",
-  },
-}
-```
+[`examples/`](examples/) has ready configs for the subscription cases: `openai.lua` (ChatGPT Plus/Pro, `api = "responses"`) and `anthropic.lua` (Claude Pro/Max, `api = "messages"`).
 
 ## Run
 
