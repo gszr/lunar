@@ -141,6 +141,87 @@ fn project_config_overrides_user_config_by_key() {
 }
 
 #[test]
+fn parent_config_fallback_merges_user_stack_and_resolves_parent_paths() {
+    let dir = scratch();
+    let control = dir.join("control");
+    let parent = dir.join("stack");
+    let project = parent.join("backend");
+    fs::create_dir_all(&control).unwrap();
+    fs::create_dir_all(parent.join(".lunar")).unwrap();
+    fs::create_dir_all(&project).unwrap();
+    let user = write_init(
+        &control,
+        "return { stack = { components = { shared = { location = 'shared' }, backend = { location = 'old' } } } }",
+    );
+    write_init(
+        &parent.join(".lunar"),
+        "return { stack = { components = { backend = { location = 'backend' }, frontend = { location = 'frontend' } } } }",
+    );
+    let loaded = load_paths(&user, &project.join(".lunar/init.lua"), &control).unwrap();
+    for (name, path) in [
+        ("backend", project),
+        ("frontend", parent.join("frontend")),
+        ("shared", control.join("shared")),
+    ] {
+        assert!(
+            loaded
+                .stack
+                .contains(&format!("{name}: `{}`", path.display()))
+        );
+    }
+    assert!(
+        !loaded
+            .stack
+            .contains(&format!("backend: `{}`", control.join("old").display()))
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn local_config_prevents_parent_fallback_even_when_empty_or_invalid() {
+    let dir = scratch();
+    let project = dir.join("project");
+    fs::create_dir_all(dir.join(".lunar")).unwrap();
+    fs::create_dir_all(project.join(".lunar")).unwrap();
+    write_init(&dir.join(".lunar"), "error('parent must not run')");
+    let local = write_init(&project.join(".lunar"), "return {}");
+    let user = dir.join("missing.lua");
+    let loaded = load_paths(&user, &local, &dir).unwrap();
+    assert!(loaded.config.is_none());
+    assert!(loaded.stack.is_empty());
+
+    write_init(&dir.join(".lunar"), "return {}");
+    write_init(&project.join(".lunar"), "error('local failure')");
+    let error = load_paths(&user, &local, &dir).err().unwrap();
+    assert!(error.contains("local failure"));
+    assert!(error.contains(&local.display().to_string()));
+
+    fs::remove_file(&local).unwrap();
+    fs::create_dir(&local).unwrap();
+    assert!(load_paths(&user, &local, &dir).is_err());
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn config_fallback_stops_after_immediate_parent() {
+    let dir = scratch();
+    let project = dir.join("parent/project");
+    fs::create_dir_all(dir.join(".lunar")).unwrap();
+    fs::create_dir_all(&project).unwrap();
+    write_init(&dir.join(".lunar"), "error('grandparent must not run')");
+    let loaded = load_paths(
+        &dir.join("missing.lua"),
+        &project.join(".lunar/init.lua"),
+        &dir,
+    )
+    .unwrap();
+    assert!(loaded.config.is_none());
+    assert!(loaded.models.is_empty());
+    assert!(loaded.stack.is_empty());
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn project_without_defaults_inherits_user_defaults() {
     let _e = isolate(&[("XAI_API_KEY", "k")]);
     let user_dir = scratch();

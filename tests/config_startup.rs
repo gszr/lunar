@@ -16,6 +16,7 @@ impl Fixture {
         ));
         fs::create_dir_all(root.join("home/control")).unwrap();
         fs::create_dir_all(root.join("project/.lunar")).unwrap();
+        fs::create_dir_all(root.join(".lunar")).unwrap();
         Self(root)
     }
 
@@ -53,7 +54,11 @@ impl Drop for Fixture {
 
 #[test]
 fn config_errors_exit_before_terminal_initialization() {
-    for source in ["home/control/init.lua", "project/.lunar/init.lua"] {
+    for source in [
+        "home/control/init.lua",
+        "project/.lunar/init.lua",
+        ".lunar/init.lua",
+    ] {
         for (lua, expected) in [
             ("return {", "syntax error"),
             ("error('broken config')", "broken config"),
@@ -91,7 +96,11 @@ fn config_errors_exit_before_terminal_initialization() {
 
 #[test]
 fn unreadable_config_is_not_treated_as_missing() {
-    for source in ["home/control/init.lua", "project/.lunar/init.lua"] {
+    for source in [
+        "home/control/init.lua",
+        "project/.lunar/init.lua",
+        ".lunar/init.lua",
+    ] {
         let fixture = Fixture::new();
         fs::create_dir(fixture.0.join(source)).unwrap();
         fixture.rejects(source, "directory");
