@@ -42,14 +42,16 @@ fn load_paths(user_path: &Path, project_path: &Path, module_root: &Path) -> Resu
         module_root,
         user_path.parent().unwrap_or(module_root),
     )?;
-    let project = parse_path(
-        project_path,
-        module_root,
-        project_path
-            .parent()
-            .and_then(Path::parent)
-            .unwrap_or(module_root),
-    )?;
+    let project_root = project_path
+        .parent()
+        .and_then(Path::parent)
+        .unwrap_or(module_root);
+    let mut project = parse_path(project_path, module_root, project_root)?;
+    if project.is_none()
+        && let Some(parent) = project_root.parent()
+    {
+        project = parse_path(&parent.join(".lunar/init.lua"), module_root, parent)?;
+    }
     match (user, project) {
         (None, None) => Ok(empty()),
         (Some(guest), None) | (None, Some(guest)) => resolve::loaded(&guest),
