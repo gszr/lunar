@@ -54,6 +54,25 @@ pub fn assistant(text: &str, width: usize) -> Vec<Line<'static>> {
     markdown::render(&sanitize_terminal_text(text), width)
 }
 
+pub fn plain(text: &str, width: usize) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    for paragraph in sanitize_terminal_text(text).split('\n') {
+        let mut line = String::new();
+        let mut used = 0;
+        for ch in paragraph.chars() {
+            let columns = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+            if used > 0 && used + columns > width.max(1) {
+                lines.push(Line::from(std::mem::take(&mut line)));
+                used = 0;
+            }
+            line.push(ch);
+            used += columns;
+        }
+        lines.push(Line::from(line));
+    }
+    lines
+}
+
 pub fn response_model(model: &str) -> Line<'static> {
     Line::from(Span::styled(
         format!("model: {}", sanitize_terminal_text(model)),
@@ -234,6 +253,27 @@ mod tests {
 
     fn line_text(line: &Line) -> String {
         line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn plain_preserves_markdown_whitespace_and_sanitizes_controls() {
+        let text = "# Title\n\n  **bold**  \n```json\n{\"x\":1}\n```\n\u{1b}[31mred\u{1b}[0m\n";
+        let lines = plain(text, 80);
+        assert_eq!(
+            lines.iter().map(line_text).collect::<Vec<_>>().join("\n"),
+            "# Title\n\n  **bold**  \n```json\n{\"x\":1}\n```\nred\n"
+        );
+        assert!(lines.iter().all(|line| line.style == Style::default()
+            && line.spans.iter().all(|span| span.style == Style::default())));
+    }
+
+    #[test]
+    fn plain_wraps_long_lines_by_terminal_width() {
+        let lines = plain("  日本語abcdef", 4);
+        assert_eq!(
+            lines.iter().map(line_text).collect::<Vec<_>>(),
+            vec!["  日", "本語", "abcd", "ef"]
+        );
     }
 
     #[test]

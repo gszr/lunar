@@ -40,6 +40,7 @@ pub(crate) fn painted_lines(app: &mut App, width: usize) -> Vec<Line<'static>> {
             width,
             !app.paint_frozen.is_empty(),
             app.paint_prev_tool,
+            app.markdown,
         );
         app.paint_frozen.extend(chunk);
         app.paint_prev_tool = prev_tool;
@@ -52,6 +53,7 @@ pub(crate) fn painted_lines(app: &mut App, width: usize) -> Vec<Line<'static>> {
             width,
             !lines.is_empty(),
             app.paint_prev_tool,
+            app.markdown,
         );
         lines.extend(tail);
     }
@@ -69,6 +71,7 @@ pub(crate) fn paint_slice(
     width: usize,
     need_gap: bool,
     mut prev_tool: bool,
+    markdown: bool,
 ) -> (Vec<Line<'static>>, bool) {
     let mut lines = Vec::new();
     let mut gap = need_gap;
@@ -94,7 +97,11 @@ pub(crate) fn paint_slice(
                     }
                 }
                 if !msg.text.is_empty() {
-                    lines.extend(render::assistant(&msg.text, width));
+                    lines.extend(if markdown {
+                        render::assistant(&msg.text, width)
+                    } else {
+                        render::plain(&msg.text, width)
+                    });
                 }
                 if let Some(model) = &msg.response_model {
                     lines.push(render::response_model(model));

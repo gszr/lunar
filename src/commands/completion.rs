@@ -44,6 +44,14 @@ pub const COMMANDS: &[Command] = &[
         description: "remove a saved credential",
     },
     Command {
+        name: "markdown",
+        description: "toggle Markdown formatting in replies",
+    },
+    Command {
+        name: "md",
+        description: "alias for /markdown",
+    },
+    Command {
         name: "model",
         description: "pick a configured model",
     },

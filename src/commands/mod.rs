@@ -28,6 +28,15 @@ pub(crate) fn dispatch(app: &mut App, line: &str) -> bool {
                 "debug: off".into()
             });
         }
+        "/markdown" | "/md" => {
+            app.markdown = !app.markdown;
+            crate::transcript::invalidate_paint(app);
+            app.notice = Some(if app.markdown {
+                "markdown: on".into()
+            } else {
+                "markdown: off (plain text)".into()
+            });
+        }
         "/config" => config::edit_config(app),
         "/new" => mission::new_mission(app),
         "/login" => auth::open_login(app),

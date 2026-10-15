@@ -127,6 +127,7 @@ mod tests {
             cursor: 0,
             notice: None,
             debug_headers: false,
+            markdown: true,
             messages: Vec::new(),
             config: None,
             startup_config: None,
@@ -237,6 +238,47 @@ mod tests {
             app.notice.as_deref(),
             Some("usage: /format response|chat_completions")
         );
+    }
+
+    #[test]
+    fn markdown_toggle_repaints_without_changing_messages() {
+        let mut app = test_app();
+        let mut message = Message::assistant();
+        message.text = "# Heading\n\n  **literal**".into();
+        app.messages.push(message);
+        let formatted = painted_lines(&mut app, 40);
+        assert_eq!(app.paint_upto, 1);
+        app.follow = false;
+
+        assert!(crate::commands::dispatch(&mut app, "/markdown"));
+        assert!(!app.markdown);
+        assert!(app.paint_frozen.is_empty());
+        assert!(!app.follow);
+        app.notice = None;
+        let plain = painted_lines(&mut app, 40);
+        assert_eq!(plain[0].to_string(), "# Heading");
+        assert_eq!(plain[2].to_string(), "  **literal**");
+        assert_eq!(app.messages.len(), 1);
+        assert_eq!(app.messages[0].text, "# Heading\n\n  **literal**");
+
+        // The streaming tail uses the same setting as cached messages.
+        app.cancel = Some(Arc::new(AtomicBool::new(false)));
+        app.messages.push(Message::aside_assistant());
+        app.messages[1].text = "`streaming`".into();
+        assert_eq!(
+            painted_lines(&mut app, 40).last().unwrap().to_string(),
+            "`streaming`"
+        );
+        app.cancel = None;
+        app.messages.pop();
+        assert!(crate::commands::dispatch(&mut app, "/md"));
+        assert!(app.markdown);
+        app.notice = None;
+        assert_eq!(painted_lines(&mut app, 40), formatted);
+
+        crate::commands::dispatch(&mut app, "/markdown");
+        crate::commands::mission::new_mission(&mut app);
+        assert!(!app.markdown);
     }
 
     #[test]
