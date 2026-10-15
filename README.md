@@ -14,7 +14,7 @@
 
 <p align="center">A terminal coding harness. You open <code>lunar</code> and code</p>
 
-<p align="center">Simple and fast like <a href="https://github.com/earendil-works/pi">Pi &lt;3</a>, but using Lua for extensions—no hidden system prompts, no token waste</p>
+<p align="center">Inspired by <a href="https://github.com/earendil-works/pi">Pi &lt;3</a>. Configured with Lua. Built for context you can inspect.</p>
 
 <p align="center"><img src="docs/demo.gif" alt="Lunar fixing a failing test: read, edit, bash, confirm" width="760"></p>
 
@@ -22,17 +22,80 @@
 
 Lunar is deliberately small: a Rust host owns the terminal, model transport, and four tools, while a Lua guest supplies model and provider configuration. It does not impose plan modes, sub-agents, approval prompts, or another workflow between you and the model.
 
-Context stays inspectable. Lunar sends your project's `AGENTS.md`, `CONTEXT.md`, and skill summaries as a visible user message—never a hidden system prompt. Conversations are durable, linear missions you can leave and resume.
+Lunar sends your rules and context files as a leading user message that you can inspect with `/context raw`. Conversations are saved locally as missions you can leave and resume.
 
 ## Features
 
-- Streaming terminal UI with Markdown rendering, reasoning previews, and full transcript scrolling
-- Parallel `read`, `write`, `edit`, and `bash` tool calls with cancellable turns
-- Lua 5.5 model catalogs, provider configuration, defaults, and project overrides
-- Provider URLs and tokens resolved from Lua, environment variables, shell commands, or Lunar-managed authentication
-- Completions and Responses APIs, including xAI and ChatGPT Plus/Pro authentication
-- Linear JSONL missions (Lunar's sessions! :) with naming, resume, token usage, and context-window protection
-- Project instructions and skill summaries loaded directly from files you control
+### What makes Lunar different
+
+Lunar focuses on control over what the model reads, what it remembers, and how you work.
+
+- **Your instructions, not a built-in workflow.** Rules come from files you control, not a hidden coding-agent system prompt. No enforced plan mode, sub-agents, or approval prompts. Anthropic subscription access has one exception: a required identity message.[^anthropic-identity]
+- **Work across repositories without loading them all.** Define your backend, frontend, and other components in a stack, with a path and a short note for each. The model gets a map and can inspect the repositories relevant to your task. Only the map enters context automatically—not the code.
+- **See where your context and tokens go.** `/context` shows your instructions, skills, stack references, and conversation breakdown. `/context raw` shows their contents. The footer separates total token use, cache reads and writes, and current context size. `/debug` shows usage for individual responses.
+- **Configure your setup with Lua.** Define models, providers, reasoning levels, and related repositories in Lua 5.5. Share configuration through modules and override it per project.
+- **Use subscriptions, API keys, or local models.** Sign in with xAI, ChatGPT Plus/Pro, or Claude Pro/Max. Bring API credentials or connect to a compatible local model server instead.
+- **Decide when to summarize your conversation.** Lunar never compacts automatically. `/compact` summarizes older history while keeping recent messages. The original transcript remains available to scroll through.
+
+<details>
+<summary><strong>All supported features</strong></summary>
+
+### Models and sign-in
+
+- **Cloud and local models.** Stream responses through Chat Completions, OpenAI Responses, or Anthropic Messages. Connect to compatible local servers with no authentication required.
+- **Subscription sign-in.** Use `/login` for xAI, ChatGPT Plus/Pro, or Claude Pro/Max. xAI also supports saved API keys. `/logout <provider>` removes a saved credential.
+- **Your credential tools.** Read API keys from environment variables or shell commands. Resolve provider URLs with shell commands too, including helpers that need terminal input at startup.
+- **Searchable model picker.** `/model` searches by provider, alias, or model ID. Each model can have its own API format and context-window size.
+- **Model-specific reasoning.** `/thinking` offers the levels configured for the selected model. Set a preferred default across models, with a fallback for models that do not support it. Your selection is saved with the mission.
+- **Temporary API switching.** `/format response|chat_completions` changes the request format until exit, without editing configuration. Subscription authentication restrictions still apply.
+- **Subscription limits.** With ChatGPT sign-in, see remaining usage and reset times in the footer.
+
+### Context and skills
+
+- **Rules from files.** Load project `AGENTS.md`, falling back to `~/.agents/AGENTS.md`, plus project `CONTEXT.md`. Lunar sends these as a leading user message.
+- **Skills without preloading every instruction.** Load summaries from global and project skill directories. Project skills replace matching global skills; full instructions stay on disk until read.
+- **Related repositories.** `stack.components` lists repositories by name, location, and optional notes. Lunar resolves their paths without loading their contents.
+- **Inspectable context.** `/context` reports message counts and estimated tokens. `/context raw` includes the instructions, conversation, tool calls, and results in a scrollable viewer.
+- **Stable instructions during a task.** Context files are refreshed when you submit a prompt, then held unchanged through that turn's tool calls.
+- **Manual compaction.** `/compact [instructions]` summarizes older history and keeps roughly 20,000 recent estimated tokens. The original transcript remains available. Cancelling or failing leaves the previous context active.
+- **Context limits.** Get a startup warning when context files exceed `LUNAR_PROMPT_BUDGET`. Lunar refuses a new prompt when the last request already filled the model's context window.
+- **Optional bundled skills.** Install the included standup-update and Lunar-attribution skills yourself. Neither is enabled by default.
+
+### Coding tools
+
+- **Read, write, edit, and run commands.** Four tools, with parallel execution of calls from the same response. Tools run without approval prompts; use Lunar only in environments you trust.
+- **Stop work with Esc.** Cancel a turn or running command. Shell commands time out after 60 seconds, and cancellation stops their process group. Interactive programs cannot take over terminal input.
+- **Manage long output.** Results are limited to 50 KB or 2,000 lines. File reads include the next offset. Long shell output shows its tail and links to the saved full output, with files older than seven days cleaned up at startup.
+- **Bounded tool loops.** After 100 rounds, submit `continue` to proceed. Tool calls from a response cut short by its length limit are not executed.
+
+### Conversations, called missions
+
+- **Saved locally.** Each mission is a readable JSONL file: one JSON record per line. Names are generated locally from the first prompt. `/new` starts another mission, `/name` renames it, and `/mission` shows its file path.
+- **Find previous work.** `/resume` searches mission IDs, names, directories, and conversation text. Recently active missions appear first.
+- **Resume from your shell.** `lunar -c` continues the latest mission for the current directory. `lunar -m` opens the list; add a filename or label to resume one, or a date to filter the list.
+- **Keep usage and reasoning settings.** Reopening restores total token usage, the latest prompt size, and the saved thinking level when the selected model still supports it.
+- **Side questions stay separate.** Run one `/btw` question at a time alongside an active task. It sees the preceding context plus current tools, elapsed phase time, and partial output, without adding its answer to future model context.
+
+### Working in the terminal
+
+- **Streaming answers.** Markdown, wrapped tables, formatted JSON code blocks, and links with visible destinations. Tool results and reasoning previews are separate, and each response shows the model name reported by the provider.
+- **Scroll without losing your place.** Use PageUp/PageDown, the mouse wheel, or Ctrl+Home/End. New output does not pull you back to the bottom while you read earlier messages.
+- **Multiline editing.** Familiar word and line editing shortcuts, multiline paste, and persistent prompt history. Shift+Enter or Ctrl+J inserts a newline.
+- **Command and path completion.** `/` suggests commands. `@` inserts a file path without attaching its contents. Find files in the current directory or an explicit path, grouped by file type with recent files first. Existing paths are highlighted.
+- **Help on demand.** `/help` lists commands; `lunar --help` explains launch options.
+
+### Configuration and diagnostics
+
+- **Shared and project settings.** User Lua configuration supports reusable modules, model aliases, and defaults. Project settings override it. If the current directory has no config, Lunar checks the immediate parent so sibling projects can share one.
+- **Edit and reload.** `/config` opens your user config in your editor and reloads settings afterward. Invalid reloads keep the last valid configuration. Startup errors identify the file and show a line number and source line when available.
+- **Separate settings and history.** User configuration lives in `~/.lunar/control/`; saved conversations, credentials, and logs live in `~/.lunar/recorder/`. `LUNAR_HOME` changes the root. Older layouts migrate without overwriting existing files.
+- **Clear token accounting.** See total input and output, uncached input, cache reads and writes, and the latest request's context usage. These are provider-reported counts, not billing estimates. See [Token usage](#token-usage).
+- **Troubleshoot requests.** `/debug` shows response headers and token usage inline, without saving those cards or sending them to the model. `--debug` records model HTTP traffic in a log.
+- **Recover from interruptions.** Temporary request failures retry automatically, and Esc cancels the wait. Connection errors name the provider and cause. A stale turn after system sleep stops while preserving partial output.
+
+</details>
+
+[^anthropic-identity]: Anthropic OAuth requests include the required system message: “You are Claude Code, Anthropic's official CLI for Claude.” Lunar does not add its own coding-workflow system prompt.
 
 ## Install
 
