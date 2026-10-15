@@ -17,6 +17,7 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🐞 Fixed
 
+- **Ghostty mouse movement no longer aborts active turns**: Lunar limits terminal mouse reporting to the events needed for transcript scrolling, preventing movement escape sequences from being mistaken for Esc.
 - **Configuration errors stop startup clearly**: invalid global or project Lua config now shows a readable error with the file path and, when available, Lua’s line number and source line before opening the terminal UI. Invalid defaults name the field and list available providers or models, instead of starting with a broken or partially skipped configuration. Missing config still allows a first run, and missing credentials still allow `/login`. Invalid in-app config reloads keep the last loaded configuration.
 - **Global skill paths no longer rely on model-side `~` expansion**: Lunar now gives the model absolute paths for global skills instead of `~/.agents/...`, preventing it from inventing a home such as `/root` or `/home/lunar`. Project skill paths remain project-relative.
 - **Anthropic Messages OAuth no longer sends `betas` in the JSON body**: those flags belong on the `anthropic-beta` header. The extra body field made Anthropic reject the request with `betas: Extra inputs are not permitted`.
