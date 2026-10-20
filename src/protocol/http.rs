@@ -90,7 +90,7 @@ pub(super) fn post_retry(
         }
         if let Some(session) = session {
             request = request
-                .header("session_id", session)
+                .header("session-id", session)
                 .header("x-client-request-id", session);
         }
         if let Some(account) = account {
@@ -413,7 +413,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_api_key_omits_authorization_and_emits_response_headers() {
+    fn sends_request_affinity_and_emits_response_headers() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
@@ -422,6 +422,9 @@ mod tests {
             let size = stream.read(&mut request).unwrap();
             let request = String::from_utf8_lossy(&request[..size]).to_ascii_lowercase();
             assert!(!request.contains("authorization:"));
+            assert!(request.contains("session-id: mission-1"));
+            assert!(!request.contains("session_id:"));
+            assert!(request.contains("x-client-request-id: mission-1"));
             assert!(request.contains(&format!("user-agent: {}", crate::USER_AGENT)));
             stream
                 .write_all(
@@ -447,7 +450,7 @@ mod tests {
             &cfg,
             "{}",
             &cancel,
-            None,
+            Some("mission-1"),
             None,
             Some(&tx),
         )
