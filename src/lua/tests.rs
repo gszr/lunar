@@ -1308,3 +1308,142 @@ fn merged_references_use_the_source_of_the_invalid_field() {
     assert!(err.contains(&format!("File: {}", user.display())), "{err}");
     fs::remove_dir_all(dir).unwrap();
 }
+
+fn openai_access(account: &str) -> String {
+    let payload = match account {
+        "first" => {
+            "eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOiB7ImNoYXRncHRfYWNjb3VudF9pZCI6ICJmaXJzdCJ9fQ"
+        }
+        "second" => {
+            "eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOiB7ImNoYXRncHRfYWNjb3VudF9pZCI6ICJzZWNvbmQifX0"
+        }
+        "third" => {
+            "eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOiB7ImNoYXRncHRfYWNjb3VudF9pZCI6ICJ0aGlyZCJ9fQ"
+        }
+        _ => unreachable!(),
+    };
+    format!("header.{payload}.signature")
+}
+
+fn oauth(access: &str) -> crate::auth::Credential {
+    crate::auth::Credential::OAuth {
+        access: access.into(),
+        refresh: "refresh".into(),
+        expires: u64::MAX,
+    }
+}
+
+#[test]
+fn a_subscription_name_in_defaults_provider_names_the_right_field() {
+    let _env = isolate(&[]);
+    let path = write_init(
+        &scratch(),
+        r#"return { defaults = { provider = "openai-subscription-1", model = "gpt-6.1-astra" } }"#,
+    );
+    let Err(error) = load_path(&path) else {
+        panic!("expected a configuration error");
+    };
+    assert!(error.contains("defaults.provider"), "{error}");
+    assert!(
+        error.contains("defaults.subscription = \"openai-subscription-1\""),
+        "{error}"
+    );
+}
+
+#[test]
+fn legacy_openai_credentials_migrate_keeping_profile_numbers_and_caches() {
+    let home = scratch();
+    let _env = isolate(&[("LUNAR_HOME", home.to_str().unwrap())]);
+    fs::create_dir_all(home.join("recorder")).unwrap();
+    let access = openai_access("second");
+    fs::write(
+        home.join("recorder/auth.json"),
+        serde_json::json!({"openai-2": {"type": "oauth", "access": access, "refresh": "r", "expires": u64::MAX}})
+            .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        home.join("recorder/subscription-profiles.json"),
+        serde_json::json!({"second": "openai-2"}).to_string(),
+    )
+    .unwrap();
+    fs::write(home.join("recorder/openai-2-models.json"), "{}").unwrap();
+    assert_eq!(
+        crate::auth::subscription_profiles().unwrap(),
+        vec![("openai-subscription-2".into(), "second".into())]
+    );
+    assert!(
+        home.join("recorder/openai-subscription-2-models.json")
+            .exists()
+    );
+    assert!(!home.join("recorder/openai-2-models.json").exists());
+    // A later login for a new account must not reuse the migrated number.
+    crate::auth::save_oauth("openai", oauth(&openai_access("first"))).unwrap();
+    let profiles = crate::auth::subscription_profiles().unwrap();
+    assert_eq!(profiles.len(), 2);
+    assert!(
+        profiles
+            .iter()
+            .any(|(name, _)| name == "openai-subscription-3")
+    );
+}
+
+#[test]
+fn subscription_profiles_reuse_accounts_keep_names_and_resolve_defaults() {
+    let home = scratch();
+    let _env = isolate(&[("LUNAR_HOME", home.to_str().unwrap())]);
+    let credential = |account: &str| oauth(&openai_access(account));
+    crate::auth::save_oauth("openai", credential("first")).unwrap();
+    crate::auth::save_oauth("openai", credential("second")).unwrap();
+    crate::auth::save_oauth("openai", credential("first")).unwrap();
+    assert_eq!(
+        crate::auth::subscription_profiles().unwrap(),
+        vec![
+            ("openai-subscription-1".into(), "first".into()),
+            ("openai-subscription-2".into(), "second".into())
+        ]
+    );
+    assert_ne!(
+        crate::auth::resolve_profile("openai", Some("openai-subscription-1")).unwrap(),
+        crate::auth::resolve_profile("openai", Some("openai-subscription-2")).unwrap()
+    );
+    crate::auth::logout("openai-subscription-1").unwrap();
+    crate::auth::save_oauth("openai", credential("third")).unwrap();
+    crate::auth::save_oauth("openai", credential("first")).unwrap();
+    assert_eq!(crate::auth::subscription_profiles().unwrap().len(), 3);
+    let cache = serde_json::json!({"account": "second", "catalog": {"models": [{"slug": "test-model", "visibility": "list", "supported_reasoning_levels": [{"effort": "low"}, {"effort": "high"}], "default_reasoning_level": "low"}]}});
+    fs::write(
+        home.join("recorder/openai-subscription-2-models.json"),
+        cache.to_string(),
+    )
+    .unwrap();
+    let path = write_init(
+        &scratch(),
+        r#"return { defaults = { subscription = "openai-subscription-2", model = "test-model", thinking = "high" } }"#,
+    );
+    let cfg = load_path(&path).unwrap().config.unwrap();
+    assert_eq!(cfg.provider, "openai-subscription-2");
+    assert_eq!(cfg.thinking, "high");
+    assert_eq!(cfg.auth_profile.as_deref(), Some("openai-subscription-2"));
+    // Display/catalog names must not determine which account sends a request.
+    let mut renamed = cfg.clone();
+    renamed.provider = "unrelated display name".into();
+    assert_eq!(
+        crate::auth::resolve_profile(
+            renamed.auth_provider.as_deref().unwrap(),
+            renamed.auth_profile.as_deref()
+        )
+        .unwrap(),
+        crate::auth::resolve_profile("openai", Some("openai-subscription-2")).unwrap()
+    );
+    fs::write(&path, r#"return { defaults = { subscription = "openai-subscription-2", provider = "x", model = "test-model" } }"#).unwrap();
+    assert!(load_path(&path).is_err());
+    fs::write(
+        &path,
+        r#"return { defaults = { subscription = "openai-subscription-99", model = "missing" } }"#,
+    )
+    .unwrap();
+    let loaded = load_path(&path).unwrap();
+    assert!(loaded.config.is_none());
+    assert!(loaded.notice.unwrap().contains("unavailable"));
+}

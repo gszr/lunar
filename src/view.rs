@@ -387,14 +387,14 @@ pub(crate) fn draw_splash(frame: &mut Frame, area: Rect, app: &App) {
     ));
     let notice = app.notice.as_deref().unwrap_or("");
     let notice_lines = notice_lines(notice, area.width.max(1) as usize);
-    let extra = 4usize.saturating_add(notice_lines.len());
-    let block_h = art_h.saturating_add(extra.min(u16::MAX as usize) as u16);
+    let art_block = art_h.saturating_add(4);
+    let block_h = art_block.saturating_add(notice_lines.len().min(u16::MAX as usize) as u16);
     let art_w = splash::width();
     let splash_area = Rect {
         x: area.x + area.width.saturating_sub(art_w) / 2,
         y: area.y + area.height.saturating_sub(block_h) / 2,
         width: art_w.min(area.width),
-        height: block_h.min(area.height),
+        height: art_block.min(area.height),
     };
 
     let mut lines = art;
@@ -402,10 +402,20 @@ pub(crate) fn draw_splash(frame: &mut Frame, area: Rect, app: &App) {
     lines.push(title.centered());
     lines.push(tag.centered());
     lines.push(tag2.centered());
-    lines.extend(notice_lines.into_iter().map(Line::centered));
     frame.render_widget(
         Paragraph::new(lines).alignment(Alignment::Left),
         splash_area,
+    );
+    // The notice is wrapped to the pane, so it needs the pane's width, not the art's.
+    let notice_y = splash_area.y + splash_area.height;
+    frame.render_widget(
+        Paragraph::new(notice_lines).alignment(Alignment::Center),
+        Rect {
+            x: area.x,
+            y: notice_y,
+            width: area.width,
+            height: (area.y + area.height).saturating_sub(notice_y),
+        },
     );
 }
 

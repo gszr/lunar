@@ -183,7 +183,7 @@ pub(crate) fn logout_anthropic(app: &mut App) {
     logout_provider(app, "anthropic", "Anthropic");
 }
 
-fn logout_provider(app: &mut App, provider: &str, brand: &str) {
+pub(crate) fn logout_provider(app: &mut App, provider: &str, brand: &str) {
     match auth::logout(provider) {
         Ok(true) => {
             app.notice = Some(format!("logged out of {brand}"));

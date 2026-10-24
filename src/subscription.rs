@@ -19,45 +19,69 @@ pub(crate) struct Subscription {
     pub(crate) models: Vec<ModelChoice>,
     pub(crate) rx: Option<Receiver<Result<Value, String>>>,
     account: Option<String>,
+    pub(crate) profile: String,
+    pending: Vec<(String, String)>,
 }
 
 pub(crate) fn refresh(app: &mut App) {
     // Dropping the receiver prevents a previous login's response being installed.
     app.subscription.rx = None;
-    let account = match crate::auth::subscription_account("openai") {
-        Ok(account) => account,
+    let profiles = match crate::auth::subscription_profiles() {
+        Ok(profiles) => profiles,
         Err(error) => {
             app.notice = Some(error);
-            None
+            return;
         }
     };
-    if account != app.subscription.account {
-        app.subscription.models.clear();
-        if app.config.as_ref().is_some_and(is_subscription) {
-            app.config = None;
-            app.thinking_override = None;
-            crate::limits::refresh(app);
+    app.subscription
+        .models
+        .retain(|model| profiles.iter().any(|(name, _)| name == &model.provider));
+    if app.config.as_ref().is_some_and(|config| {
+        is_subscription(config) && !profiles.iter().any(|(name, _)| name == &config.provider)
+    }) {
+        app.config = None;
+        app.thinking_override = None;
+        crate::limits::refresh(app);
+    }
+    for (profile, account) in &profiles {
+        if app
+            .subscription
+            .models
+            .iter()
+            .any(|model| &model.provider == profile)
+        {
+            continue;
+        }
+        let path = crate::storage::recorder(&format!("{profile}-models.json"));
+        let text = std::fs::read_to_string(path)
+            .or_else(|_| std::fs::read_to_string(crate::storage::recorder("openai-models.json")));
+        if let Ok(text) = text
+            && let Ok(cache) = serde_json::from_str::<Value>(&text)
+            && cache["account"].as_str() == Some(account)
+            && let Ok(models) = profile_choices(&cache["catalog"], profile)
+        {
+            app.subscription.models.extend(models);
         }
     }
-    app.subscription.account = account.clone();
-    let Some(account) = account else { return };
-    if app.subscription.models.is_empty()
-        && let Ok(text) = std::fs::read_to_string(crate::storage::recorder("openai-models.json"))
-        && let Ok(cache) = serde_json::from_str::<Value>(&text)
-        && cache["account"].as_str() == Some(&account)
-        && let Ok(models) = choices(&cache["catalog"])
-    {
-        app.subscription.models = models;
-    }
+    app.subscription.pending = profiles;
+    start_next(app);
+}
+
+fn start_next(app: &mut App) {
+    let Some((profile, account)) = app.subscription.pending.pop() else {
+        return;
+    };
+    app.subscription.profile = profile.clone();
+    app.subscription.account = Some(account.clone());
     let (tx, rx) = mpsc::channel();
     app.subscription.rx = Some(rx);
     std::thread::spawn(move || {
-        let _ = tx.send(fetch(&account));
+        let _ = tx.send(fetch(&profile, &account));
     });
 }
 
 pub(crate) fn is_subscription(config: &Config) -> bool {
-    config.provider == PROVIDER && config.auth_provider.as_deref() == Some("openai")
+    config.auth_profile.is_some()
 }
 
 pub(crate) fn drain(app: &mut App) {
@@ -70,21 +94,47 @@ pub(crate) fn drain(app: &mut App) {
         Err(mpsc::TryRecvError::Disconnected) => Err("catalog request ended".into()),
     };
     app.subscription.rx = None;
-    match result.and_then(|catalog| choices(&catalog).map(|models| (catalog, models))) {
+    match result.and_then(|catalog| {
+        profile_choices(&catalog, &app.subscription.profile).map(|models| (catalog, models))
+    }) {
         Ok((catalog, models)) => {
-            app.subscription.models = models;
+            let cached: Vec<_> = app
+                .subscription
+                .models
+                .iter()
+                .filter(|model| model.provider == app.subscription.profile)
+                .map(|model| model.id.clone())
+                .collect();
+            let changed = cached
+                != models
+                    .iter()
+                    .map(|model| model.id.clone())
+                    .collect::<Vec<_>>();
+            app.subscription
+                .models
+                .retain(|model| model.provider != app.subscription.profile);
+            app.subscription.models.extend(models);
             let cache = json!({"account": app.subscription.account, "catalog": catalog});
-            let path = crate::storage::recorder("openai-models.json");
+            let path =
+                crate::storage::recorder(&format!("{}-models.json", app.subscription.profile));
             let saved = (|| -> std::io::Result<()> {
                 std::fs::create_dir_all(path.parent().unwrap())?;
                 let temp = path.with_extension("json.tmp");
                 std::fs::write(&temp, cache.to_string())?;
                 std::fs::rename(temp, path)
             })();
-            app.notice = Some(match saved {
-                Ok(()) => "OpenAI subscription models loaded; choose with /model".into(),
-                Err(error) => format!("OpenAI models loaded, but could not cache them: {error}"),
-            });
+            // A refresh that matches the cache is routine; only report real news.
+            app.notice = match saved {
+                Ok(()) if !changed => app.notice.take(),
+                Ok(()) => Some(format!(
+                    "{} models loaded; choose with /model",
+                    app.subscription.profile
+                )),
+                Err(error) => Some(format!(
+                    "{} models loaded, but could not cache them: {error}",
+                    app.subscription.profile
+                )),
+            };
         }
         Err(error) => {
             let fallback = if app.subscription.models.is_empty() {
@@ -92,9 +142,17 @@ pub(crate) fn drain(app: &mut App) {
             } else {
                 "showing cached models"
             };
-            app.notice = Some(format!("OpenAI subscription: {fallback}: {error}"));
+            app.notice = Some(format!("{}: {fallback}: {error}", app.subscription.profile));
         }
     }
+    if app.config.is_none()
+        && let Ok(loaded) = crate::lua::load()
+        && let Some(config) = loaded.config.filter(is_subscription)
+    {
+        app.config = Some(config);
+        crate::limits::refresh(app);
+    }
+    start_next(app);
     if let Mode::Model { items, cursor, .. } = &mut app.mode {
         *items = app
             .models
@@ -106,8 +164,8 @@ pub(crate) fn drain(app: &mut App) {
     }
 }
 
-fn fetch(account: &str) -> Result<Value, String> {
-    let access = crate::auth::resolve("openai")?;
+fn fetch(profile: &str, account: &str) -> Result<Value, String> {
+    let access = crate::auth::resolve_profile("openai", Some(profile))?;
     if crate::auth::chatgpt_account_id(&access)? != account {
         return Err("account changed; log in again".into());
     }
@@ -134,6 +192,48 @@ fn fetch(account: &str) -> Result<Value, String> {
         .read_to_string()
         .map_err(|error| error.to_string())?;
     serde_json::from_str(&text).map_err(|error| format!("invalid catalog: {error}"))
+}
+
+fn profile_choices(catalog: &Value, profile: &str) -> Result<Vec<ModelChoice>, String> {
+    let mut models = choices(catalog)?;
+    for model in &mut models {
+        model.provider = profile.into();
+        if let Some(config) = &mut model.config {
+            config.provider = profile.into();
+            config.auth_profile = Some(profile.into());
+        }
+    }
+    Ok(models)
+}
+
+pub(crate) fn cached_default(
+    profile: &str,
+    model: &str,
+    thinking: Option<&str>,
+) -> Result<Option<Config>, String> {
+    let profiles = crate::auth::subscription_profiles()?;
+    let Some((_, account)) = profiles.iter().find(|(name, _)| name == profile) else {
+        return Ok(None);
+    };
+    let text = std::fs::read_to_string(crate::storage::recorder(&format!("{profile}-models.json")))
+        .or_else(|_| std::fs::read_to_string(crate::storage::recorder("openai-models.json")));
+    let Ok(text) = text else {
+        return Ok(None);
+    };
+    let cache: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    if cache["account"].as_str() != Some(account) {
+        return Ok(None);
+    }
+    let mut config = profile_choices(&cache["catalog"], profile)?
+        .into_iter()
+        .find(|choice| choice.id == model)
+        .and_then(|choice| choice.config);
+    if let Some(config) = &mut config
+        && let Some(level) = thinking.filter(|level| config.allows_thinking(level))
+    {
+        config.thinking = level.into();
+    }
+    Ok(config)
 }
 
 fn choices(catalog: &Value) -> Result<Vec<ModelChoice>, String> {
@@ -190,6 +290,7 @@ fn choices(catalog: &Value) -> Result<Vec<ModelChoice>, String> {
                     .filter(|n| *n > 0),
                 api: Api::Responses,
                 auth_provider: Some("openai".into()),
+                auth_profile: None,
                 thinking: thinking.into(),
                 thinking_levels: levels,
             }),

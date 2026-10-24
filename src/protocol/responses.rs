@@ -375,6 +375,7 @@ mod tests {
             window: None,
             api: Api::Responses,
             auth_provider: None,
+            auth_profile: None,
             thinking: "off".into(),
             thinking_levels: vec!["off".into()],
         }

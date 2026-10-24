@@ -267,6 +267,7 @@ mod tests {
             window: Some(500_000),
             api: Api::Completions,
             auth_provider: None,
+            auth_profile: None,
             thinking: "off".into(),
             thinking_levels: vec!["off".into()],
         };
@@ -286,6 +287,7 @@ mod tests {
             window: None,
             api: Api::Completions,
             auth_provider: None,
+            auth_profile: None,
             thinking: "max".into(),
             thinking_levels: vec!["low".into(), "high".into(), "max".into()],
         };
@@ -303,6 +305,7 @@ mod tests {
             window: None,
             api: Api::Completions,
             auth_provider: None,
+            auth_profile: None,
             thinking: "off".into(),
             thinking_levels: vec!["off".into()],
         };

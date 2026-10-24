@@ -6,6 +6,8 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🚀 Added
 
+- **Multiple OpenAI accounts and subscription defaults**: connect different accounts as stable numbered profiles (`openai-subscription-1`, `openai-subscription-2`, …), select them through `defaults.subscription` in user or project Lua, and disconnect individual profiles with `/logout openai-subscription-1`. Signing into the same account updates its existing profile rather than creating a duplicate.
+
 - **OpenAI models without Lua setup**: after `/login openai`, choose your subscription model with `/model`—no `init.lua` entry needed. Lunar refreshes the available models at startup without blocking the interface and keeps an account-specific cached list if discovery fails. Lua-configured providers stay separate.
 
 - **Plain-text replies**: `/markdown` (alias `/md`) toggles between formatted answers and their original Markdown text. Existing and future replies use your choice until you exit; saved conversations stay unchanged.

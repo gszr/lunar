@@ -46,6 +46,14 @@ pub(crate) fn dispatch(app: &mut App, line: &str) -> bool {
         "/logout" => app.notice = Some("usage: /logout xai|openai|anthropic".into()),
         "/logout xai" => auth::logout_xai(app),
         "/logout openai" => auth::logout_openai(app),
+        command
+            if command
+                .strip_prefix("/logout ")
+                .is_some_and(crate::auth::is_subscription_profile) =>
+        {
+            let profile = command.strip_prefix("/logout ").unwrap();
+            auth::logout_provider(app, profile, profile);
+        }
         "/logout anthropic" => auth::logout_anthropic(app),
         "/resume" => mission::open_resume(app),
         "/model" => model::open_model(app),

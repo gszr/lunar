@@ -51,6 +51,8 @@ pub(crate) fn select_model(app: &mut App, item: lua::ModelChoice, persist: bool)
     }
     app.thinking_override = None;
     let default_thinking = config.thinking.clone();
+    app.limits = None;
+    app.limits_rx = None;
     app.config = Some(config);
     crate::limits::refresh(app);
     app.notice = Some(format!("model: {} / {}", item.provider, item.id));

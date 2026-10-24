@@ -32,6 +32,7 @@ pub(super) fn loaded(guest: &Guest) -> Result<Loaded, String> {
     let selected = guest
         .defaults
         .as_ref()
+        .filter(|defaults| defaults.subscription.is_none())
         .map(|defaults| selected_model(guest, defaults))
         .transpose()?;
     let mut providers = BTreeMap::new();
@@ -42,7 +43,7 @@ pub(super) fn loaded(guest: &Guest) -> Result<Loaded, String> {
         providers.insert(name.clone(), resolved);
     }
     let models = choices(guest, &providers);
-    let (config, notice) = match selected {
+    let (mut config, mut notice) = match selected {
         Some((provider, model)) => {
             let choice = models
                 .iter()
@@ -56,6 +57,31 @@ pub(super) fn loaded(guest: &Guest) -> Result<Loaded, String> {
         }
         None => (None, None),
     };
+    if let Some(defaults) = &guest.defaults
+        && let Some(profile) = &defaults.subscription
+    {
+        if !crate::auth::is_subscription_profile(profile) {
+            return Err(diagnostic::config(
+                &defaults.source,
+                Some("defaults.subscription"),
+                "expected an OpenAI profile such as openai-subscription-1",
+            ));
+        }
+        match crate::subscription::cached_default(
+            profile,
+            &defaults.model,
+            defaults.thinking.as_deref(),
+        ) {
+            Ok(Some(selected)) => config = Some(selected),
+            Ok(None) => {
+                notice = Some(format!(
+                    "subscription default {profile}/{} unavailable; use /login openai or /model",
+                    defaults.model
+                ))
+            }
+            Err(error) => notice = Some(error),
+        }
+    }
     Ok(Loaded {
         config,
         models,
@@ -116,6 +142,7 @@ fn provider_config(
         window: model.window.or_else(|| protocol::guess_window(&model.id)),
         api: model.api,
         auth_provider: provider.auth_provider.clone(),
+        auth_profile: None,
         thinking: default_thinking
             .filter(|level| model.thinking_levels.iter().any(|allowed| allowed == level))
             .unwrap_or(&model.thinking)
@@ -214,11 +241,17 @@ fn selected_model<'a>(
     let provider_key = defaults.provider.as_str();
     let model_key = defaults.model.as_str();
     let provider = guest.providers.get(provider_key).ok_or_else(|| {
+        // A subscription is selected by name, so it is an easy mistake to put it here.
+        let hint = if crate::auth::is_subscription_profile(provider_key) {
+            format!("\nUse defaults.subscription = \"{provider_key}\" for a subscription")
+        } else {
+            String::new()
+        };
         diagnostic::config(
             &defaults.source,
             Some("defaults.provider"),
             &format!(
-                "unknown provider: {provider_key}\nAvailable providers: {}",
+                "unknown provider: {provider_key}{hint}\nAvailable providers: {}",
                 available(guest.providers.keys().cloned())
             ),
         )

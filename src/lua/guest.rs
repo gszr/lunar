@@ -17,6 +17,7 @@ pub(super) struct Guest {
 pub(super) struct RawDefaults {
     pub(super) source: std::path::PathBuf,
     pub(super) provider: String,
+    pub(super) subscription: Option<String>,
     pub(super) model: String,
     pub(super) thinking: Option<String>,
 }
@@ -80,7 +81,18 @@ pub(super) fn parse(
     let defaults = match table.get::<Value>("defaults") {
         Ok(Value::Table(defaults)) => Some(RawDefaults {
             source: source.into(),
-            provider: required_string(&defaults, "provider")?,
+            provider: match optional_string(&defaults, "subscription")? {
+                Some(_) => {
+                    if !matches!(defaults.get::<Value>("provider"), Ok(Value::Nil)) {
+                        return Err(
+                            "defaults must specify provider or subscription, not both".into()
+                        );
+                    }
+                    String::new()
+                }
+                None => required_string(&defaults, "provider")?,
+            },
+            subscription: optional_string(&defaults, "subscription")?,
             model: required_string(&defaults, "model")?,
             thinking: optional_string(&defaults, "thinking")
                 .map_err(|err| format!("defaults: {err}"))?,

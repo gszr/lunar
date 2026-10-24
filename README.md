@@ -143,7 +143,21 @@ export XAI_API_KEY=...
 
 A provider can use `base_url_cmd = "pass lunar/xai-url"` instead of `base_url`, and `key_cmd = "pass my_key"` instead of `key_name`. Commands run through `sh -c` before the TUI opens, so interactive credential helpers such as GPG pinentry work normally. Lunar trims trailing whitespace from stdout. `base_url_cmd` takes precedence over `base_url`; `key_cmd` takes precedence over `key_name`.
 
-For ChatGPT Plus/Pro, run `/login openai`, then choose an **OpenAI subscription** model with `/model`. No Lua entry is needed. Lunar discovers models at login and startup, and keeps a cached list if refresh fails.
+For ChatGPT Plus/Pro, run `/login openai`, then choose a numbered subscription profile’s model with `/model`. No Lua entry is needed. Lunar discovers models at login and startup, and keeps a cached list if refresh fails.
+
+Different OpenAI accounts receive stable names such as `openai-subscription-1` and `openai-subscription-2`; logging in again to the same account updates its existing profile. Select a default in user or project Lua:
+
+```lua
+return {
+  defaults = {
+    subscription = "openai-subscription-1", -- instead of provider
+    model = "gpt-5.4", -- a wire model ID from /model
+    thinking = "high", -- optional
+  },
+}
+```
+
+`/logout openai-subscription-1` disconnects just that profile; `/logout openai` disconnects all OpenAI profiles. Names are never renumbered. An unavailable subscription default shows a notice so you can recover with `/login` or `/model`.
 
 For xAI (subscription or saved API key) and Anthropic (Claude Pro/Max), use `/login xai` or `/login anthropic` and configure `key_in = "auth"` with the matching `auth_provider` in Lua; discovery is OpenAI-only for now. `/logout xai`, `/logout openai`, and `/logout anthropic` remove the credential.
 

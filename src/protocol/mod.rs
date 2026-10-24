@@ -44,6 +44,7 @@ pub struct Config {
     pub window: Option<u32>,
     pub api: Api,
     pub auth_provider: Option<String>,
+    pub auth_profile: Option<String>,
     pub thinking: String,
     pub thinking_levels: Vec<String>,
 }
@@ -152,8 +153,8 @@ pub fn stream(
     tools: bool,
     debug_headers: bool,
 ) {
-    if let Some(provider) = cfg.auth_provider.as_deref() {
-        match crate::auth::resolve(provider) {
+    if let Some(integration) = cfg.auth_provider.as_deref() {
+        match crate::auth::resolve_profile(integration, cfg.auth_profile.as_deref()) {
             Ok(access) => cfg.api_key = access,
             Err(err) => {
                 let _ = tx.send(StreamEvent::Failed(err));

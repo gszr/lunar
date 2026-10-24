@@ -442,6 +442,7 @@ mod tests {
             window: None,
             api: super::super::Api::Completions,
             auth_provider: None,
+            auth_profile: None,
             thinking: "off".into(),
             thinking_levels: vec!["off".into()],
         };

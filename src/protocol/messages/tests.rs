@@ -10,6 +10,7 @@ fn sample_cfg() -> Config {
         window: None,
         api: Api::Messages,
         auth_provider: None,
+        auth_profile: None,
         thinking: "off".into(),
         thinking_levels: vec!["off".into(), "low".into(), "high".into()],
     }

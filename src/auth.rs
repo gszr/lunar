@@ -3,6 +3,7 @@
 mod anthropic;
 mod http;
 mod openai;
+mod profiles;
 mod store;
 mod xai;
 
@@ -56,16 +57,19 @@ pub fn exchange_anthropic(input: &str, verifier: &str) -> Result<Credential, Str
     anthropic::exchange(input, verifier)
 }
 
-pub fn subscription_account(provider: &str) -> Result<Option<String>, String> {
-    match store::load(&store::path())?.get(provider) {
-        Some(Credential::OAuth { access, .. }) if provider == "openai" => {
-            chatgpt_account_id(access).map(Some)
-        }
-        _ => Ok(None),
-    }
+pub use profiles::is_profile as is_subscription_profile;
+
+pub fn subscription_profiles() -> Result<Vec<(String, String)>, String> {
+    profiles::connected()
 }
 
 pub fn resolve(provider: &str) -> Result<String, String> {
+    resolve_profile(provider, None)
+}
+
+pub fn resolve_profile(integration: &str, profile: Option<&str>) -> Result<String, String> {
+    let name = profiles::credential_name(integration, profile)?;
+    let provider = name.as_str();
     let path = store::path();
     let mut credentials = store::load(&path)?;
     match credentials.remove(provider) {
@@ -75,13 +79,13 @@ pub fn resolve(provider: &str) -> Result<String, String> {
             refresh: _,
             expires,
         }) if http::now_ms() < expires => {
-            if provider == "openai" {
+            if integration == "openai" {
                 chatgpt_account_id(&access)?;
             }
             Ok(access)
         }
         Some(Credential::OAuth { refresh, .. }) => {
-            let fresh = match provider {
+            let fresh = match integration {
                 "xai" => xai::refresh(&refresh),
                 "openai" => openai::refresh(&refresh),
                 "anthropic" => anthropic::refresh(&refresh),
@@ -112,9 +116,21 @@ pub fn save_api_key(provider: &str, key: &str) -> Result<(), String> {
 }
 
 pub fn save_oauth(provider: &str, credential: Credential) -> Result<(), String> {
-    store::insert(provider, credential)
+    if provider == "openai" {
+        profiles::save(credential)
+    } else {
+        store::insert(provider, credential)
+    }
 }
 
 pub fn logout(provider: &str) -> Result<bool, String> {
-    store::remove(provider)
+    if provider == "openai" {
+        let mut removed = false;
+        for (name, _) in subscription_profiles()? {
+            removed |= store::remove(&name)?;
+        }
+        Ok(removed)
+    } else {
+        store::remove(provider)
+    }
 }

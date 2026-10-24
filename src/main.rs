@@ -187,6 +187,7 @@ mod tests {
             window: None,
             api: Api::Completions,
             auth_provider: None,
+            auth_profile: None,
             thinking: "off".into(),
             thinking_levels: vec!["off".into(), "low".into(), "medium".into(), "high".into()],
         };
@@ -197,6 +198,30 @@ mod tests {
 
     fn key(modifiers: KeyModifiers, code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, modifiers)
+    }
+
+    #[test]
+    fn splash_notice_uses_the_full_pane_width() {
+        let mut app = test_app();
+        app.notice = Some("openai-subscription-1 models loaded; choose with /model".into());
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 30)).unwrap();
+        terminal
+            .draw(|frame| crate::view::draw_splash(frame, frame.area(), &app))
+            .unwrap();
+        let painted: Vec<String> = terminal
+            .backend()
+            .buffer()
+            .content()
+            .chunks(80)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect();
+        assert!(
+            painted
+                .iter()
+                .any(|row| row.contains("models loaded; choose with /model")),
+            "notice was clipped: {painted:#?}"
+        );
     }
 
     #[test]
@@ -222,6 +247,36 @@ mod tests {
         choice.config.as_mut().unwrap().auth_provider = None;
         crate::commands::model::select_model(&mut app, choice, false);
         assert_eq!(app.config.as_ref().unwrap().provider, "OpenAI subscription");
+    }
+
+    #[test]
+    fn unchanged_catalog_refresh_is_quiet_but_new_models_are_announced() {
+        let catalog = |slug: &str| {
+            serde_json::json!({"models": [{"slug": slug, "visibility": "list",
+                "default_reasoning_level": "low",
+                "supported_reasoning_levels": [{"effort": "low"}]}]})
+        };
+        let mut app = test_app();
+        app.subscription.profile = "openai-subscription-1".into();
+        unsafe { std::env::set_var("LUNAR_HOME", std::env::temp_dir().join("lunar-quiet")) };
+        for (sent, expected) in [
+            (
+                catalog("gpt-test"),
+                Some("openai-subscription-1 models loaded; choose with /model"),
+            ),
+            (catalog("gpt-test"), None),
+            (
+                catalog("gpt-next"),
+                Some("openai-subscription-1 models loaded; choose with /model"),
+            ),
+        ] {
+            let (tx, rx) = std::sync::mpsc::channel();
+            app.subscription.rx = Some(rx);
+            tx.send(Ok(sent)).unwrap();
+            app.notice = None;
+            crate::subscription::drain(&mut app);
+            assert_eq!(app.notice.as_deref(), expected);
+        }
     }
 
     #[test]

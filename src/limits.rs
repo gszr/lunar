@@ -34,10 +34,11 @@ pub(crate) fn refresh(app: &mut App) {
         return;
     }
     let base_url = config.base_url.clone();
+    let profile = config.auth_profile.clone();
     let (tx, rx) = mpsc::channel();
     app.limits_rx = Some(rx);
     std::thread::spawn(move || {
-        if let Ok(limits) = fetch(&base_url) {
+        if let Ok(limits) = fetch(&base_url, profile.as_deref()) {
             let _ = tx.send(limits);
         }
     });
@@ -63,8 +64,8 @@ pub(crate) fn drain(app: &mut App) {
     }
 }
 
-fn fetch(base_url: &str) -> Result<Limits, String> {
-    let access = crate::auth::resolve("openai")?;
+fn fetch(base_url: &str, profile: Option<&str>) -> Result<Limits, String> {
+    let access = crate::auth::resolve_profile("openai", profile)?;
     let account = crate::auth::chatgpt_account_id(&access)?;
     let url = format!("{}/wham/usage", base_url.trim_end_matches('/'));
     let agent: ureq::Agent = ureq::Agent::config_builder()
