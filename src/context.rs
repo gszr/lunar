@@ -1,5 +1,6 @@
 //! Model-visible context assembly and preview.
 
+use std::collections::HashSet;
 use std::fmt::Write as _;
 
 use crate::app::{Message, Role};
@@ -31,7 +32,7 @@ pub(crate) fn history(
                 !m.aside
                     && !m.debug
                     && (!m.text.is_empty()
-                        || matches!(m.role, Role::User)
+                        || matches!(m.role, Role::User | Role::Tool)
                         || !m.thinking.is_empty()
                         || !m.tool_calls.is_empty())
             })
@@ -49,6 +50,24 @@ pub(crate) fn history(
                 },
             }),
     );
+    // An interrupted mission can end a tool round before its results are recorded.
+    let mut results = HashSet::new();
+    for message in out.iter_mut().rev() {
+        match message {
+            ChatMessage::Tool { id, .. } => {
+                results.insert(id.clone());
+            }
+            ChatMessage::Assistant { tool_calls, .. } => {
+                tool_calls.retain(|call| results.contains(&call.id));
+                results.clear();
+            }
+            ChatMessage::User(_) => results.clear(),
+        }
+    }
+    out.retain(|message| {
+        !matches!(message, ChatMessage::Assistant { content, thinking, tool_calls, .. }
+            if content.is_empty() && thinking.is_empty() && tool_calls.is_empty())
+    });
     out
 }
 
@@ -71,29 +90,28 @@ pub(crate) fn summary(
         .map(|(_, first_kept)| first_kept)
         .unwrap_or(0)
         .min(messages.len());
-    for message in &messages[start..] {
-        if message.aside || message.debug {
-            continue;
-        }
-        match message.role {
-            Role::User => {
+    for message in history(None, None, &messages[start..]) {
+        match message {
+            ChatMessage::User(content) => {
                 users += 1;
-                user_chars += message.text.chars().count();
+                user_chars += content.chars().count();
             }
-            Role::Assistant => {
-                assistants +=
-                    usize::from(!message.text.is_empty() || !message.tool_calls.is_empty());
-                assistant_chars += message.text.chars().count();
-                tool_calls += message.tool_calls.len();
-                tool_call_chars += message
-                    .tool_calls
+            ChatMessage::Assistant {
+                content,
+                tool_calls: calls,
+                ..
+            } => {
+                assistants += usize::from(!content.is_empty() || !calls.is_empty());
+                assistant_chars += content.chars().count();
+                tool_calls += calls.len();
+                tool_call_chars += calls
                     .iter()
                     .map(|call| call.arguments.chars().count())
                     .sum::<usize>();
             }
-            Role::Tool => {
+            ChatMessage::Tool { content, .. } => {
                 tool_results += 1;
-                tool_result_chars += message.text.chars().count();
+                tool_result_chars += content.chars().count();
             }
         }
     }
@@ -234,6 +252,111 @@ mod tests {
         assert!(preview.contains("[assistant tool call: read · call-1]"));
         assert!(preview.contains(r#"{"path":"CONTEXT.md"}"#));
         assert!(preview.contains("[tool result: call-1]\ncontents"));
+    }
+
+    #[test]
+    fn history_omits_tool_calls_without_results() {
+        let mut interrupted = Message::assistant();
+        interrupted.tool_calls.push(ToolCall {
+            id: "missing".into(),
+            name: "bash".into(),
+            arguments: r#"{"command":"echo done"}"#.into(),
+        });
+        let mut messages = vec![Message::user("question".into()), interrupted];
+
+        let at_end = history(Some("instructions"), None, &messages);
+        assert_eq!(at_end.len(), 2);
+        assert!(matches!(&at_end[0], ChatMessage::User(text) if text == "instructions"));
+        assert!(matches!(&at_end[1], ChatMessage::User(text) if text == "question"));
+
+        messages.push(Message::user("continue".into()));
+        let resumed = history(None, None, &messages);
+        assert_eq!(resumed.len(), 2);
+        assert!(matches!(&resumed[1], ChatMessage::User(text) if text == "continue"));
+        assert_eq!(messages[1].tool_calls.len(), 1);
+        assert!(!format_history(resumed).contains("missing"));
+        let summary = summary(&messages, None, "");
+        assert!(summary.contains("assistant messages 0  ~0 tokens"));
+        assert!(summary.contains("tool calls         0  ~0 tokens"));
+    }
+
+    #[test]
+    fn history_keeps_partial_tool_round_and_empty_results() {
+        let mut assistant = Message::assistant();
+        assistant.text = "checking".into();
+        assistant.thinking = "reasoning".into();
+        assistant.thinking_signature = "signature".into();
+        for id in ["missing", "saved", "empty"] {
+            assistant.tool_calls.push(ToolCall {
+                id: id.into(),
+                name: "bash".into(),
+                arguments: "{}".into(),
+            });
+        }
+        let messages = vec![
+            Message::user("old question".into()),
+            Message::user("question".into()),
+            assistant,
+            Message::tool("saved".into(), "bash".into(), "done".into()),
+            Message::aside_user("side question".into()),
+            Message::debug("debug".into(), "headers".into()),
+            Message::tool("empty".into(), "bash".into(), String::new()),
+            Message::user("continue".into()),
+        ];
+
+        let history = history(Some("instructions"), Some(("checkpoint", 1)), &messages);
+        assert_eq!(history.len(), 7);
+        assert!(matches!(
+            &history[3],
+            ChatMessage::Assistant { content, thinking, thinking_signature, tool_calls }
+                if content == "checking"
+                    && thinking == "reasoning"
+                    && thinking_signature == "signature"
+                    && tool_calls.iter().map(|call| call.id.as_str()).collect::<Vec<_>>()
+                        == ["saved", "empty"]
+        ));
+        assert!(matches!(
+            &history[4], ChatMessage::Tool { id, content } if id == "saved" && content == "done"
+        ));
+        assert!(matches!(
+            &history[5], ChatMessage::Tool { id, content } if id == "empty" && content.is_empty()
+        ));
+        assert_eq!(messages[2].tool_calls.len(), 3);
+        let preview = format_history(history);
+        assert!(!preview.contains("missing"));
+        assert!(!preview.contains("old question"));
+        let summary = summary(&messages, Some(("checkpoint", 1)), "");
+        assert!(summary.contains("tool calls         2  ~1 tokens"));
+        assert!(summary.contains("tool results       2  ~1 tokens"));
+    }
+
+    #[test]
+    fn history_matches_tool_results_only_in_their_round() {
+        let mut interrupted = Message::assistant();
+        interrupted.text = "checking".into();
+        interrupted.tool_calls.push(ToolCall {
+            id: "reused".into(),
+            name: "read".into(),
+            arguments: "{}".into(),
+        });
+        let messages = vec![
+            interrupted.clone(),
+            Message::tool("reused".into(), "read".into(), "first result".into()),
+            Message::user("again".into()),
+            interrupted.clone(),
+            Message::user("continue".into()),
+            interrupted,
+            Message::tool("reused".into(), "read".into(), "last result".into()),
+        ];
+
+        let history = history(None, None, &messages);
+        assert_eq!(history.len(), 7);
+        for (index, count) in [(0, 1), (3, 0), (5, 1)] {
+            assert!(matches!(
+                &history[index], ChatMessage::Assistant { content, tool_calls, .. }
+                    if content == "checking" && tool_calls.len() == count
+            ));
+        }
     }
 
     #[test]
