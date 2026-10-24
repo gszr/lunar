@@ -1,7 +1,7 @@
 return {
   defaults = {
-    provider = "openai",
-    model = "gpt-5.6-sol",
+    subscription = "openai-subscription-1",
+    model = "gpt-6.1-sol",
     thinking = "high",
   },
 }
