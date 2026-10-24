@@ -1501,3 +1501,5 @@ fn every_subscription_integration_resolves_profiles_and_defaults_equally() {
         );
     }
 }
+
+mod auto;

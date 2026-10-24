@@ -5,7 +5,7 @@ mod compact;
 mod completion;
 mod config;
 mod context;
-mod format;
+pub(crate) mod format;
 pub(crate) mod mission;
 pub(crate) mod model;
 pub(crate) mod thinking;

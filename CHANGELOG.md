@@ -6,6 +6,8 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🚀 Added
 
+- **Automatic models for configured providers**: set `models = "auto"` to load a provider’s available models from its `/models` endpoint without maintaining a list. Discovered models use Responses with `off`, `low`, `medium`, `high`, and `max` thinking levels. Lua defaults can select a discovered model; discovery failures leave Lunar open so you can choose another provider.
+
 - **Subscriptions work alike across OpenAI, Anthropic, and xAI**: connect multiple accounts, choose discovered models, select numbered profiles in Lua defaults, and disconnect individual accounts. Existing subscription logins migrate without requiring new Lua provider entries.
 
 - **Multiple OpenAI accounts and subscription defaults**: connect different accounts as stable numbered profiles (`openai-subscription-1`, `openai-subscription-2`, …), select them through `defaults.subscription` in user or project Lua, and disconnect individual profiles with `/logout openai-subscription-1`. Signing into the same account updates its existing profile rather than creating a duplicate.

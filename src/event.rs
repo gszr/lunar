@@ -39,11 +39,13 @@ pub(crate) fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<(
         crate::limits::drain(app);
         drain_auth(app);
         crate::subscription::drain(app);
+        crate::provider_catalog::drain(app);
         terminal.draw(|frame| draw(frame, app))?;
         let wait = if app.cancel.is_some()
             || app.auth_rx.is_some()
             || app.limits_rx.is_some()
             || app.subscription.rx.is_some()
+            || app.discovery.rx.is_some()
         {
             Duration::from_millis(16)
         } else if app.limits.is_some() {

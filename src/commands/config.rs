@@ -34,6 +34,8 @@ pub(crate) fn reload_config(app: &mut App) {
     app.config = config;
     app.startup_config = loaded.config;
     app.models = loaded.models;
+    app.discovery = loaded.discovery;
+    crate::provider_catalog::refresh(app);
     app.stack = loaded.stack;
     if let Some(notice) = loaded.notice {
         app.notice = Some(notice);

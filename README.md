@@ -143,6 +143,8 @@ export XAI_API_KEY=...
 
 A provider can use `base_url_cmd = "pass lunar/xai-url"` instead of `base_url`, and `key_cmd = "pass my_key"` instead of `key_name`. Commands run through `sh -c` before the TUI opens, so interactive credential helpers such as GPG pinentry work normally. Lunar trims trailing whitespace from stdout. `base_url_cmd` takes precedence over `base_url`; `key_cmd` takes precedence over `key_name`.
 
+For a Responses-compatible provider, set `models = "auto"` instead of a model list. Lunar fetches `{base_url}/models` in the background using the provider’s credentials and adds the results to `/model`. Discovered models offer `off`, `low`, `medium`, `high`, and `max` thinking levels (`off` by default); `defaults.model` uses the wire ID. Use an explicit list for other protocols or model-specific thinking levels.
+
 For ChatGPT Plus/Pro, run `/login openai`, then choose a numbered subscription profile’s model with `/model`. No Lua entry is needed. Lunar discovers models at login and startup, and keeps a cached list if refresh fails.
 
 Different OpenAI accounts receive stable names such as `openai-subscription-1` and `openai-subscription-2`; logging in again to the same account updates its existing profile. Select a default in user or project Lua:

@@ -14,6 +14,7 @@ mod lua;
 mod mission;
 mod prompt;
 mod protocol;
+mod provider_catalog;
 mod render;
 mod splash;
 mod stack;
@@ -58,6 +59,7 @@ fn main() -> io::Result<()> {
     let mut terminal = terminal::Terminal::init();
     let mut app = App::new(loaded);
     subscription::refresh(&mut app);
+    provider_catalog::refresh(&mut app);
     if app.notice.is_none() && !migration_errors.is_empty() {
         app.notice = Some(format!(
             "storage migration: {}",
@@ -138,6 +140,7 @@ mod tests {
             thinking_override: None,
             models: Vec::new(),
             subscription: Default::default(),
+            discovery: Default::default(),
             stack: String::new(),
             stream_rx: None,
             cancel: None,

@@ -19,7 +19,8 @@ pub(super) fn loaded(guest: &Guest) -> Result<Loaded, String> {
                 &errors.join("\n"),
             ));
         }
-        for model in &models {
+        let automatic = provider.auto_models.then(|| automatic_model(String::new()));
+        for model in models.iter().chain(automatic.iter()) {
             validate_api(provider, model).map_err(|err| {
                 diagnostic::config(
                     &provider.source,
@@ -44,6 +45,7 @@ pub(super) fn loaded(guest: &Guest) -> Result<Loaded, String> {
     }
     let models = choices(guest, &providers);
     let (mut config, mut notice) = match selected {
+        Some((provider, _)) if guest.providers[provider].auto_models => (None, None),
         Some((provider, model)) => {
             let choice = models
                 .iter()
@@ -82,11 +84,42 @@ pub(super) fn loaded(guest: &Guest) -> Result<Loaded, String> {
             Err(error) => notice = Some(error),
         }
     }
+    let mut discovery = crate::provider_catalog::Discovery::default();
+    for (name, provider) in &guest.providers {
+        if !provider.auto_models {
+            continue;
+        }
+        match provider_config(
+            name,
+            &automatic_model(String::new()),
+            guest
+                .defaults
+                .as_ref()
+                .and_then(|defaults| defaults.thinking.as_deref()),
+            &providers,
+        ) {
+            Ok(config) => discovery.providers.push(config),
+            Err(error) => {
+                let message = format!("{name}: models could not be loaded: {error}");
+                notice = Some(match notice {
+                    Some(previous) => format!("{previous}\n{message}"),
+                    None => message,
+                });
+            }
+        }
+    }
+    if let Some(defaults) = &guest.defaults
+        && defaults.subscription.is_none()
+        && guest.providers[&defaults.provider].auto_models
+    {
+        discovery.default = Some((defaults.provider.clone(), defaults.model.clone()));
+    }
     Ok(Loaded {
         config,
         models,
         stack: crate::stack::render(&guest.stack),
         notice,
+        discovery,
     })
 }
 
@@ -256,6 +289,9 @@ fn selected_model<'a>(
             ),
         )
     })?;
+    if provider.auto_models {
+        return Ok((provider_key, automatic_model(model_key.to_string())));
+    }
     let (listed, _) = resolve_listed(&guest.models, &provider.models);
     let chosen = pick_model(&listed, model_key).ok_or_else(|| {
         diagnostic::config(
@@ -283,6 +319,19 @@ struct ResolvedModel {
     api: Api,
     thinking: String,
     thinking_levels: Vec<String>,
+}
+
+fn automatic_model(id: String) -> ResolvedModel {
+    ResolvedModel {
+        alias: None,
+        id,
+        window: None,
+        api: Api::Responses,
+        thinking: "off".into(),
+        thinking_levels: ["off", "low", "medium", "high", "max"]
+            .map(str::to_string)
+            .to_vec(),
+    }
 }
 
 fn resolve_listed(

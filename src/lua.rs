@@ -13,6 +13,7 @@ pub(crate) struct Loaded {
     pub models: Vec<ModelChoice>,
     pub stack: String,
     pub notice: Option<String>,
+    pub discovery: crate::provider_catalog::Discovery,
 }
 
 #[derive(Clone)]
@@ -86,6 +87,7 @@ fn empty() -> Loaded {
         models: Vec::new(),
         stack: String::new(),
         notice: None,
+        discovery: Default::default(),
     }
 }
 

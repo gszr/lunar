@@ -45,6 +45,7 @@ pub(super) struct ProviderDef {
     pub(super) key_in: String,
     pub(super) auth_provider: Option<String>,
     pub(super) models: Vec<Listed>,
+    pub(super) auto_models: bool,
 }
 
 pub(super) enum Listed {
@@ -156,11 +157,13 @@ fn parse_providers(
             notices.push(format!("{name} is not a table"));
             continue;
         };
+        let auto_models = field_string(&t, "models").as_deref() == Some("auto");
         let (models, extra) = match t.get::<Value>("models") {
+            Ok(Value::String(_)) if auto_models => (Vec::new(), Vec::new()),
             Ok(Value::Table(m)) => parse_listed(&m),
             Ok(Value::Nil) => (Vec::new(), Vec::new()),
             Ok(_) => {
-                notices.push(format!("{name} models is not a list"));
+                notices.push(format!("{name} models must be a list or \"auto\""));
                 (Vec::new(), Vec::new())
             }
             Err(err) => {
@@ -204,6 +207,7 @@ fn parse_providers(
                 key_in,
                 auth_provider: field_string(&t, "auth_provider"),
                 models,
+                auto_models,
             },
         );
     }
