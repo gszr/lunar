@@ -3,7 +3,7 @@ use crate::turn::persist_value;
 use crate::{lua, mission};
 
 pub(crate) fn open_model(app: &mut App) {
-    if app.models.is_empty() {
+    if app.models.is_empty() && app.subscription.models.is_empty() {
         app.notice = Some("no configured models".into());
         return;
     }
@@ -13,11 +13,17 @@ pub(crate) fn open_model(app: &mut App) {
         .and_then(|cfg| {
             app.models
                 .iter()
+                .chain(&app.subscription.models)
                 .position(|m| m.provider == cfg.provider && m.id == cfg.model)
         })
         .unwrap_or(0);
     app.mode = Mode::Model {
-        items: app.models.clone(),
+        items: app
+            .models
+            .iter()
+            .chain(&app.subscription.models)
+            .cloned()
+            .collect(),
         cursor,
         query: None,
     };
@@ -58,6 +64,7 @@ pub(crate) fn restore_model(app: &mut App, provider: &str, id: &str) -> bool {
     let choice = app
         .models
         .iter()
+        .chain(&app.subscription.models)
         .find(|m| m.provider == provider && m.id == id)
         .cloned();
     if let Some(item) = choice.filter(|m| m.config.is_some()) {

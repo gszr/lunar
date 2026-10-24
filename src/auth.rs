@@ -56,6 +56,15 @@ pub fn exchange_anthropic(input: &str, verifier: &str) -> Result<Credential, Str
     anthropic::exchange(input, verifier)
 }
 
+pub fn subscription_account(provider: &str) -> Result<Option<String>, String> {
+    match store::load(&store::path())?.get(provider) {
+        Some(Credential::OAuth { access, .. }) if provider == "openai" => {
+            chatgpt_account_id(access).map(Some)
+        }
+        _ => Ok(None),
+    }
+}
+
 pub fn resolve(provider: &str) -> Result<String, String> {
     let path = store::path();
     let mut credentials = store::load(&path)?;

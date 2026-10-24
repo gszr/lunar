@@ -143,7 +143,9 @@ export XAI_API_KEY=...
 
 A provider can use `base_url_cmd = "pass lunar/xai-url"` instead of `base_url`, and `key_cmd = "pass my_key"` instead of `key_name`. Commands run through `sh -c` before the TUI opens, so interactive credential helpers such as GPG pinentry work normally. Lunar trims trailing whitespace from stdout. `base_url_cmd` takes precedence over `base_url`; `key_cmd` takes precedence over `key_name`.
 
-Alternatively, let Lunar store the credential. Use `/login` in the TUI: xAI (subscription via device code, or a masked API key), OpenAI (ChatGPT Plus/Pro via device code), or Anthropic (Claude Pro/Max via copy-code). Set `key_in = "auth"` and `auth_provider = "xai"`, `"openai"`, or `"anthropic"` on the provider. `/logout xai`, `/logout openai`, and `/logout anthropic` remove the credential.
+For ChatGPT Plus/Pro, run `/login openai`, then choose an **OpenAI subscription** model with `/model`. No Lua entry is needed. Lunar discovers models at login and startup, and keeps a cached list if refresh fails.
+
+For xAI (subscription or saved API key) and Anthropic (Claude Pro/Max), use `/login xai` or `/login anthropic` and configure `key_in = "auth"` with the matching `auth_provider` in Lua; discovery is OpenAI-only for now. `/logout xai`, `/logout openai`, and `/logout anthropic` remove the credential.
 
 For an unauthenticated local server, set `key_in = "none"` and an explicit HTTP or HTTPS `base_url`; Lunar sends no Authorization header:
 

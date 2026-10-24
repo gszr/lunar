@@ -18,6 +18,7 @@ mod render;
 mod splash;
 mod stack;
 mod storage;
+mod subscription;
 mod terminal;
 mod tool_output;
 mod tools;
@@ -55,6 +56,7 @@ fn main() -> io::Result<()> {
     };
     let mut terminal = terminal::Terminal::init();
     let mut app = App::new(loaded);
+    subscription::refresh(&mut app);
     if app.notice.is_none() && !migration_errors.is_empty() {
         app.notice = Some(format!(
             "storage migration: {}",
@@ -134,6 +136,7 @@ mod tests {
             format_override: None,
             thinking_override: None,
             models: Vec::new(),
+            subscription: Default::default(),
             stack: String::new(),
             stream_rx: None,
             cancel: None,
@@ -194,6 +197,57 @@ mod tests {
 
     fn key(modifiers: KeyModifiers, code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, modifiers)
+    }
+
+    #[test]
+    fn subscription_models_are_separate_and_selectable_without_lua() {
+        let mut app = test_app();
+        let mut config = configured_app().config.unwrap();
+        config.provider = "OpenAI subscription".into();
+        config.auth_provider = Some("openai".into());
+        config.api = Api::Responses;
+        let choice = crate::lua::ModelChoice {
+            provider: config.provider.clone(),
+            alias: None,
+            id: config.model.clone(),
+            config: Some(config),
+            error: None,
+        };
+        app.subscription.models.push(choice.clone());
+        crate::commands::model::open_model(&mut app);
+        assert!(matches!(&app.mode, Mode::Model { items, .. } if items.len() == 1));
+        assert!(app.models.is_empty());
+        // Avoid a real limits request from model selection in this test.
+        let mut choice = choice;
+        choice.config.as_mut().unwrap().auth_provider = None;
+        crate::commands::model::select_model(&mut app, choice, false);
+        assert_eq!(app.config.as_ref().unwrap().provider, "OpenAI subscription");
+    }
+
+    #[test]
+    fn subscription_refresh_failure_keeps_models_and_current_selection() {
+        let mut app = configured_app();
+        let config = app.config.clone().unwrap();
+        app.subscription.models.push(crate::lua::ModelChoice {
+            provider: "OpenAI subscription".into(),
+            alias: None,
+            id: "cached-model".into(),
+            config: Some(config),
+            error: None,
+        });
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.subscription.rx = Some(rx);
+        tx.send(Err("catalog HTTP 503".into())).unwrap();
+        crate::subscription::drain(&mut app);
+        assert_eq!(app.subscription.models[0].id, "cached-model");
+        assert!(app.config.is_some());
+        assert!(app.subscription.rx.is_none());
+        assert!(
+            app.notice
+                .as_deref()
+                .unwrap()
+                .contains("showing cached models")
+        );
     }
 
     #[test]

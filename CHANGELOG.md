@@ -6,6 +6,8 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🚀 Added
 
+- **OpenAI models without Lua setup**: after `/login openai`, choose your subscription model with `/model`—no `init.lua` entry needed. Lunar refreshes the available models at startup without blocking the interface and keeps an account-specific cached list if discovery fails. Lua-configured providers stay separate.
+
 - **Plain-text replies**: `/markdown` (alias `/md`) toggles between formatted answers and their original Markdown text. Existing and future replies use your choice until you exit; saved conversations stay unchanged.
 
 - **Shared parent configuration**: when the current directory has no `.lunar/init.lua`, Lunar loads one from the immediate parent. Share a stack config across sibling projects, with relative stack paths resolved from the parent. A local config takes precedence; higher ancestors are not searched.
