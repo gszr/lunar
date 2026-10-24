@@ -159,7 +159,7 @@ return {
 
 `/logout openai-subscription-1` disconnects just that profile; `/logout openai` disconnects all OpenAI profiles. Names are never renumbered. An unavailable subscription default shows a notice so you can recover with `/login` or `/model`.
 
-For xAI (subscription or saved API key) and Anthropic (Claude Pro/Max), use `/login xai` or `/login anthropic` and configure `key_in = "auth"` with the matching `auth_provider` in Lua; discovery is OpenAI-only for now. `/logout xai`, `/logout openai`, and `/logout anthropic` remove the credential.
+The same subscription behavior applies to `/login anthropic` and `/login xai`: profiles are named `anthropic-subscription-N` and `xai-subscription-N`, appear in `/model`, and work with `defaults.subscription`. Use `/logout <profile>` for one account or `/logout anthropic|xai|openai` for all accounts of that integration. Lua providers remain available for API keys and custom endpoints. Discovery uses each integration's reported capabilities; xAI currently reports context windows but no thinking levels.
 
 For an unauthenticated local server, set `key_in = "none"` and an explicit HTTP or HTTPS `base_url`; Lunar sends no Authorization header:
 

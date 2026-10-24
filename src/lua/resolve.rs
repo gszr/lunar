@@ -64,7 +64,7 @@ pub(super) fn loaded(guest: &Guest) -> Result<Loaded, String> {
             return Err(diagnostic::config(
                 &defaults.source,
                 Some("defaults.subscription"),
-                "expected an OpenAI profile such as openai-subscription-1",
+                "expected a subscription profile such as anthropic-subscription-1",
             ));
         }
         match crate::subscription::cached_default(
@@ -75,7 +75,7 @@ pub(super) fn loaded(guest: &Guest) -> Result<Loaded, String> {
             Ok(Some(selected)) => config = Some(selected),
             Ok(None) => {
                 notice = Some(format!(
-                    "subscription default {profile}/{} unavailable; use /login openai or /model",
+                    "subscription default {profile}/{} unavailable; use /login or /model",
                     defaults.model
                 ))
             }

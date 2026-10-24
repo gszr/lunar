@@ -1,7 +1,6 @@
-//! OpenAI subscription models, independent of Lua configuration.
+//! Subscription models, independent of Lua configuration.
 
 use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -165,37 +164,31 @@ pub(crate) fn drain(app: &mut App) {
 }
 
 fn fetch(profile: &str, account: &str) -> Result<Value, String> {
-    let access = crate::auth::resolve_profile("openai", Some(profile))?;
+    let integration =
+        crate::auth::subscription_integration(profile).ok_or("invalid subscription profile")?;
+    let access = crate::auth::resolve_profile(integration, Some(profile))?;
+    if integration != "openai" {
+        return crate::subscription_catalog::fetch(integration, &access);
+    }
     if crate::auth::chatgpt_account_id(&access)? != account {
         return Err("account changed; log in again".into());
     }
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .user_agent(crate::USER_AGENT)
-        .timeout_global(Some(Duration::from_secs(20)))
-        .http_status_as_error(false)
-        .build()
-        .into();
-    let mut response = agent
-        .get(&format!(
-            "{BASE_URL}/codex/models?client_version={CLIENT_VERSION}"
-        ))
-        .header("Authorization", &format!("Bearer {access}"))
-        .header("chatgpt-account-id", account)
-        .header("originator", "lunar")
-        .call()
-        .map_err(|error| error.to_string())?;
-    if !response.status().is_success() {
-        return Err(format!("catalog HTTP {}", response.status().as_u16()));
-    }
-    let text = response
-        .body_mut()
-        .read_to_string()
-        .map_err(|error| error.to_string())?;
-    serde_json::from_str(&text).map_err(|error| format!("invalid catalog: {error}"))
+    crate::subscription_catalog::get(
+        &format!("{BASE_URL}/codex/models?client_version={CLIENT_VERSION}"),
+        integration,
+        &access,
+        Some(account),
+    )
 }
 
 fn profile_choices(catalog: &Value, profile: &str) -> Result<Vec<ModelChoice>, String> {
-    let mut models = choices(catalog)?;
+    let integration =
+        crate::auth::subscription_integration(profile).ok_or("invalid subscription profile")?;
+    let mut models = if integration == "openai" {
+        choices(catalog)?
+    } else {
+        crate::subscription_catalog::choices(catalog, integration)?
+    };
     for model in &mut models {
         model.provider = profile.into();
         if let Some(config) = &mut model.config {

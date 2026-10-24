@@ -57,7 +57,9 @@ pub fn exchange_anthropic(input: &str, verifier: &str) -> Result<Credential, Str
     anthropic::exchange(input, verifier)
 }
 
-pub use profiles::is_profile as is_subscription_profile;
+pub use profiles::{
+    integration as subscription_integration, is_profile as is_subscription_profile,
+};
 
 pub fn subscription_profiles() -> Result<Vec<(String, String)>, String> {
     profiles::connected()
@@ -116,18 +118,20 @@ pub fn save_api_key(provider: &str, key: &str) -> Result<(), String> {
 }
 
 pub fn save_oauth(provider: &str, credential: Credential) -> Result<(), String> {
-    if provider == "openai" {
-        profiles::save(credential)
+    if ["openai", "anthropic", "xai"].contains(&provider) {
+        profiles::save(provider, credential)
     } else {
         store::insert(provider, credential)
     }
 }
 
 pub fn logout(provider: &str) -> Result<bool, String> {
-    if provider == "openai" {
+    if ["openai", "anthropic", "xai"].contains(&provider) {
         let mut removed = false;
         for (name, _) in subscription_profiles()? {
-            removed |= store::remove(&name)?;
+            if profiles::integration(&name) == Some(provider) {
+                removed |= store::remove(&name)?;
+            }
         }
         Ok(removed)
     } else {

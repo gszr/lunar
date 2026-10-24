@@ -19,6 +19,7 @@ mod splash;
 mod stack;
 mod storage;
 mod subscription;
+mod subscription_catalog;
 mod terminal;
 mod tool_output;
 mod tools;

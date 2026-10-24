@@ -1447,3 +1447,57 @@ fn subscription_profiles_reuse_accounts_keep_names_and_resolve_defaults() {
     assert!(loaded.config.is_none());
     assert!(loaded.notice.unwrap().contains("unavailable"));
 }
+
+#[test]
+fn every_subscription_integration_resolves_profiles_and_defaults_equally() {
+    let home = scratch();
+    let _env = isolate(&[("LUNAR_HOME", home.to_str().unwrap())]);
+    fs::create_dir_all(home.join("recorder")).unwrap();
+    let mut credentials = serde_json::Map::new();
+    let mut identities = serde_json::Map::new();
+    for integration in ["openai", "anthropic", "xai"] {
+        let profile = format!("{integration}-subscription-1");
+        credentials.insert(profile.clone(), serde_json::json!({"type": "oauth", "access": openai_access("first"), "refresh": "r", "expires": u64::MAX}));
+        identities.insert(format!("{integration}:test"), profile.clone().into());
+        let catalog = if integration == "openai" {
+            serde_json::json!({"models": [{"slug": "test-model", "visibility": "list"}]})
+        } else {
+            serde_json::json!({"data": [{"id": "test-model"}]})
+        };
+        fs::write(
+            home.join(format!("recorder/{profile}-models.json")),
+            serde_json::json!({"account": format!("{integration}:test"), "catalog": catalog})
+                .to_string(),
+        )
+        .unwrap();
+    }
+    fs::write(
+        home.join("recorder/auth.json"),
+        serde_json::to_string(&credentials).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        home.join("recorder/subscription-profiles.json"),
+        serde_json::to_string(&identities).unwrap(),
+    )
+    .unwrap();
+    for integration in ["openai", "anthropic", "xai"] {
+        let profile = format!("{integration}-subscription-1");
+        let path = write_init(
+            &scratch(),
+            &format!(
+                r#"return {{ defaults = {{ subscription = "{profile}", model = "test-model" }} }}"#
+            ),
+        );
+        let config = load_path(&path).unwrap().config.unwrap();
+        assert_eq!(config.auth_provider.as_deref(), Some(integration));
+        assert_eq!(config.auth_profile.as_deref(), Some(profile.as_str()));
+        assert!(crate::auth::logout(integration).unwrap());
+        assert!(
+            !crate::auth::subscription_profiles()
+                .unwrap()
+                .iter()
+                .any(|(name, _)| name == &profile)
+        );
+    }
+}
