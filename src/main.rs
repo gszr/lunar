@@ -105,7 +105,10 @@ fn main() -> io::Result<()> {
         }
     }
     if app.notice.is_none() {
-        app.notice = prompt::budget_warning(&app.stack);
+        app.notice = prompt::budget_warning(
+            &app.stack,
+            app.config.as_ref().map(|cfg| cfg.model.as_str()),
+        );
     }
     limits::refresh(&mut app);
     event::run(terminal.get_mut(), &mut app)
@@ -404,6 +407,30 @@ mod tests {
         assert!(crate::commands::dispatch(&mut app, "/debug"));
         assert!(!app.debug_headers);
         assert_eq!(app.notice.as_deref(), Some("debug: off"));
+    }
+
+    #[test]
+    fn context_previews_show_the_selected_wire_model() {
+        let mut app = configured_app();
+        let config = app.config.as_mut().unwrap();
+        config.api_key = "private-test-key".into();
+        config.auth_profile = Some("private-test-profile".into());
+        for model in ["grok-4.6", "gpt-5.4"] {
+            app.config.as_mut().unwrap().model = model.into();
+            for command in ["/context", "/context raw"] {
+                assert!(crate::commands::dispatch(&mut app, command));
+                let Mode::Context { text, .. } = &app.mode else {
+                    panic!("context pager did not open");
+                };
+                assert!(text.contains(&format!(
+                    "# Runtime\nHarness: Lunar\nSelected model: {model}"
+                )));
+                assert!(!text.contains("private-test-key"));
+                assert!(!text.contains("private-test-profile"));
+                app.mode = Mode::Chat;
+            }
+        }
+        assert!(app.messages.is_empty());
     }
 
     #[test]

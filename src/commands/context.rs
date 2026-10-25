@@ -8,6 +8,7 @@ pub(super) fn open(app: &mut App, raw: bool) {
                 .as_ref()
                 .map(|compact| (compact.summary.as_str(), compact.first_kept)),
             &app.stack,
+            app.config.as_ref().map(|cfg| cfg.model.as_str()),
         )
     } else {
         crate::context::summary(
@@ -16,6 +17,7 @@ pub(super) fn open(app: &mut App, raw: bool) {
                 .as_ref()
                 .map(|compact| (compact.summary.as_str(), compact.first_kept)),
             &app.stack,
+            app.config.as_ref().map(|cfg| cfg.model.as_str()),
         )
     };
     app.mode = Mode::Context { text, scroll: 0 };

@@ -76,8 +76,9 @@ pub(crate) fn summary(
     messages: &[Message],
     compaction: Option<(&str, usize)>,
     stack: &str,
+    model: Option<&str>,
 ) -> String {
-    let (mut out, preamble_tokens) = prompt::summary(stack);
+    let (mut out, preamble_tokens) = prompt::summary(stack, model);
     let mut users = 0;
     let mut assistants = 0;
     let mut tool_calls = 0;
@@ -134,8 +135,13 @@ pub(crate) fn summary(
 }
 
 /// Display the complete context known before the next user message.
-pub(crate) fn raw(messages: &[Message], compaction: Option<(&str, usize)>, stack: &str) -> String {
-    let preamble = prompt::preamble(stack);
+pub(crate) fn raw(
+    messages: &[Message],
+    compaction: Option<(&str, usize)>,
+    stack: &str,
+    model: Option<&str>,
+) -> String {
+    let preamble = prompt::preamble(stack, model);
     let history = history(preamble.as_deref(), compaction, messages);
     format_history(history)
 }
@@ -213,7 +219,7 @@ mod tests {
             Message::tool("call-1".into(), "read".into(), "secret result".into()),
         ];
 
-        let summary = summary(&messages, None, "");
+        let summary = summary(&messages, None, "", None);
         assert!(summary.contains("history  ~"));
         assert!(summary.contains("total  ~"));
         assert!(summary.contains("user messages      1  ~4 tokens"));
@@ -275,7 +281,7 @@ mod tests {
         assert!(matches!(&resumed[1], ChatMessage::User(text) if text == "continue"));
         assert_eq!(messages[1].tool_calls.len(), 1);
         assert!(!format_history(resumed).contains("missing"));
-        let summary = summary(&messages, None, "");
+        let summary = summary(&messages, None, "", None);
         assert!(summary.contains("assistant messages 0  ~0 tokens"));
         assert!(summary.contains("tool calls         0  ~0 tokens"));
     }
@@ -325,7 +331,7 @@ mod tests {
         let preview = format_history(history);
         assert!(!preview.contains("missing"));
         assert!(!preview.contains("old question"));
-        let summary = summary(&messages, Some(("checkpoint", 1)), "");
+        let summary = summary(&messages, Some(("checkpoint", 1)), "", None);
         assert!(summary.contains("tool calls         2  ~1 tokens"));
         assert!(summary.contains("tool results       2  ~1 tokens"));
     }
