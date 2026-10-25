@@ -431,7 +431,7 @@ pub(crate) fn draw_complete(
         .map(|cmd| cmd.name.len())
         .max()
         .unwrap_or(0)
-        .min(16);
+        .min(17);
     let width = area.width.max(1) as usize;
     let lines: Vec<Line> = view
         .iter()
@@ -439,7 +439,7 @@ pub(crate) fn draw_complete(
         .map(|(i, cmd)| {
             let sel = start + i == selected;
             let marker = if sel { "→ " } else { "  " };
-            let name = format!("/{:<name_w$}", cmd.name);
+            let name = format!("{:<name_w$}", cmd.name);
             let rest = width.saturating_sub(marker.len() + name.len() + 2);
             let desc = if rest == 0 {
                 String::new()

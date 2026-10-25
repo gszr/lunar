@@ -6,6 +6,8 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🚀 Added
 
+- **Command shortcuts**: use Command+Shift on macOS or Alt+Shift on other systems, with M for model selection, T for thinking selection, O for configuration, and C for context, without losing your draft. Your terminal must forward these modifiers; conflicting terminal bindings may need to be removed. Ctrl+D now quits from any screen instead of Ctrl+C; Delete still deletes the next character.
+
 - **Automatic models for configured providers**: set `models = "auto"` to load a provider’s available models from its `/models` endpoint without maintaining a list. Discovered models use Responses with `off`, `low`, `medium`, `high`, and `max` thinking levels. Lua defaults can select a discovered model; discovery failures leave Lunar open so you can choose another provider.
 
 - **Subscriptions work alike across OpenAI, Anthropic, and xAI**: connect multiple accounts, choose discovered models, select numbered profiles in Lua defaults, and disconnect individual accounts. Existing subscription logins migrate without requiring new Lua provider entries.

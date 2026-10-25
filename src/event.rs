@@ -94,11 +94,25 @@ pub(crate) fn on_key(app: &mut App, key: KeyEvent) {
 }
 
 pub(crate) fn on_key_with_width(app: &mut App, key: KeyEvent, width: u16) {
+    let command = crate::keys::command(key);
+    if command == Some(crate::commands::QUIT) {
+        crate::commands::dispatch(app, crate::commands::QUIT);
+        return;
+    }
     if app.auth_rx.is_some() {
         if key.code == KeyCode::Esc
             && let Some(cancel) = &app.auth_cancel
         {
             cancel.store(true, Ordering::Relaxed);
+        }
+        return;
+    }
+    if matches!(app.mode, Mode::Chat)
+        && app.search.is_none()
+        && let Some(command) = command
+    {
+        if app.cancel.is_none() && app.btw.is_none() {
+            crate::commands::dispatch(app, command);
         }
         return;
     }
@@ -431,7 +445,6 @@ fn on_chat_key(app: &mut App, key: KeyEvent, width: u16) {
         return;
     }
     match (key.modifiers, key.code) {
-        (KeyModifiers::CONTROL, KeyCode::Char('c')) => app.quit = true,
         (KeyModifiers::ALT, KeyCode::Esc) if app.btw.is_some() => {
             abort_btw(app);
         }
@@ -501,7 +514,7 @@ fn on_chat_key(app: &mut App, key: KeyEvent, width: u16) {
             app.complete_sel = 0;
             app.files_closed = false;
         }
-        (KeyModifiers::CONTROL, KeyCode::Char('d')) | (_, KeyCode::Delete) => {
+        (_, KeyCode::Delete) => {
             let to = next_char(&app.input, app.cursor);
             app.input.replace_range(app.cursor..to, "");
             app.complete_sel = 0;
@@ -557,7 +570,10 @@ pub(crate) fn submit(app: &mut App) {
         app.notice = Some("a /btw prompt is already running".into());
         return;
     }
-    if app.cancel.is_some() && line != "/btw" && !line.starts_with("/btw ") {
+    if app.cancel.is_some()
+        && line != crate::commands::BTW
+        && crate::commands::arguments(&line, crate::commands::BTW).is_none()
+    {
         return;
     }
     app.input.clear();
