@@ -542,7 +542,10 @@ pub(crate) fn send_prompt(app: &mut App, line: String) {
     }
     app.notice = None;
     app.rounds = 0;
-    app.preamble = prompt::preamble(&app.stack);
+    app.preamble = prompt::preamble(
+        &app.stack,
+        app.config.as_ref().map(|cfg| cfg.model.as_str()),
+    );
     app.turn_context = Some(crate::context::history(
         app.preamble.as_deref(),
         app.compaction

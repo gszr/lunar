@@ -1204,10 +1204,10 @@ fn stack_merges_components_and_resolves_locations_without_reading_repos() {
     );
     assert!(!loaded.stack.contains("Old backend"));
     assert!(!loaded.stack.contains("DO NOT INCLUDE REPO CONTENTS"));
-    let preamble = crate::prompt::preamble(&loaded.stack).unwrap();
+    let preamble = crate::prompt::preamble(&loaded.stack, None).unwrap();
     assert!(preamble.contains(&loaded.stack));
-    let summary = crate::context::summary(&[], None, &loaded.stack);
-    let raw = crate::context::raw(&[], None, &loaded.stack);
+    let summary = crate::context::summary(&[], None, &loaded.stack, None);
+    let raw = crate::context::raw(&[], None, &loaded.stack, None);
     assert!(summary.contains(&loaded.stack));
     assert!(raw.contains(&loaded.stack));
     fs::remove_dir_all(dir).unwrap();
