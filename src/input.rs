@@ -284,13 +284,13 @@ pub(crate) fn accept_complete(app: &mut App, submit: fn(&mut App)) {
         submit(app);
         return;
     };
-    if cmd.name == "name" {
+    if cmd.name == commands::NAME {
         app.input = commands::apply(cmd.name);
         app.cursor = app.input.len();
         app.complete_sel = 0;
         return;
     }
-    app.input = format!("/{}", cmd.name);
+    app.input = cmd.name.to_string();
     app.cursor = app.input.len();
     app.complete_sel = 0;
     submit(app);

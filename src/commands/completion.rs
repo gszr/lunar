@@ -1,5 +1,7 @@
 //! Built-in slash commands and prefix completion.
 
+use super::names::*;
+
 pub struct Command {
     pub name: &'static str,
     pub description: &'static str,
@@ -8,75 +10,75 @@ pub struct Command {
 /// Shown in `/` completion and `/help`. `/q` stays a hidden alias of quit.
 pub const COMMANDS: &[Command] = &[
     Command {
-        name: "btw",
+        name: BTW,
         description: "ask an independent aside during a turn",
     },
     Command {
-        name: "compact",
+        name: COMPACT,
         description: "summarize old context; optional focus instructions",
     },
     Command {
-        name: "config",
+        name: CONFIG,
         description: "edit and reload init.lua",
     },
     Command {
-        name: "context",
+        name: CONTEXT,
         description: "summarize context; /context raw shows contents",
     },
     Command {
-        name: "debug",
+        name: DEBUG,
         description: "toggle provider response headers",
     },
     Command {
-        name: "format",
+        name: FORMAT,
         description: "set response or chat_completions API format",
     },
     Command {
-        name: "help",
+        name: HELP,
         description: "commands",
     },
     Command {
-        name: "login",
+        name: LOGIN,
         description: "sign in to a provider",
     },
     Command {
-        name: "logout",
+        name: LOGOUT,
         description: "remove a saved credential",
     },
     Command {
-        name: "markdown",
+        name: MARKDOWN,
         description: "toggle Markdown formatting in replies",
     },
     Command {
-        name: "md",
+        name: MD,
         description: "alias for /markdown",
     },
     Command {
-        name: "model",
+        name: MODEL,
         description: "pick a configured model",
     },
     Command {
-        name: "name",
+        name: NAME,
         description: "name the current mission",
     },
     Command {
-        name: "new",
+        name: NEW,
         description: "start a new mission",
     },
     Command {
-        name: "quit",
+        name: QUIT,
         description: "quit",
     },
     Command {
-        name: "thinking",
+        name: THINKING,
         description: "set the model's reasoning effort",
     },
     Command {
-        name: "resume",
+        name: RESUME,
         description: "pick a mission in this directory",
     },
     Command {
-        name: "mission",
+        name: MISSION,
         description: "show mission path",
     },
 ];
@@ -100,7 +102,7 @@ pub fn matches(input: &str) -> Vec<&'static Command> {
     let prefix = prefix.to_ascii_lowercase();
     COMMANDS
         .iter()
-        .filter(|cmd| cmd.name.starts_with(&prefix))
+        .filter(|cmd| cmd.name[1..].starts_with(&prefix))
         .collect()
 }
 
@@ -132,17 +134,18 @@ pub fn visible<'a>(
 }
 
 pub fn apply(name: &str) -> String {
-    format!("/{name} ")
+    format!("{name} ")
 }
 
 pub fn help() -> String {
     let commands = COMMANDS
         .iter()
-        .map(|command| format!("/{}", command.name))
+        .map(|command| command.name)
         .collect::<Vec<_>>()
         .join("  ");
     format!(
-        "{commands}\n\n@ file    tab cycle    shift+enter / ctrl+j newline    esc abort    ctrl+c quits"
+        "{commands}\n\n{}\n\n@ file    tab cycle    shift+enter / ctrl+j newline    esc abort",
+        crate::keys::help()
     )
 }
 
@@ -154,14 +157,14 @@ mod tests {
     fn slash_lists_all() {
         let found = matches("/");
         assert_eq!(found.len(), COMMANDS.len());
-        assert_eq!(found[0].name, "btw");
+        assert_eq!(found[0].name, "/btw");
     }
 
     #[test]
     fn prefix_filters() {
         let found = matches("/re");
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].name, "resume");
+        assert_eq!(found[0].name, "/resume");
         assert!(matches("/xyz").is_empty());
         assert!(matches("/resume ").is_empty());
         assert!(matches("help").is_empty());
@@ -171,7 +174,7 @@ mod tests {
     fn prefix_is_case_insensitive() {
         let found = matches("/Help");
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].name, "help");
+        assert_eq!(found[0].name, "/help");
     }
 
     #[test]
@@ -198,15 +201,12 @@ mod tests {
     fn help_lists_every_command() {
         let help = help();
         for command in COMMANDS {
-            assert!(
-                help.split_whitespace()
-                    .any(|word| word == format!("/{}", command.name))
-            );
+            assert!(help.split_whitespace().any(|word| word == command.name));
         }
     }
 
     #[test]
-    fn apply_adds_slash_and_space() {
-        assert_eq!(apply("name"), "/name ");
+    fn apply_keeps_the_command_and_adds_a_space() {
+        assert_eq!(apply(NAME), "/name ");
     }
 }

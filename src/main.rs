@@ -9,6 +9,7 @@ mod event;
 mod files;
 mod history;
 mod input;
+mod keys;
 mod limits;
 mod lua;
 mod mission;

@@ -81,7 +81,8 @@ Lunar focuses on control over what the model reads, what it remembers, and how y
 - **Streaming answers.** Markdown, wrapped tables, formatted JSON code blocks, and links with visible destinations. Tool results and reasoning previews are separate, and each response shows the model name reported by the provider.
 - **Plain-text replies.** Use `/markdown` or `/md` between turns to toggle formatting off or on. See the original Markdown without changing saved conversations. The setting lasts until you exit.
 - **Scroll without losing your place.** Use PageUp/PageDown, the mouse wheel, or Ctrl+Home/End. New output does not pull you back to the bottom while you read earlier messages.
-- **Multiline editing.** Familiar word and line editing shortcuts, multiline paste, and persistent prompt history. Shift+Enter or Ctrl+J inserts a newline.
+- **Multiline editing.** Familiar word and line editing shortcuts, multiline paste, and persistent prompt history. Shift+Enter or Ctrl+J inserts a newline. Ctrl+D quits.
+- **Command shortcuts.** Use Command+Shift on macOS or Alt+Shift elsewhere: M selects a model, T selects thinking, O edits config, and C shows context, preserving your draft. Your terminal must forward these modifiers; remove conflicting terminal bindings if needed.
 - **Command and path completion.** `/` suggests commands. `@` inserts a file path without attaching its contents. Find files in the current directory or an explicit path, grouped by file type with recent files first. Existing paths are highlighted.
 - **Help on demand.** `/help` lists commands; `lunar --help` explains launch options.
 
