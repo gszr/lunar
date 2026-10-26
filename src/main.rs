@@ -1091,6 +1091,7 @@ mod tests {
         app.mode = Mode::Model {
             items: Vec::new(),
             cursor: 0,
+            page_size: 0,
             query: None,
         };
         let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
@@ -1104,7 +1105,7 @@ mod tests {
                 on_key(&mut app, key(KeyModifiers::NONE, code));
             }
             terminal
-                .draw(|frame| crate::view::draw_editor(frame, frame.area(), &app))
+                .draw(|frame| crate::view::draw_editor(frame, frame.area(), &mut app))
                 .unwrap();
             let backend = terminal.backend();
             assert_eq!(backend.cursor_visible(), searching);
@@ -1134,6 +1135,157 @@ mod tests {
     }
 
     #[test]
+    fn model_search_finds_and_selects_models_outside_the_current_page() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        for target in ["model-01", "model-30"] {
+            let mut app = configured_app();
+            let config = app.config.clone().unwrap();
+            app.mode = Mode::Model {
+                items: (1..=30)
+                    .map(|i| {
+                        let id = format!("model-{i:02}");
+                        let mut config = config.clone();
+                        config.model = id.clone();
+                        crate::lua::ModelChoice {
+                            provider: config.provider.clone(),
+                            alias: None,
+                            id,
+                            config: Some(config),
+                            error: None,
+                        }
+                    })
+                    .collect(),
+                cursor: 15,
+                page_size: 0,
+                query: None,
+            };
+            let mut terminal = Terminal::new(TestBackend::new(100, 8)).unwrap();
+            terminal
+                .draw(|frame| crate::view::draw_editor(frame, frame.area(), &mut app))
+                .unwrap();
+            let text = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            assert!(
+                !text.contains(target),
+                "target must start outside the visible page"
+            );
+
+            on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Char('/')));
+            for c in target.chars() {
+                on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Char(c)));
+            }
+            terminal
+                .draw(|frame| crate::view::draw_editor(frame, frame.area(), &mut app))
+                .unwrap();
+            let text = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            assert!(text.contains("page 1/1 · models 1–1 of 1"), "{text}");
+            assert!(text.contains(&format!(" / {target}")), "{text}");
+            on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Enter));
+            assert_eq!(app.config.as_ref().unwrap().model, target);
+        }
+    }
+
+    #[test]
+    fn model_page_arrows_use_visible_rows_and_stop_at_page_boundaries() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = configured_app();
+        app.mode = Mode::Model {
+            items: (0..11)
+                .map(|i| crate::lua::ModelChoice {
+                    provider: "custom".into(),
+                    alias: None,
+                    id: format!("model-{i}"),
+                    config: None,
+                    error: None,
+                })
+                .collect(),
+            cursor: 2,
+            page_size: 0,
+            query: None,
+        };
+        let mut terminal = Terminal::new(TestBackend::new(100, 8)).unwrap();
+        terminal
+            .draw(|frame| crate::view::draw_editor(frame, frame.area(), &mut app))
+            .unwrap();
+        for (code, expected) in [
+            (KeyCode::Left, 2),
+            (KeyCode::Right, 6),
+            (KeyCode::Right, 10),
+            (KeyCode::Right, 10),
+            (KeyCode::Left, 6),
+            (KeyCode::Left, 2),
+            (KeyCode::Down, 3),
+            (KeyCode::Right, 7),
+            (KeyCode::Right, 10),
+            (KeyCode::Left, 6),
+            (KeyCode::Left, 2),
+        ] {
+            on_key(&mut app, key(KeyModifiers::NONE, code));
+            assert!(
+                matches!(app.mode, Mode::Model { cursor, page_size: 4, .. } if cursor == expected)
+            );
+        }
+        // A taller picker repages the same selection and changes the jump size.
+        let mut terminal = Terminal::new(TestBackend::new(100, 10)).unwrap();
+        terminal
+            .draw(|frame| crate::view::draw_editor(frame, frame.area(), &mut app))
+            .unwrap();
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Right));
+        assert!(matches!(
+            app.mode,
+            Mode::Model {
+                cursor: 8,
+                page_size: 6,
+                ..
+            }
+        ));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Right));
+        assert!(matches!(app.mode, Mode::Model { cursor: 8, .. }));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Left));
+        assert!(matches!(app.mode, Mode::Model { cursor: 2, .. }));
+
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Char('/')));
+        for c in "model-".chars() {
+            on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Char(c)));
+        }
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Right));
+        assert!(matches!(app.mode, Mode::Model { cursor: 6, .. }));
+        // Filtering to two matches leaves no second page.
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Char('1')));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Right));
+        assert!(matches!(app.mode, Mode::Model { cursor: 0, .. }));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Char('x')));
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Right));
+        assert!(matches!(app.mode, Mode::Model { cursor: 0, .. }));
+        let mut terminal = Terminal::new(TestBackend::new(100, 2)).unwrap();
+        terminal
+            .draw(|frame| crate::view::draw_editor(frame, frame.area(), &mut app))
+            .unwrap();
+        on_key(&mut app, key(KeyModifiers::NONE, KeyCode::Left));
+        assert!(matches!(
+            app.mode,
+            Mode::Model {
+                cursor: 0,
+                page_size: 0,
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn model_search_filters_navigation_and_escape_clears_first() {
         let mut app = configured_app();
         let grok = app.config.clone().unwrap();
@@ -1158,6 +1310,7 @@ mod tests {
                 },
             ],
             cursor: 0,
+            page_size: 0,
             query: None,
         };
 

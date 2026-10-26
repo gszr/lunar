@@ -345,6 +345,21 @@ fn on_model_key(app: &mut App, key: KeyEvent, len: usize, cursor: usize) {
                 *cursor = (*cursor + 1).min(len.saturating_sub(1));
             }
         }
+        (_, _, KeyCode::Left | KeyCode::Right) => {
+            if let Mode::Model {
+                cursor, page_size, ..
+            } = &mut app.mode
+                && *page_size > 0
+            {
+                if key.code == KeyCode::Left && *cursor >= *page_size {
+                    *cursor -= *page_size;
+                } else if key.code == KeyCode::Right
+                    && (*cursor / *page_size + 1) * *page_size < len
+                {
+                    *cursor = cursor.saturating_add(*page_size).min(len.saturating_sub(1));
+                }
+            }
+        }
         (_, _, KeyCode::Enter) => {
             let item = match &app.mode {
                 Mode::Model { items, query, .. } => items

@@ -127,6 +127,7 @@ pub(crate) enum Mode {
     Model {
         items: Vec<lua::ModelChoice>,
         cursor: usize,
+        page_size: usize,
         query: Option<String>,
     },
     Thinking {

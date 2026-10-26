@@ -305,7 +305,7 @@ pub(crate) fn draw_model(
         (start + visible).min(total)
     };
     let header = format!(
-        "model  page {page}/{pages} · models {first}–{last} of {total}  / search  j/k  enter  esc"
+        "model  page {page}/{pages} · models {first}–{last} of {total}  / search  j/k  ←/→ page  enter  esc"
     );
     let mut lines = vec![Line::from(Span::styled(
         header,
@@ -514,7 +514,7 @@ pub(crate) fn draw_files(frame: &mut Frame, area: Rect, rows: &[files::Row], sel
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
+pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &mut App) {
     if app.auth_rx.is_some() {
         draw_auth_editor(frame, area, app);
         return;
@@ -553,13 +553,15 @@ pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
         items,
         cursor,
         query,
-    } = &app.mode
+        page_size,
+    } = &mut app.mode
     {
         let block = Block::default()
             .borders(Borders::TOP | Borders::BOTTOM)
             .border_style(Style::default().fg(splash::DUST));
         let inner = block.inner(area);
         frame.render_widget(block, area);
+        *page_size = 0;
         if inner.height == 0 {
             return;
         }
@@ -568,6 +570,7 @@ pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(1), Constraint::Length(picker_h)])
             .split(inner);
+        *page_size = chunks[1].height.saturating_sub(1) as usize;
         if let Some(query) = query
             && chunks[0].width > 0
             && chunks[0].height > 0

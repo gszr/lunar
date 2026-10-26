@@ -6,6 +6,8 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🚀 Added
 
+- **Model-page shortcuts**: Right moves to the next page in `/model`, and Left moves to the previous page, keeping your selected row where possible. They work with search results and stop at the first and last pages.
+
 - **Model-list pages**: `/model` now shows the current page, visible model range, and total count. Up/down crosses between non-overlapping pages sized to your terminal; resizing keeps your selected model visible, and search updates the pages and counts for matching models.
 
 - **Command shortcuts**: use Command+Shift on macOS or Alt+Shift on other systems, with M for model selection, T for thinking selection, O for configuration, and C for context, without losing your draft. Your terminal must forward these modifiers; conflicting terminal bindings may need to be removed. Ctrl+D now quits from any screen instead of Ctrl+C; Delete still deletes the next character.
