@@ -29,6 +29,8 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🐞 Fixed
 
+- **Stable model-list scrolling**: moving up or down in `/model` moves only the selection until it reaches the edge of the visible list. Reversing direction no longer scrolls the list on every keypress.
+
 - **Model-aware skills**: each turn tells the model it is running in Lunar and includes its selected model ID, so skills can use it for PR attribution. Model changes are reflected on the next prompt, and the runtime context is visible in `/context` and `/context raw`. Fixes [#63](https://github.com/gszr/lunar/issues/63).
 - **Interrupted missions can continue without missing-tool-output errors**: Lunar leaves tool calls with no recorded result out of the context sent to the model, while keeping completed results and assistant text. Saved missions stay untouched, and tools are not rerun.
 - **Responses session affinity**: Responses requests send the mission identifier in the `session-id` and `x-client-request-id` headers, matching the provider wire format.

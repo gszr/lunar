@@ -283,6 +283,7 @@ pub(crate) fn draw_model(
     items: &[lua::ModelChoice],
     cursor: usize,
     query: Option<&str>,
+    scroll: &mut usize,
 ) {
     let header = match query {
         Some(query) => format!("model  /{query}"),
@@ -293,7 +294,8 @@ pub(crate) fn draw_model(
         Style::default().fg(splash::ASH),
     ))];
     let visible = area.height.saturating_sub(1) as usize;
-    let start = picker_start(cursor, visible);
+    *scroll = picker_start(*scroll, cursor, visible);
+    let start = *scroll;
     for (i, item) in items
         .iter()
         .filter(|item| query.is_none_or(|query| commands::model::matches_query(item, query)))
@@ -326,11 +328,13 @@ pub(crate) fn draw_model(
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-fn picker_start(cursor: usize, visible: usize) -> usize {
+fn picker_start(start: usize, cursor: usize, visible: usize) -> usize {
     if visible == 0 {
         0
     } else {
-        cursor.saturating_add(1).saturating_sub(visible)
+        start
+            .min(cursor)
+            .max(cursor.saturating_add(1).saturating_sub(visible))
     }
 }
 
@@ -507,7 +511,7 @@ pub(crate) fn draw_files(frame: &mut Frame, area: Rect, rows: &[files::Row], sel
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
+pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &mut App) {
     if app.auth_rx.is_some() {
         draw_auth_editor(frame, area, app);
         return;
@@ -542,12 +546,7 @@ pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
         draw_thinking_editor(frame, area, app, cursor);
         return;
     }
-    if let Mode::Model {
-        items,
-        cursor,
-        query,
-    } = &app.mode
-    {
+    if let Mode::Model { items, .. } = &app.mode {
         let block = Block::default()
             .borders(Borders::TOP | Borders::BOTTOM)
             .border_style(Style::default().fg(splash::DUST));
@@ -562,7 +561,15 @@ pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
             .constraints([Constraint::Min(1), Constraint::Length(picker_h)])
             .split(inner);
         draw_editor_input(frame, chunks[0], app);
-        draw_model(frame, chunks[1], items, *cursor, query.as_deref());
+        if let Mode::Model {
+            items,
+            cursor,
+            query,
+            scroll,
+        } = &mut app.mode
+        {
+            draw_model(frame, chunks[1], items, *cursor, query.as_deref(), scroll);
+        }
         return;
     }
     if let Some(search) = &app.search {
@@ -925,10 +932,19 @@ mod tests {
     }
 
     #[test]
-    fn model_picker_keeps_cursor_in_visible_rows() {
-        assert_eq!(picker_start(0, 4), 0);
-        assert_eq!(picker_start(3, 4), 0);
-        assert_eq!(picker_start(4, 4), 1);
-        assert_eq!(picker_start(20, 4), 17);
+    fn model_picker_scrolls_only_when_cursor_leaves_visible_rows() {
+        let mut start = 0;
+        for cursor in 0..=20 {
+            start = picker_start(start, cursor, 4);
+            assert_eq!(start, cursor.saturating_sub(3));
+        }
+        for cursor in (17..20).rev() {
+            start = picker_start(start, cursor, 4);
+            assert_eq!(start, 17);
+        }
+        assert_eq!(picker_start(start, 16, 4), 16);
+        assert_eq!(picker_start(17, 20, 2), 19);
+        assert_eq!(picker_start(17, 0, 4), 0);
+        assert_eq!(picker_start(17, 20, 0), 0);
     }
 }

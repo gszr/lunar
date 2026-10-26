@@ -1106,6 +1106,7 @@ mod tests {
                 },
             ],
             cursor: 0,
+            scroll: 0,
             query: None,
         };
 
