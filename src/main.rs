@@ -1082,6 +1082,58 @@ mod tests {
     }
 
     #[test]
+    fn model_picker_shows_a_cursor_only_while_searching() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = configured_app();
+        app.input = "saved draft".into();
+        app.cursor = app.input.len();
+        app.mode = Mode::Model {
+            items: Vec::new(),
+            cursor: 0,
+            query: None,
+        };
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        for (key_code, searching) in [
+            (None, false),
+            (Some(KeyCode::Char('/')), true),
+            (Some(KeyCode::Char('界')), true),
+            (Some(KeyCode::Esc), false),
+        ] {
+            if let Some(code) = key_code {
+                on_key(&mut app, key(KeyModifiers::NONE, code));
+            }
+            terminal
+                .draw(|frame| crate::view::draw_editor(frame, frame.area(), &app))
+                .unwrap();
+            let backend = terminal.backend();
+            assert_eq!(backend.cursor_visible(), searching);
+            let buffer = backend.buffer();
+            let text = buffer
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            assert!(!text.contains("saved draft"));
+            if searching {
+                let position = backend.cursor_position();
+                assert_eq!(position.y, 1);
+                let row: String = (0..position.x)
+                    .map(|x| buffer[(x, position.y)].symbol())
+                    .collect();
+                let Mode::Model {
+                    query: Some(query), ..
+                } = &app.mode
+                else {
+                    unreachable!()
+                };
+                assert_eq!(row.trim_end(), format!("/{query}"));
+            }
+            assert_eq!(app.input, "saved draft");
+        }
+    }
+
+    #[test]
     fn model_search_filters_navigation_and_escape_clears_first() {
         let mut app = configured_app();
         let grok = app.config.clone().unwrap();
@@ -1106,7 +1158,6 @@ mod tests {
                 },
             ],
             cursor: 0,
-            scroll: 0,
             query: None,
         };
 

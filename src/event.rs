@@ -305,60 +305,34 @@ fn on_model_key(app: &mut App, key: KeyEvent, len: usize, cursor: usize) {
     let searching = matches!(&app.mode, Mode::Model { query: Some(_), .. });
     match (searching, key.modifiers, key.code) {
         (true, _, KeyCode::Esc) => {
-            if let Mode::Model {
-                cursor,
-                query,
-                scroll,
-                ..
-            } = &mut app.mode
-            {
+            if let Mode::Model { cursor, query, .. } = &mut app.mode {
                 *cursor = 0;
-                *scroll = 0;
                 *query = None;
             }
         }
         (false, _, KeyCode::Esc) => app.mode = Mode::Chat,
         (false, _, KeyCode::Char('/')) => {
-            if let Mode::Model {
-                cursor,
-                query,
-                scroll,
-                ..
-            } = &mut app.mode
-            {
+            if let Mode::Model { cursor, query, .. } = &mut app.mode {
                 *cursor = 0;
-                *scroll = 0;
                 *query = Some(String::new());
             }
         }
         (true, _, KeyCode::Backspace) => {
-            if let Mode::Model {
-                cursor,
-                query,
-                scroll,
-                ..
-            } = &mut app.mode
+            if let Mode::Model { cursor, query, .. } = &mut app.mode
                 && let Some(query) = query
             {
                 query.pop();
                 *cursor = 0;
-                *scroll = 0;
             }
         }
         (true, modifiers, KeyCode::Char(c))
             if modifiers.is_empty() || modifiers == KeyModifiers::SHIFT =>
         {
-            if let Mode::Model {
-                cursor,
-                query,
-                scroll,
-                ..
-            } = &mut app.mode
+            if let Mode::Model { cursor, query, .. } = &mut app.mode
                 && let Some(query) = query
             {
                 query.push(c);
                 *cursor = 0;
-                *scroll = 0;
             }
         }
         (false, _, KeyCode::Up | KeyCode::Char('k')) | (true, _, KeyCode::Up) => {

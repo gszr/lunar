@@ -6,6 +6,8 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🚀 Added
 
+- **Model-list pages**: `/model` now shows the current page, visible model range, and total count. Up/down crosses between non-overlapping pages sized to your terminal; resizing keeps your selected model visible, and search updates the pages and counts for matching models.
+
 - **Command shortcuts**: use Command+Shift on macOS or Alt+Shift on other systems, with M for model selection, T for thinking selection, O for configuration, and C for context, without losing your draft. Your terminal must forward these modifiers; conflicting terminal bindings may need to be removed. Ctrl+D now quits from any screen instead of Ctrl+C; Delete still deletes the next character.
 
 - **Automatic models for configured providers**: set `models = "auto"` to load a provider’s available models from its `/models` endpoint without maintaining a list. Discovered models use Responses with `off`, `low`, `medium`, `high`, and `max` thinking levels. Lua defaults can select a discovered model; discovery failures leave Lunar open so you can choose another provider.
@@ -28,6 +30,8 @@ All notable changes to **Lunar** are documented in this file.
 - **Claude Code request identity on Anthropic OAuth**: subscription requests send Claude Code user-agent, beta, and system identity headers so Anthropic accepts the token. API-key Messages requests stay ordinary `x-api-key` traffic.
 
 ### 🐞 Fixed
+
+- **Model-picker cursor**: browsing models no longer shows the chat draft or a misleading text cursor. Pressing `/` opens the search input and cursor on the line above the model list; both disappear when search closes.
 
 - **Stable model-list scrolling**: moving up or down in `/model` moves only the selection until it reaches the edge of the visible list. Reversing direction no longer scrolls the list on every keypress.
 

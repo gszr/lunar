@@ -283,26 +283,35 @@ pub(crate) fn draw_model(
     items: &[lua::ModelChoice],
     cursor: usize,
     query: Option<&str>,
-    scroll: &mut usize,
 ) {
-    let header = match query {
-        Some(query) => format!("model  /{query}"),
-        None => "model  / search  j/k  enter  esc".into(),
+    let matches: Vec<_> = items
+        .iter()
+        .filter(|item| query.is_none_or(|query| commands::model::matches_query(item, query)))
+        .collect();
+    let total = matches.len();
+    let visible = area.height.saturating_sub(1) as usize;
+    let cursor = cursor.min(total.saturating_sub(1));
+    let start = picker_start(cursor, visible);
+    let pages = if visible == 0 {
+        0
+    } else {
+        total.div_ceil(visible)
     };
+    let page = if pages == 0 { 0 } else { start / visible + 1 };
+    let first = if pages == 0 { 0 } else { start + 1 };
+    let last = if pages == 0 {
+        0
+    } else {
+        (start + visible).min(total)
+    };
+    let header = format!(
+        "model  page {page}/{pages} · models {first}–{last} of {total}  / search  j/k  enter  esc"
+    );
     let mut lines = vec![Line::from(Span::styled(
         header,
         Style::default().fg(splash::ASH),
     ))];
-    let visible = area.height.saturating_sub(1) as usize;
-    *scroll = picker_start(*scroll, cursor, visible);
-    let start = *scroll;
-    for (i, item) in items
-        .iter()
-        .filter(|item| query.is_none_or(|query| commands::model::matches_query(item, query)))
-        .enumerate()
-        .skip(start)
-        .take(visible)
-    {
+    for (i, item) in matches.iter().enumerate().skip(start).take(visible) {
         let alias = item
             .alias
             .as_deref()
@@ -328,14 +337,8 @@ pub(crate) fn draw_model(
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-fn picker_start(start: usize, cursor: usize, visible: usize) -> usize {
-    if visible == 0 {
-        0
-    } else {
-        start
-            .min(cursor)
-            .max(cursor.saturating_add(1).saturating_sub(visible))
-    }
+fn picker_start(cursor: usize, visible: usize) -> usize {
+    cursor.checked_div(visible).unwrap_or(0) * visible
 }
 
 pub(crate) fn draw_resume(
@@ -511,7 +514,7 @@ pub(crate) fn draw_files(frame: &mut Frame, area: Rect, rows: &[files::Row], sel
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &mut App) {
+pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &App) {
     if app.auth_rx.is_some() {
         draw_auth_editor(frame, area, app);
         return;
@@ -546,7 +549,12 @@ pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &mut App) {
         draw_thinking_editor(frame, area, app, cursor);
         return;
     }
-    if let Mode::Model { items, .. } = &app.mode {
+    if let Mode::Model {
+        items,
+        cursor,
+        query,
+    } = &app.mode
+    {
         let block = Block::default()
             .borders(Borders::TOP | Borders::BOTTOM)
             .border_style(Style::default().fg(splash::DUST));
@@ -560,16 +568,21 @@ pub(crate) fn draw_editor(frame: &mut Frame, area: Rect, app: &mut App) {
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(1), Constraint::Length(picker_h)])
             .split(inner);
-        draw_editor_input(frame, chunks[0], app);
-        if let Mode::Model {
-            items,
-            cursor,
-            query,
-            scroll,
-        } = &mut app.mode
+        if let Some(query) = query
+            && chunks[0].width > 0
+            && chunks[0].height > 0
         {
-            draw_model(frame, chunks[1], items, *cursor, query.as_deref(), scroll);
+            let search = Line::from(Span::styled(
+                format!("/{query}"),
+                Style::default().fg(splash::BONE),
+            ));
+            let x = search
+                .width()
+                .min(chunks[0].width.saturating_sub(1) as usize);
+            frame.render_widget(Paragraph::new(search), chunks[0]);
+            frame.set_cursor_position((chunks[0].x + x as u16, chunks[0].y));
         }
+        draw_model(frame, chunks[1], items, *cursor, query.as_deref());
         return;
     }
     if let Some(search) = &app.search {
@@ -932,19 +945,94 @@ mod tests {
     }
 
     #[test]
-    fn model_picker_scrolls_only_when_cursor_leaves_visible_rows() {
-        let mut start = 0;
+    fn model_picker_uses_non_overlapping_pages_and_repages_on_resize() {
         for cursor in 0..=20 {
-            start = picker_start(start, cursor, 4);
-            assert_eq!(start, cursor.saturating_sub(3));
+            assert_eq!(picker_start(cursor, 4), cursor / 4 * 4);
         }
-        for cursor in (17..20).rev() {
-            start = picker_start(start, cursor, 4);
-            assert_eq!(start, 17);
+        assert_eq!(picker_start(20, 4), 20);
+        assert_eq!(picker_start(19, 4), 16);
+        assert_eq!(picker_start(19, 10), 10);
+        assert_eq!(picker_start(19, 30), 0);
+        assert_eq!(picker_start(19, 0), 0);
+    }
+
+    #[test]
+    fn model_picker_paints_page_range_filtered_counts_and_empty_results() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let items: Vec<_> = (1..=9)
+            .map(|i| crate::lua::ModelChoice {
+                provider: "custom".into(),
+                alias: None,
+                id: format!("model-{i}"),
+                config: None,
+                error: None,
+            })
+            .collect();
+        for (height, cursor, query, indicator, shown, hidden) in [
+            (
+                5,
+                3,
+                None,
+                "page 1/3 · models 1–4 of 9",
+                "model-4",
+                "model-5",
+            ),
+            (
+                5,
+                4,
+                None,
+                "page 2/3 · models 5–8 of 9",
+                "model-5",
+                "model-4",
+            ),
+            (
+                5,
+                8,
+                None,
+                "page 3/3 · models 9–9 of 9",
+                "model-9",
+                "model-8",
+            ),
+            (
+                4,
+                4,
+                None,
+                "page 2/3 · models 4–6 of 9",
+                "model-5",
+                "model-7",
+            ),
+            (
+                5,
+                0,
+                Some("model-7"),
+                "page 1/1 · models 1–1 of 1",
+                "model-7",
+                "model-1",
+            ),
+            (
+                5,
+                0,
+                Some("missing"),
+                "page 0/0 · models 0–0 of 0",
+                "model",
+                "custom /",
+            ),
+            (1, 4, None, "page 0/0 · models 0–0 of 9", "model", "model-5"),
+        ] {
+            let mut terminal = Terminal::new(TestBackend::new(100, height)).unwrap();
+            terminal
+                .draw(|frame| super::draw_model(frame, frame.area(), &items, cursor, query))
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let text = buffer
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            assert!(text.contains(indicator), "{text}");
+            assert!(text.contains(shown), "{text}");
+            assert!(!text.contains(hidden), "{text}");
         }
-        assert_eq!(picker_start(start, 16, 4), 16);
-        assert_eq!(picker_start(17, 20, 2), 19);
-        assert_eq!(picker_start(17, 0, 4), 0);
-        assert_eq!(picker_start(17, 20, 0), 0);
     }
 }

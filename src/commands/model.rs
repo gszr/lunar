@@ -25,7 +25,6 @@ pub(crate) fn open_model(app: &mut App) {
             .cloned()
             .collect(),
         cursor,
-        scroll: 0,
         query: None,
     };
 }
