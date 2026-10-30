@@ -30,6 +30,28 @@ pub(crate) fn open_model(app: &mut App) {
     };
 }
 
+pub(crate) fn apply(app: &mut App, raw: &str) {
+    if app.cancel.is_some() {
+        app.notice = Some("cannot change model during a turn".into());
+        return;
+    }
+    let id = raw.trim();
+    if id.is_empty() {
+        app.notice = Some("usage: /model <id>".into());
+        return;
+    }
+    let Some(config) = app.config.as_mut() else {
+        app.notice = Some("no model configured; choose a provider with /model first".into());
+        return;
+    };
+    config.model = id.into();
+    let provider = config.provider.clone();
+    let thinking = config.thinking.clone();
+    app.notice = Some(format!("model: {provider} / {id}"));
+    persist_value(app, &mission::model_line(&provider, id));
+    persist_value(app, &mission::thinking_line(&thinking));
+}
+
 pub(crate) fn refresh_models(app: &mut App) {
     app.notice = Some("refreshing models; choose with /model when loaded".into());
     crate::subscription::refresh(app);

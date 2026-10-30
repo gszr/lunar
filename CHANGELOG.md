@@ -6,6 +6,8 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🚀 Added
 
+- **Switch models by exact ID**: `/model <id>` uses the ID verbatim on your current provider, even if it is missing from the catalog, while keeping your credentials, request format, context window, and thinking settings. Bare `/model` still opens the picker.
+
 - **Refresh discovered models**: `/models refresh` reloads configured-provider and subscription catalogs in the background without restarting Lunar. Your selected model stays unchanged, and failed requests keep the existing catalog.
 
 - **Messages format switching**: `/format messages` switches the live model to the Anthropic Messages API until exit, without editing Lua configuration. Subscription authentication restrictions still apply.

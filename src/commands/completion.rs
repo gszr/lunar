@@ -55,7 +55,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: MODEL,
-        description: "pick a configured model",
+        description: "pick a model, or use /model <id> on the current provider",
     },
     Command {
         name: MODELS,

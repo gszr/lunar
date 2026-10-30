@@ -336,6 +336,97 @@ mod tests {
     }
 
     #[test]
+    fn model_id_is_verbatim_and_preserves_the_current_provider_settings() {
+        let mut app = configured_app();
+        let config = app.config.as_mut().unwrap();
+        config.api = Api::Responses;
+        config.window = Some(123_456);
+        config.thinking = "high".into();
+        app.format_override = Some(Api::Responses);
+        app.thinking_override = Some("high".into());
+        let before = app.config.as_ref().unwrap().clone();
+        app.models.push(lua::ModelChoice {
+            provider: "other".into(),
+            alias: Some("Exact/Model-ID".into()),
+            id: "do-not-resolve-this-alias".into(),
+            config: None,
+            error: None,
+        });
+        let path = std::env::temp_dir().join(format!(
+            "lunar-model-id-{}-{}.jsonl",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        app.mission = Some(mission::Mission {
+            path: path.clone(),
+            id: "model-id".into(),
+            name: None,
+        });
+
+        assert!(crate::commands::dispatch(&mut app, "/model Exact/Model-ID"));
+
+        let config = app.config.as_ref().unwrap();
+        assert_eq!(config.model, "Exact/Model-ID");
+        assert_eq!(config.provider, before.provider);
+        assert_eq!(config.api_key, before.api_key);
+        assert_eq!(config.base_url, before.base_url);
+        assert_eq!(config.api, before.api);
+        assert_eq!(config.window, before.window);
+        assert_eq!(config.auth_provider, before.auth_provider);
+        assert_eq!(config.auth_profile, before.auth_profile);
+        assert_eq!(config.thinking, before.thinking);
+        assert_eq!(config.thinking_levels, before.thinking_levels);
+        assert_eq!(app.format_override, Some(Api::Responses));
+        assert_eq!(app.thinking_override.as_deref(), Some("high"));
+        assert!(matches!(app.mode, Mode::Chat));
+        assert_eq!(app.notice.as_deref(), Some("model: xai / Exact/Model-ID"));
+        let records: Vec<serde_json::Value> = std::fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(
+            records,
+            vec![
+                mission::model_line("xai", "Exact/Model-ID"),
+                mission::thinking_line("high"),
+            ]
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn model_id_requires_a_live_config_and_nonempty_id() {
+        let mut app = test_app();
+        assert!(crate::commands::dispatch(&mut app, "/model unlisted"));
+        assert!(app.config.is_none());
+        assert!(app.notice.as_deref().unwrap().contains("choose a provider"));
+        assert!(app.mission.is_none());
+
+        let mut app = configured_app();
+        assert!(crate::commands::dispatch(&mut app, "/model "));
+        assert_eq!(app.notice.as_deref(), Some("usage: /model <id>"));
+        assert_eq!(app.config.as_ref().unwrap().model, "grok");
+        assert!(app.mission.is_none());
+    }
+
+    #[test]
+    fn model_id_cannot_change_during_a_turn() {
+        let mut app = configured_app();
+        app.cancel = Some(Arc::new(AtomicBool::new(false)));
+        assert!(crate::commands::dispatch(&mut app, "/model unlisted"));
+        assert_eq!(app.config.as_ref().unwrap().model, "grok");
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("cannot change model during a turn")
+        );
+        assert!(app.mission.is_none());
+    }
+
+    #[test]
     fn models_refresh_requires_the_exact_subcommand() {
         for command in ["/models", "/models reload", "/models refresh extra"] {
             let mut app = test_app();
