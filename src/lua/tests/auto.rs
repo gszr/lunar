@@ -201,3 +201,79 @@ return { models = { auto = { id = "explicit" } }, providers = { custom = {
         Api::Completions
     );
 }
+
+#[test]
+fn models_refresh_refetches_without_reloading_or_changing_selection() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+
+    let home = scratch();
+    let _env = isolate(&[("LUNAR_HOME", home.to_str().unwrap())]);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        for (status, body) in [
+            ("200 OK", r#"{"data":[{"id":"original"}]}"#),
+            ("200 OK", r#"{"data":[{"id":"replacement"}]}"#),
+            ("503 Service Unavailable", r#"{"error":"offline"}"#),
+        ] {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = String::new();
+            while !request.contains("\r\n\r\n") {
+                let mut buffer = [0; 1024];
+                let n = stream.read(&mut buffer).unwrap();
+                assert_ne!(n, 0);
+                request.push_str(std::str::from_utf8(&buffer[..n]).unwrap());
+            }
+            assert!(request.starts_with("GET /v1/models HTTP/1.1\r\n"));
+            write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+        }
+    });
+    let path = write_init(
+        &home,
+        &format!(
+            r#"return {{ providers = {{ custom = {{
+        base_url = "http://{address}/v1", key_in = "none", models = "auto"
+    }} }} }}"#
+        ),
+    );
+    let mut app = crate::app::App::new(load_path(&path).unwrap());
+    let wait = |app: &mut crate::app::App| {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while app.discovery.rx.is_some() {
+            assert!(Instant::now() < deadline, "discovery did not finish");
+            crate::provider_catalog::drain(app);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+    crate::provider_catalog::refresh(&mut app);
+    wait(&mut app);
+    let choice = app.models[0].clone();
+    crate::commands::model::select_model(&mut app, choice, false);
+    fs::write(path, "invalid Lua").unwrap();
+    for expected in ["replacement", "replacement"] {
+        let (_tx, rx) = std::sync::mpsc::channel();
+        app.subscription.rx = Some(rx);
+        assert!(crate::commands::dispatch(&mut app, "/models refresh"));
+        assert!(
+            app.subscription.rx.is_none(),
+            "subscription refresh was not triggered"
+        );
+        assert!(app.discovery.rx.is_some());
+        wait(&mut app);
+        assert_eq!(app.models.len(), 1);
+        assert_eq!(app.models[0].id, expected);
+        assert_eq!(app.config.as_ref().unwrap().model, "original");
+    }
+    assert!(
+        app.notice
+            .as_deref()
+            .unwrap()
+            .contains("models could not be loaded")
+    );
+    server.join().unwrap();
+}

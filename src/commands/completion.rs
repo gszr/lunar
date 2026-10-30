@@ -58,6 +58,10 @@ pub const COMMANDS: &[Command] = &[
         description: "pick a configured model",
     },
     Command {
+        name: MODELS,
+        description: "refresh discovered catalogs with /models refresh",
+    },
+    Command {
         name: NAME,
         description: "name the current mission",
     },

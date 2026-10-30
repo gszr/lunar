@@ -12,6 +12,7 @@ pub const LOGOUT: &str = "/logout";
 pub const MARKDOWN: &str = "/markdown";
 pub const MD: &str = "/md";
 pub const MODEL: &str = "/model";
+pub const MODELS: &str = "/models";
 pub const NAME: &str = "/name";
 pub const NEW: &str = "/new";
 pub const QUIT: &str = "/quit";

@@ -30,6 +30,12 @@ pub(crate) fn open_model(app: &mut App) {
     };
 }
 
+pub(crate) fn refresh_models(app: &mut App) {
+    app.notice = Some("refreshing models; choose with /model when loaded".into());
+    crate::subscription::refresh(app);
+    crate::provider_catalog::refresh(app);
+}
+
 pub(crate) fn matches_query(item: &lua::ModelChoice, query: &str) -> bool {
     let query = query.to_lowercase();
     query.is_empty()

@@ -6,6 +6,8 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🚀 Added
 
+- **Refresh discovered models**: `/models refresh` reloads configured-provider and subscription catalogs in the background without restarting Lunar. Your selected model stays unchanged, and failed requests keep the existing catalog.
+
 - **Messages format switching**: `/format messages` switches the live model to the Anthropic Messages API until exit, without editing Lua configuration. Subscription authentication restrictions still apply.
 
 - **Model-page shortcuts**: Right moves to the next page in `/model`, and Left moves to the previous page, keeping your selected row where possible. They work with search results and stop at the first and last pages.

@@ -55,6 +55,10 @@ pub(crate) fn dispatch(app: &mut App, line: &str) -> bool {
         cmd if arguments(cmd, LOGOUT) == Some("anthropic") => auth::logout_anthropic(app),
         RESUME => mission::open_resume(app),
         MODEL => model::open_model(app),
+        cmd if arguments(cmd, MODELS) == Some("refresh") => model::refresh_models(app),
+        cmd if cmd == MODELS || arguments(cmd, MODELS).is_some() => {
+            app.notice = Some(format!("usage: {MODELS} refresh"));
+        }
         FORMAT => {
             app.notice = Some(format!(
                 "usage: {FORMAT} response|chat_completions|messages"

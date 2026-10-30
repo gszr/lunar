@@ -45,7 +45,7 @@ Lunar focuses on control over what the model reads, what it remembers, and how y
 - **Cloud and local models.** Stream responses through Chat Completions, OpenAI Responses, or Anthropic Messages. Connect to compatible local servers with no authentication required.
 - **Subscription sign-in.** Use `/login` for xAI, ChatGPT Plus/Pro, or Claude Pro/Max. xAI also supports saved API keys. `/logout <provider>` removes a saved credential.
 - **Your credential tools.** Read API keys from environment variables or shell commands. Resolve provider URLs with shell commands too, including helpers that need terminal input at startup.
-- **Searchable model picker.** `/model` searches by provider, alias, or model ID. Each model can have its own API format and context-window size.
+- **Searchable model picker.** `/model` searches by provider, alias, or model ID. `/models refresh` re-fetches discovered catalogs without restarting or changing your selected model. Each model can have its own API format and context-window size.
 - **Model-specific reasoning.** `/thinking` offers the levels configured for the selected model. Set a preferred default across models, with a fallback for models that do not support it. Your selection is saved with the mission.
 - **Temporary API switching.** `/format response|chat_completions|messages` changes the request format until exit, without editing configuration. Subscription authentication restrictions still apply.
 - **Subscription limits.** With ChatGPT sign-in, see remaining usage and reset times in the footer.

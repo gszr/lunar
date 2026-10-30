@@ -336,6 +336,16 @@ mod tests {
     }
 
     #[test]
+    fn models_refresh_requires_the_exact_subcommand() {
+        for command in ["/models", "/models reload", "/models refresh extra"] {
+            let mut app = test_app();
+            assert!(crate::commands::dispatch(&mut app, command));
+            assert_eq!(app.notice.as_deref(), Some("usage: /models refresh"));
+            assert!(app.discovery.rx.is_none());
+        }
+    }
+
+    #[test]
     fn format_override_lasts_until_harness_exit() {
         for (name, api) in [
             ("response", Api::Responses),
