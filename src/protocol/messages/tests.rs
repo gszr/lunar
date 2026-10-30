@@ -17,6 +17,33 @@ fn sample_cfg() -> Config {
 }
 
 #[test]
+fn messages_url_accepts_root_and_versioned_bases() {
+    for base in [
+        "https://api.anthropic.com",
+        "https://api.anthropic.com/",
+        "https://api.anthropic.com/v1",
+        "https://api.anthropic.com/v1/",
+    ] {
+        assert_eq!(messages_url(base), "https://api.anthropic.com/v1/messages");
+    }
+    for base in [
+        "http://localhost:8080/proxy",
+        "http://localhost:8080/proxy/",
+        "http://localhost:8080/proxy/v1",
+        "http://localhost:8080/proxy/v1/",
+    ] {
+        assert_eq!(
+            messages_url(base),
+            "http://localhost:8080/proxy/v1/messages"
+        );
+    }
+    assert_eq!(
+        messages_url("https://gateway.example/v10"),
+        "https://gateway.example/v10/v1/messages"
+    );
+}
+
+#[test]
 fn api_key_body_omits_claude_code_identity() {
     let cfg = sample_cfg();
     let body: Value = serde_json::from_str(&body(&cfg, &[], true)).unwrap();

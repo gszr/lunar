@@ -31,7 +31,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: FORMAT,
-        description: "set response or chat_completions API format",
+        description: "set response, chat_completions, or messages API format",
     },
     Command {
         name: HELP,

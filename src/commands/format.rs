@@ -9,8 +9,9 @@ pub(crate) fn apply(app: &mut App, raw: &str) {
     let api = match raw.trim() {
         "response" => Api::Responses,
         "chat_completions" => Api::Completions,
+        "messages" => Api::Messages,
         _ => {
-            app.notice = Some("usage: /format response|chat_completions".into());
+            app.notice = Some("usage: /format response|chat_completions|messages".into());
             return;
         }
     };
@@ -30,7 +31,7 @@ pub(crate) fn override_config(api: Option<Api>, config: &mut Config) -> Result<(
     let Some(api) = api else {
         return Ok(());
     };
-    if api == Api::Completions && config.auth_provider.as_deref() == Some("openai") {
+    if config.auth_provider.as_deref() == Some("openai") && api != Api::Responses {
         return Err("OpenAI subscription auth requires response format".into());
     }
     if config.auth_provider.as_deref() == Some("anthropic") && api != Api::Messages {

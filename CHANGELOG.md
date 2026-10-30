@@ -6,6 +6,8 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🚀 Added
 
+- **Messages format switching**: `/format messages` switches the live model to the Anthropic Messages API until exit, without editing Lua configuration. Subscription authentication restrictions still apply.
+
 - **Model-page shortcuts**: Right moves to the next page in `/model`, and Left moves to the previous page, keeping your selected row where possible. They work with search results and stop at the first and last pages.
 
 - **Model-list pages**: `/model` now shows the current page, visible model range, and total count. Up/down crosses between non-overlapping pages sized to your terminal; resizing keeps your selected model visible, and search updates the pages and counts for matching models.
@@ -32,6 +34,8 @@ All notable changes to **Lunar** are documented in this file.
 - **Claude Code request identity on Anthropic OAuth**: subscription requests send Claude Code user-agent, beta, and system identity headers so Anthropic accepts the token. API-key Messages requests stay ordinary `x-api-key` traffic.
 
 ### 🐞 Fixed
+
+- **Messages URLs with `/v1`**: switching to Messages now works when your provider URL already ends in `/v1`, instead of requesting `/v1/v1/messages`. Root URLs, trailing slashes, and proxy path prefixes remain supported.
 
 - **Model-picker cursor**: browsing models no longer shows the chat draft or a misleading text cursor. Pressing `/` opens the search input and cursor on the line above the model list; both disappear when search closes.
 

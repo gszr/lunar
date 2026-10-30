@@ -24,7 +24,7 @@ pub(super) fn stream(
     tools: bool,
     debug_headers: bool,
 ) -> Result<(), String> {
-    let url = format!("{}/v1/messages", cfg.base_url.trim_end_matches('/'));
+    let url = messages_url(&cfg.base_url);
     let body = body(&cfg, &messages, tools);
     let response = post_retry(
         &url,
@@ -72,6 +72,15 @@ pub(super) fn stream(
     }
     finish(tx, calls.into_values().collect(), truncated, tools);
     Ok(())
+}
+
+fn messages_url(base_url: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    if base.ends_with("/v1") {
+        format!("{base}/messages")
+    } else {
+        format!("{base}/v1/messages")
+    }
 }
 
 fn finish(tx: &Sender<StreamEvent>, calls: Vec<ToolCall>, truncated: bool, tools: bool) {

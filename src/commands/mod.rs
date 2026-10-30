@@ -55,7 +55,11 @@ pub(crate) fn dispatch(app: &mut App, line: &str) -> bool {
         cmd if arguments(cmd, LOGOUT) == Some("anthropic") => auth::logout_anthropic(app),
         RESUME => mission::open_resume(app),
         MODEL => model::open_model(app),
-        FORMAT => app.notice = Some(format!("usage: {FORMAT} response|chat_completions")),
+        FORMAT => {
+            app.notice = Some(format!(
+                "usage: {FORMAT} response|chat_completions|messages"
+            ))
+        }
         cmd if let Some(raw) = arguments(cmd, FORMAT) => format::apply(app, raw),
         THINKING => thinking::open_thinking(app),
         cmd if let Some(raw) = arguments(cmd, THINKING) => thinking::apply(app, raw),

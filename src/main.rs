@@ -337,13 +337,81 @@ mod tests {
 
     #[test]
     fn format_override_lasts_until_harness_exit() {
-        let mut app = configured_app();
-        assert!(crate::commands::dispatch(&mut app, "/format response"));
-        assert_eq!(app.config.as_ref().unwrap().api, Api::Responses);
-        assert_eq!(app.format_override, Some(Api::Responses));
+        for (name, api) in [
+            ("response", Api::Responses),
+            ("chat_completions", Api::Completions),
+            ("messages", Api::Messages),
+        ] {
+            let mut app = configured_app();
+            assert!(crate::commands::dispatch(
+                &mut app,
+                &format!("/format {name}")
+            ));
+            assert_eq!(app.config.as_ref().unwrap().api, api);
+            assert_eq!(app.format_override, Some(api));
+            assert_eq!(
+                app.notice.as_deref(),
+                Some(format!("format: {name}").as_str())
+            );
 
-        crate::commands::mission::new_mission(&mut app);
-        assert_eq!(app.config.as_ref().unwrap().api, Api::Responses);
+            crate::commands::mission::new_mission(&mut app);
+            assert_eq!(app.config.as_ref().unwrap().api, api);
+        }
+    }
+
+    #[test]
+    fn format_preserves_subscription_auth_restrictions() {
+        for (provider, initial, accepted, rejected) in [
+            (
+                "openai",
+                Api::Responses,
+                "response",
+                ["messages", "chat_completions"],
+            ),
+            (
+                "anthropic",
+                Api::Messages,
+                "messages",
+                ["response", "chat_completions"],
+            ),
+        ] {
+            let mut app = configured_app();
+            let config = app.config.as_mut().unwrap();
+            config.auth_provider = Some(provider.into());
+            config.api = initial;
+            assert!(crate::commands::dispatch(
+                &mut app,
+                &format!("/format {accepted}")
+            ));
+            assert_eq!(app.format_override, Some(initial));
+            for name in rejected {
+                assert!(crate::commands::dispatch(
+                    &mut app,
+                    &format!("/format {name}")
+                ));
+                assert_eq!(app.config.as_ref().unwrap().api, initial);
+                assert_eq!(app.format_override, Some(initial));
+                assert!(
+                    app.notice
+                        .as_deref()
+                        .unwrap()
+                        .contains("subscription auth requires")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn format_messages_cannot_change_during_a_turn() {
+        let mut app = configured_app();
+        app.cancel = Some(Arc::new(AtomicBool::new(false)));
+        assert!(crate::commands::dispatch(&mut app, "/format messages"));
+        assert_eq!(app.config.as_ref().unwrap().api, Api::Completions);
+        assert_eq!(app.format_override, None);
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("cannot change format during a turn")
+        );
     }
 
     #[test]
@@ -353,7 +421,7 @@ mod tests {
         assert_eq!(app.config.as_ref().unwrap().api, Api::Completions);
         assert_eq!(
             app.notice.as_deref(),
-            Some("usage: /format response|chat_completions")
+            Some("usage: /format response|chat_completions|messages")
         );
     }
 
