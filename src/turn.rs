@@ -229,7 +229,10 @@ pub(crate) fn drain_btw(app: &mut App) {
                 break;
             }
             Ok(
-                StreamEvent::Tools { .. } | StreamEvent::ToolResults(_) | StreamEvent::CompactDone,
+                StreamEvent::Tools { .. }
+                | StreamEvent::ToolResults(_)
+                | StreamEvent::CompactDone
+                | StreamEvent::PromptExpanded(_),
             ) => {
                 end = Some(Some("/btw cannot use tools".into()));
                 break;
@@ -266,6 +269,10 @@ pub(crate) fn finish_stream(app: &mut App, end: StreamEvent) {
     match end {
         StreamEvent::Tools { calls, truncated } => begin_tools(app, calls, truncated),
         StreamEvent::ToolResults(results) => apply_tool_results(app, results),
+        StreamEvent::PromptExpanded(line) => {
+            app.stream_rx = None;
+            persist_prompt(app, line);
+        }
         StreamEvent::CompactDone => {
             crate::commands::finish_compaction(app);
             crate::limits::refresh(app);
@@ -553,12 +560,26 @@ pub(crate) fn send_prompt(app: &mut App, line: String) {
             .map(|compact| (compact.summary.as_str(), compact.first_kept)),
         &app.messages,
     ));
+    let cancel = Arc::new(AtomicBool::new(false));
+    app.cancel = Some(cancel.clone());
+    app.turn_phase_started = Some(std::time::Instant::now());
+    if crate::shell_prompt::contains_commands(&line) {
+        let (tx, rx) = mpsc::channel();
+        app.stream_rx = Some(rx);
+        std::thread::spawn(move || {
+            if let Some(expanded) = crate::shell_prompt::expand(&line, &cancel) {
+                let _ = tx.send(StreamEvent::PromptExpanded(expanded));
+            }
+        });
+    } else {
+        persist_prompt(app, line);
+    }
+}
+
+fn persist_prompt(app: &mut App, line: String) {
     persist_value(app, &mission::user_line(&line));
     app.messages.push(Message::user(line));
     jump_to_tail(app);
-    let cancel = Arc::new(AtomicBool::new(false));
-    app.cancel = Some(cancel);
-    app.turn_phase_started = Some(std::time::Instant::now());
     continue_turn(app);
 }
 

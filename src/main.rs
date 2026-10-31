@@ -17,6 +17,7 @@ mod prompt;
 mod protocol;
 mod provider_catalog;
 mod render;
+mod shell_prompt;
 mod splash;
 mod stack;
 mod storage;

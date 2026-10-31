@@ -141,6 +141,7 @@ pub enum StreamEvent {
     },
     Done,
     CompactDone,
+    PromptExpanded(String),
     Failed(String),
 }
 
