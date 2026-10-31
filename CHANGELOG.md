@@ -6,6 +6,8 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🚀 Added
 
+- **Shell commands in prompts**: put `! command` on its own line anywhere in a prompt to run it before sending. Lunar includes the command and output alongside your surrounding text, with output fenced as plain text (including output containing backticks). Multiple commands run in order; Esc cancels without sending.
+
 - **Switch models by exact ID**: `/model <id>` uses the ID verbatim on your current provider, even if it is missing from the catalog, while keeping your credentials, request format, context window, and thinking settings. Bare `/model` still opens the picker.
 
 - **Refresh discovered models**: `/models refresh` reloads configured-provider and subscription catalogs in the background without restarting Lunar. Your selected model stays unchanged, and failed requests keep the existing catalog.

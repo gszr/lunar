@@ -176,6 +176,8 @@ pub(crate) const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", 
 pub(crate) fn working_text(app: &App) -> &'static str {
     if app.compacting.is_some() {
         " Compacting..."
+    } else if app.cancel.is_some() && app.active_assistant.is_none() {
+        " Running commands..."
     } else if matches!(
         app.messages.last(),
         Some(Message {
