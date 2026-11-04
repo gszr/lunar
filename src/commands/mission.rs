@@ -9,6 +9,7 @@ pub(crate) fn new_mission(app: &mut App) {
         return;
     }
     app.messages.clear();
+    app.request_curl = None;
     app.compaction = None;
     app.compacting = None;
     app.thinking_override = None;
@@ -96,6 +97,7 @@ pub(crate) fn load_mission(app: &mut App, path: &std::path::Path) {
                 app.notice = Some(err);
             }
             app.messages = loaded.messages;
+            app.request_curl = None;
             app.compaction =
                 loaded
                     .compaction

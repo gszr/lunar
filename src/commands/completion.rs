@@ -79,7 +79,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: REQUEST,
-        description: "Show next prompt as curl; /request full includes context; slim omits tools (includes credentials)",
+        description: "Show next prompt as curl; /request full includes context; slim omits tools; copy copies latest preview (includes credentials)",
     },
     Command {
         name: RESUME,

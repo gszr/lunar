@@ -6,6 +6,10 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🚀 Added
 
+- `/request full copy` and `/request slim copy` now work like `/request copy`: copy the latest preview exactly, without regenerating it or changing the armed mode.
+
+- `/request copy` copies the latest curl preview directly to the macOS clipboard, avoiding extra line breaks from narrow-terminal selection. It warns that your clipboard contains credentials; no request is sent or regenerated.
+
 - `/request slim` previews a prompt-only curl request without tools, retaining your live model settings and credentials. The same persistent token warning and transient UI preview apply.
 
 - Armed request previews now show a persistent red warning above the editor that the next prompt will expose your actual API key or OAuth token. The warning stays visible until you cancel or generate the preview.

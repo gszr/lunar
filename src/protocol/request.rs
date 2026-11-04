@@ -58,12 +58,49 @@ pub(crate) fn export(app: &mut crate::app::App, line: &str) {
             message.text = format!(
                 "Request preview — contains credentials and conversation context. Not sent or saved; draft retained. OAuth tokens may expire.\n\n{fence}sh\n{script}{fence}"
             );
+            app.request_curl = Some(script);
             app.messages.push(message);
             app.notice = None;
             crate::transcript::jump_to_tail(app);
         }
         Err(err) => app.notice = Some(format!("request export: {err}")),
     }
+}
+
+pub(crate) fn copy(app: &mut crate::app::App) {
+    let Some(script) = app.request_curl.as_deref() else {
+        app.notice = Some("no request preview to copy; generate one with /request first".into());
+        return;
+    };
+    app.notice = Some(match copy_to_clipboard(script) {
+        Ok(()) => "Copied request with credentials. Clipboard contains your token.".into(),
+        Err(err) => format!("request copy: {err}"),
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn copy_to_clipboard(script: &str) -> Result<(), String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("/usr/bin/pbcopy")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|err| format!("could not start pbcopy: {err}"))?;
+    let written = child.stdin.take().unwrap().write_all(script.as_bytes());
+    let status = child.wait().map_err(|err| format!("pbcopy: {err}"))?;
+    written.map_err(|err| format!("clipboard write failed: {err}"))?;
+    if !status.success() {
+        return Err(format!("pbcopy exited with {status}"));
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn copy_to_clipboard(_script: &str) -> Result<(), String> {
+    Err("local clipboard copying is currently supported only on macOS".into())
 }
 
 fn quote(value: &str) -> String {

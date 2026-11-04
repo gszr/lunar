@@ -138,6 +138,7 @@ mod tests {
             notice: None,
             debug_headers: false,
             request_dump: None,
+            request_curl: None,
             markdown: true,
             messages: Vec::new(),
             config: None,
@@ -681,6 +682,30 @@ mod tests {
     }
 
     #[test]
+    fn request_copy_aliases_preserve_the_armed_scope() {
+        let mut app = configured_app();
+        for armed in ["/request", "/request full", "/request slim"] {
+            crate::commands::dispatch(&mut app, armed);
+            let scope = app.request_dump;
+            for command in ["/request copy", "/request full copy", "/request slim copy"] {
+                assert!(crate::commands::dispatch(&mut app, command));
+                assert!(
+                    app.notice
+                        .as_deref()
+                        .unwrap()
+                        .contains("no request preview")
+                );
+                assert_eq!(app.request_dump, scope);
+            }
+            for command in ["/request copy slim", "/request slim copy extra"] {
+                crate::commands::dispatch(&mut app, command);
+                assert!(app.notice.as_deref().unwrap().starts_with("usage:"));
+                assert_eq!(app.request_dump, scope);
+            }
+        }
+    }
+
+    #[test]
     fn request_export_is_one_shot_and_preserves_draft_and_mission() {
         let mut app = configured_app();
         assert!(crate::commands::dispatch(&mut app, "/request"));
@@ -696,6 +721,9 @@ mod tests {
         assert!(app.mission.is_none());
         assert!(app.cancel.is_none());
         assert!(app.stream_rx.is_none());
+        let script = app.request_curl.clone().unwrap();
+        assert!(script.starts_with("#!/bin/sh\n"));
+        assert!(!script.contains("```"));
         let message = &app.messages[0];
         assert!(message.debug);
         assert!(matches!(message.role, crate::app::Role::Assistant));
@@ -703,8 +731,22 @@ mod tests {
         assert!(crate::context::history(None, None, &app.messages).is_empty());
         let (lines, _) = crate::transcript::paint_slice(&app.messages, 80, false, false, true);
         assert!(lines.len() > 8);
+        assert_eq!(app.request_curl.as_deref(), Some(script.as_str()));
         crate::commands::dispatch(&mut app, "/new");
         assert!(app.messages.is_empty());
+        assert!(app.request_curl.is_none());
+        crate::commands::dispatch(&mut app, "/request slim");
+        crate::commands::dispatch(&mut app, "/request copy");
+        assert!(
+            app.notice
+                .as_deref()
+                .unwrap()
+                .contains("no request preview")
+        );
+        assert_eq!(
+            app.request_dump,
+            Some(crate::protocol::request::Scope::Slim)
+        );
     }
 
     #[test]

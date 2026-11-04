@@ -22,6 +22,13 @@ pub(crate) fn dispatch(app: &mut App, line: &str) -> bool {
     match line {
         QUIT | Q => app.quit = true,
         HELP => app.notice = Some(crate::commands::help()),
+        cmd if matches!(
+            arguments(cmd, REQUEST),
+            Some("copy" | "full copy" | "slim copy")
+        ) =>
+        {
+            crate::protocol::request::copy(app)
+        }
         cmd if cmd == REQUEST || matches!(arguments(cmd, REQUEST), Some("full" | "slim")) => {
             use crate::protocol::request::Scope;
             let scope = match arguments(cmd, REQUEST) {
@@ -42,7 +49,7 @@ pub(crate) fn dispatch(app: &mut App, line: &str) -> bool {
             });
         }
         cmd if arguments(cmd, REQUEST).is_some() => {
-            app.notice = Some("usage: /request [full|slim]".into());
+            app.notice = Some("usage: /request [full|slim] [copy]".into());
         }
         DEBUG => {
             app.debug_headers = !app.debug_headers;
