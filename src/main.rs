@@ -706,7 +706,24 @@ mod tests {
     }
 
     #[test]
-    fn request_export_is_one_shot_and_preserves_draft_and_mission() {
+    fn failed_request_export_keeps_the_draft_and_armed_mode() {
+        let mut app = configured_app();
+        for command in ["/request", "/request full", "/request slim"] {
+            crate::commands::dispatch(&mut app, command);
+            let scope = app.request_dump;
+            app.input = "! echo should-not-run".into();
+            app.cursor = 5;
+            crate::event::submit(&mut app);
+            assert_eq!(app.input, "! echo should-not-run");
+            assert_eq!(app.cursor, 5);
+            assert_eq!(app.request_dump, scope);
+            assert!(app.messages.is_empty());
+            assert!(app.request_curl.is_none());
+        }
+    }
+
+    #[test]
+    fn request_export_clears_draft_without_persisting_the_prompt() {
         let mut app = configured_app();
         assert!(crate::commands::dispatch(&mut app, "/request"));
         app.input = "preview only".into();
@@ -714,20 +731,21 @@ mod tests {
         let before = app.history.len();
         crate::event::submit(&mut app);
         assert!(app.request_dump.is_none());
-        assert_eq!(app.input, "preview only");
-        assert_eq!(app.cursor, 5);
+        assert!(app.input.is_empty());
+        assert_eq!(app.cursor, 0);
         assert_eq!(app.history.len(), before);
         assert_eq!(app.messages.len(), 1);
         assert!(app.mission.is_none());
         assert!(app.cancel.is_none());
         assert!(app.stream_rx.is_none());
         let script = app.request_curl.clone().unwrap();
-        assert!(script.starts_with("#!/bin/sh\n"));
+        assert!(script.starts_with("curl "));
+        assert!(!script.lines().any(|line| line.starts_with('#')));
         assert!(!script.contains("```"));
         let message = &app.messages[0];
         assert!(message.debug);
         assert!(matches!(message.role, crate::app::Role::Assistant));
-        assert!(message.text.contains("curl --no-buffer"));
+        assert_eq!(message.text, format!("```sh\n{script}```"));
         assert!(crate::context::history(None, None, &app.messages).is_empty());
         let (lines, _) = crate::transcript::paint_slice(&app.messages, 80, false, false, true);
         assert!(lines.len() > 8);

@@ -6,6 +6,8 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🚀 Added
 
+- Successful request previews now clear the editor. The preview and clipboard contain only the curl command, without a shebang, comments, or introductory text. Failed exports retain your draft.
+
 - `/request full copy` and `/request slim copy` now work like `/request copy`: copy the latest preview exactly, without regenerating it or changing the armed mode.
 
 - `/request copy` copies the latest curl preview directly to the macOS clipboard, avoiding extra line breaks from narrow-terminal selection. It warns that your clipboard contains credentials; no request is sent or regenerated.

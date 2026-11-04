@@ -43,6 +43,8 @@ pub(crate) fn export(app: &mut crate::app::App, line: &str) {
     match result {
         Ok(script) => {
             app.request_dump = None;
+            app.input.clear();
+            app.cursor = 0;
             let fence = "`".repeat(
                 script
                     .split(|c| c != '`')
@@ -55,9 +57,7 @@ pub(crate) fn export(app: &mut crate::app::App, line: &str) {
             let mut message = crate::app::Message::assistant();
             // Diagnostic replies are transient and excluded from context and compaction.
             message.debug = true;
-            message.text = format!(
-                "Request preview — contains credentials and conversation context. Not sent or saved; draft retained. OAuth tokens may expire.\n\n{fence}sh\n{script}{fence}"
-            );
+            message.text = format!("{fence}sh\n{script}{fence}");
             app.request_curl = Some(script);
             app.messages.push(message);
             app.notice = None;
@@ -143,10 +143,7 @@ fn curl(
             None,
         ),
     };
-    let mut script = format!(
-        "#!/bin/sh\n# SECRET: credentials and conversation context. Do not share.\n# Uses the currently loaded token; OAuth credentials may expire.\n# A new mission has no affinity ID yet.\ncurl --no-buffer --request POST --url {}",
-        quote(&url)
-    );
+    let mut script = format!("curl --no-buffer --request POST --url {}", quote(&url));
     for (name, value) in http::request_headers(cfg, session.as_deref(), account.as_deref()) {
         script.push_str(&format!(
             " \\\n  --header {}",
