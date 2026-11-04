@@ -69,6 +69,16 @@ pub fn resolve(provider: &str) -> Result<String, String> {
     resolve_profile(provider, None)
 }
 
+/// Read the selected saved credential without refreshing or changing auth.json.
+pub(crate) fn saved_profile(integration: &str, profile: Option<&str>) -> Result<String, String> {
+    let name = profiles::credential_name(integration, profile)?;
+    match store::load(&store::path())?.remove(&name) {
+        Some(Credential::ApiKey { key }) => Ok(key),
+        Some(Credential::OAuth { access, .. }) => Ok(access),
+        None => Err(format!("no auth for {name}; run /login {integration}")),
+    }
+}
+
 pub fn resolve_profile(integration: &str, profile: Option<&str>) -> Result<String, String> {
     let name = profiles::credential_name(integration, profile)?;
     let provider = name.as_str();

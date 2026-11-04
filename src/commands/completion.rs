@@ -78,6 +78,10 @@ pub const COMMANDS: &[Command] = &[
         description: "set the model's reasoning effort",
     },
     Command {
+        name: REQUEST,
+        description: "Show next prompt as curl; /request full includes context; slim omits tools (includes credentials)",
+    },
+    Command {
         name: RESUME,
         description: "pick a mission in this directory",
     },
@@ -167,8 +171,9 @@ mod tests {
     #[test]
     fn prefix_filters() {
         let found = matches("/re");
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].name, "/resume");
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].name, "/request");
+        assert_eq!(found[1].name, "/resume");
         assert!(matches("/xyz").is_empty());
         assert!(matches("/resume ").is_empty());
         assert!(matches("help").is_empty());

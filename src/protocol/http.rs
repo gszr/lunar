@@ -14,6 +14,52 @@ use super::Usage;
 
 const MAX_RETRIES: u32 = 3;
 
+pub(super) fn request_headers(
+    cfg: &super::Config,
+    session: Option<&str>,
+    account: Option<&str>,
+) -> Vec<(String, String)> {
+    let mut headers = vec![
+        ("Content-Type".into(), "application/json".into()),
+        ("User-Agent".into(), crate::USER_AGENT.into()),
+    ];
+    let messages = cfg.api == super::Api::Messages;
+    let oauth =
+        cfg.auth_provider.as_deref() == Some("anthropic") || cfg.api_key.contains("sk-ant-oat");
+    if !cfg.api_key.is_empty() {
+        if messages && !oauth {
+            headers.push(("x-api-key".into(), cfg.api_key.clone()));
+        } else {
+            headers.push(("Authorization".into(), format!("Bearer {}", cfg.api_key)));
+        }
+    }
+    if messages {
+        headers.push(("anthropic-version".into(), "2023-06-01".into()));
+        headers.push((
+            "anthropic-dangerous-direct-browser-access".into(),
+            "true".into(),
+        ));
+        if oauth {
+            headers[1].1 = "claude-cli/2.1.280".into();
+            headers.push(("x-app".into(), "cli".into()));
+            headers.push((
+                "anthropic-beta".into(),
+                "claude-code-20250219,oauth-2025-04-20".into(),
+            ));
+        }
+    }
+    if let Some(session) = session {
+        headers.push(("session-id".into(), session.into()));
+        headers.push(("x-client-request-id".into(), session.into()));
+    }
+    if let Some(account) = account {
+        headers.push(("chatgpt-account-id".into(), account.into()));
+        headers.push(("originator".into(), "lunar".into()));
+        headers.push(("OpenAI-Beta".into(), "responses=experimental".into()));
+    }
+    headers
+}
+
 pub(super) fn post_retry(
     url: &str,
     cfg: &super::Config,
@@ -69,35 +115,9 @@ pub(super) fn post_retry(
                 "body": serde_json::from_str::<Value>(body).unwrap_or_else(|_| Value::String(body.into())),
             }),
         );
-        let mut request = agent().post(url).header("Content-Type", "application/json");
-        if !cfg.api_key.is_empty() {
-            if messages && !oauth {
-                request = request.header("x-api-key", &cfg.api_key);
-            } else {
-                request = request.header("Authorization", &format!("Bearer {}", cfg.api_key));
-            }
-        }
-        if messages {
-            request = request
-                .header("anthropic-version", "2023-06-01")
-                .header("anthropic-dangerous-direct-browser-access", "true");
-            if oauth {
-                request = request
-                    .header("User-Agent", "claude-cli/2.1.280")
-                    .header("x-app", "cli")
-                    .header("anthropic-beta", "claude-code-20250219,oauth-2025-04-20");
-            }
-        }
-        if let Some(session) = session {
-            request = request
-                .header("session-id", session)
-                .header("x-client-request-id", session);
-        }
-        if let Some(account) = account {
-            request = request
-                .header("chatgpt-account-id", account)
-                .header("originator", "lunar")
-                .header("OpenAI-Beta", "responses=experimental");
+        let mut request = agent().post(url);
+        for (name, value) in request_headers(cfg, session, account) {
+            request = request.header(&name, &value);
         }
         let response = request.send(body);
         match response {

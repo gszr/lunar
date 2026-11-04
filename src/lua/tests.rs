@@ -1425,6 +1425,24 @@ fn subscription_profiles_reuse_accounts_keep_names_and_resolve_defaults() {
     assert_eq!(cfg.provider, "openai-subscription-2");
     assert_eq!(cfg.thinking, "high");
     assert_eq!(cfg.auth_profile.as_deref(), Some("openai-subscription-2"));
+    // Subscription configs deliberately have no token until send/export time.
+    assert!(cfg.api_key.is_empty());
+    let auth_path = home.join("recorder/auth.json");
+    let auth_before = fs::read(&auth_path).unwrap();
+    let mut app = crate::app::App::new(load_path(&path).unwrap());
+    app.request_dump = Some(crate::protocol::request::Scope::Prompt);
+    crate::protocol::request::export(&mut app, "subscription export regression");
+    assert!(app.request_dump.is_none(), "{:?}", app.notice);
+    let script = &app.messages.last().unwrap().text;
+    assert!(crate::context::history(None, None, &app.messages).is_empty());
+    assert!(!home.join("recorder/requests").exists());
+    assert!(script.contains(&format!("Bearer {}", openai_access("second"))));
+    assert!(script.contains("chatgpt-account-id: second"));
+    assert!(script.contains("/codex/responses"));
+    assert!(!script.contains(&openai_access("first")));
+    assert_eq!(fs::read(&auth_path).unwrap(), auth_before);
+    assert!(app.mission.is_none());
+
     // Display/catalog names must not determine which account sends a request.
     let mut renamed = cfg.clone();
     renamed.provider = "unrelated display name".into();

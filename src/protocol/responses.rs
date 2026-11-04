@@ -179,7 +179,7 @@ pub(super) fn stream(
     Ok(())
 }
 
-fn responses_url(cfg: &Config) -> String {
+pub(super) fn responses_url(cfg: &Config) -> String {
     let base = cfg.base_url.trim_end_matches('/');
     if cfg.auth_provider.as_deref() == Some("openai") {
         format!("{base}/codex/responses")
@@ -188,11 +188,11 @@ fn responses_url(cfg: &Config) -> String {
     }
 }
 
-fn clamp_cache_key(key: &str) -> String {
+pub(super) fn clamp_cache_key(key: &str) -> String {
     key.chars().take(64).collect()
 }
 
-fn body(
+pub(super) fn body(
     cfg: &Config,
     messages: &[ChatMessage],
     cache_key: Option<&str>,

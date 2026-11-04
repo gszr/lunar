@@ -74,7 +74,7 @@ pub(super) fn stream(
     Ok(())
 }
 
-fn messages_url(base_url: &str) -> String {
+pub(super) fn messages_url(base_url: &str) -> String {
     let base = base_url.trim_end_matches('/');
     if base.ends_with("/v1") {
         format!("{base}/messages")
@@ -219,7 +219,7 @@ fn send_text(tx: &Sender<StreamEvent>, value: Option<&Value>, key: &str, think: 
     }
 }
 
-fn body(cfg: &Config, messages: &[ChatMessage], include_tools: bool) -> String {
+pub(super) fn body(cfg: &Config, messages: &[ChatMessage], include_tools: bool) -> String {
     let oauth = is_oauth(cfg);
     let mut value = json!({
         "model": cfg.model,

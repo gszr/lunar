@@ -592,6 +592,10 @@ pub(crate) fn submit(app: &mut App) {
     {
         return;
     }
+    if app.request_dump.is_some() && !line.is_empty() && !line.starts_with('/') {
+        crate::protocol::request::export(app, &line);
+        return;
+    }
     app.input.clear();
     app.cursor = 0;
     if line.is_empty() {

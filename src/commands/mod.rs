@@ -22,6 +22,28 @@ pub(crate) fn dispatch(app: &mut App, line: &str) -> bool {
     match line {
         QUIT | Q => app.quit = true,
         HELP => app.notice = Some(crate::commands::help()),
+        cmd if cmd == REQUEST || matches!(arguments(cmd, REQUEST), Some("full" | "slim")) => {
+            use crate::protocol::request::Scope;
+            let scope = match arguments(cmd, REQUEST) {
+                Some("full") => Scope::Full,
+                Some("slim") => Scope::Slim,
+                _ => Scope::Prompt,
+            };
+            app.request_dump = if app.request_dump == Some(scope) {
+                None
+            } else {
+                Some(scope)
+            };
+            app.notice = Some(match app.request_dump {
+                Some(Scope::Full) => "request export armed: next prompt displays curl with full context and credentials; not sent or saved. /request full cancels.".into(),
+                Some(Scope::Prompt) => "request export armed: next prompt only, with credentials; not sent or saved. /request cancels.".into(),
+                Some(Scope::Slim) => "request export armed: next prompt only, without tools, with credentials; not sent or saved. /request slim cancels.".into(),
+                None => "request export cancelled".into(),
+            });
+        }
+        cmd if arguments(cmd, REQUEST).is_some() => {
+            app.notice = Some("usage: /request [full|slim]".into());
+        }
         DEBUG => {
             app.debug_headers = !app.debug_headers;
             app.notice = Some(if app.debug_headers {

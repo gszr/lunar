@@ -137,6 +137,7 @@ mod tests {
             cursor: 0,
             notice: None,
             debug_headers: false,
+            request_dump: None,
             markdown: true,
             messages: Vec::new(),
             config: None,
@@ -577,6 +578,133 @@ mod tests {
         assert!(crate::commands::dispatch(&mut app, "/debug"));
         assert!(!app.debug_headers);
         assert_eq!(app.notice.as_deref(), Some("debug: off"));
+    }
+
+    #[test]
+    fn armed_request_warning_is_persistent_red_and_wraps() {
+        use ratatui::{Terminal, backend::TestBackend, style::Color};
+        let mut app = configured_app();
+        for command in ["/request", "/request full", "/request slim"] {
+            crate::commands::dispatch(&mut app, command);
+            app.notice = Some("unrelated notice".into());
+            app.input = "draft".into();
+            for width in [45, 120] {
+                let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+                terminal
+                    .draw(|frame| crate::view::draw(frame, &mut app))
+                    .unwrap();
+                let buffer = terminal.backend().buffer();
+                let red: String = buffer
+                    .content
+                    .iter()
+                    .filter(|cell| cell.fg == Color::Red)
+                    .map(|cell| cell.symbol())
+                    .collect();
+                assert!(red.contains("Request export armed"));
+                assert!(red.contains("OAuth token"));
+                assert!(red.contains("Do not share the output."));
+            }
+            crate::commands::dispatch(&mut app, command);
+            let mut terminal = Terminal::new(TestBackend::new(120, 24)).unwrap();
+            terminal
+                .draw(|frame| crate::view::draw(frame, &mut app))
+                .unwrap();
+            let text: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            assert!(!text.contains("Request export armed"));
+        }
+    }
+
+    #[test]
+    fn request_scope_controls_context_and_repeating_cancels() {
+        let mut app = configured_app();
+        app.messages
+            .push(Message::user("unique previous prompt".into()));
+        app.stack = "unique stack reference".into();
+        for (command, full) in [("/request", false), ("/request full", true)] {
+            crate::commands::dispatch(&mut app, command);
+            assert_eq!(
+                app.request_dump,
+                Some(if full {
+                    crate::protocol::request::Scope::Full
+                } else {
+                    crate::protocol::request::Scope::Prompt
+                })
+            );
+            crate::commands::dispatch(&mut app, "/request invalid");
+            assert_eq!(
+                app.request_dump,
+                Some(if full {
+                    crate::protocol::request::Scope::Full
+                } else {
+                    crate::protocol::request::Scope::Prompt
+                })
+            );
+            crate::protocol::request::export(&mut app, "unique current prompt");
+            let preview = &app.messages.last().unwrap().text;
+            assert!(preview.contains("unique current prompt"));
+            assert_eq!(preview.contains("unique previous prompt"), full);
+            assert_eq!(preview.contains("unique stack reference"), full);
+            assert_eq!(preview.contains("# Runtime"), full);
+            assert!(app.request_dump.is_none());
+        }
+        crate::commands::dispatch(&mut app, "/request slim");
+        assert_eq!(
+            app.request_dump,
+            Some(crate::protocol::request::Scope::Slim)
+        );
+        crate::protocol::request::export(&mut app, "slim prompt");
+        let preview = &app.messages.last().unwrap().text;
+        assert!(preview.contains("slim prompt"));
+        assert!(!preview.contains("unique previous prompt"));
+        assert!(!preview.contains("# Runtime"));
+        assert!(!preview.contains("\"tools\""));
+        crate::commands::dispatch(&mut app, "/request slim");
+        crate::commands::dispatch(&mut app, "/request slim");
+        assert!(app.request_dump.is_none());
+        crate::commands::dispatch(&mut app, "/request");
+        crate::commands::dispatch(&mut app, "/request full");
+        assert_eq!(
+            app.request_dump,
+            Some(crate::protocol::request::Scope::Full)
+        );
+        crate::commands::dispatch(&mut app, "/request full");
+        assert!(app.request_dump.is_none());
+        crate::commands::dispatch(&mut app, "/request");
+        crate::commands::dispatch(&mut app, "/request");
+        assert!(app.request_dump.is_none());
+    }
+
+    #[test]
+    fn request_export_is_one_shot_and_preserves_draft_and_mission() {
+        let mut app = configured_app();
+        assert!(crate::commands::dispatch(&mut app, "/request"));
+        app.input = "preview only".into();
+        app.cursor = 5;
+        let before = app.history.len();
+        crate::event::submit(&mut app);
+        assert!(app.request_dump.is_none());
+        assert_eq!(app.input, "preview only");
+        assert_eq!(app.cursor, 5);
+        assert_eq!(app.history.len(), before);
+        assert_eq!(app.messages.len(), 1);
+        assert!(app.mission.is_none());
+        assert!(app.cancel.is_none());
+        assert!(app.stream_rx.is_none());
+        let message = &app.messages[0];
+        assert!(message.debug);
+        assert!(matches!(message.role, crate::app::Role::Assistant));
+        assert!(message.text.contains("curl --no-buffer"));
+        assert!(crate::context::history(None, None, &app.messages).is_empty());
+        let (lines, _) = crate::transcript::paint_slice(&app.messages, 80, false, false, true);
+        assert!(lines.len() > 8);
+        crate::commands::dispatch(&mut app, "/new");
+        assert!(app.messages.is_empty());
     }
 
     #[test]

@@ -3,6 +3,7 @@
 mod completions;
 mod http;
 mod messages;
+pub(crate) mod request;
 mod responses;
 
 use std::sync::Arc;

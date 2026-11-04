@@ -6,6 +6,16 @@ All notable changes to **Lunar** are documented in this file.
 
 ### 🚀 Added
 
+- `/request slim` previews a prompt-only curl request without tools, retaining your live model settings and credentials. The same persistent token warning and transient UI preview apply.
+
+- Armed request previews now show a persistent red warning above the editor that the next prompt will expose your actual API key or OAuth token. The warning stays visible until you cancel or generate the preview.
+
+- `/request` now previews only your next prompt, without the preamble or mission history. Use `/request full` to include full context. Both retain the live model settings, credentials, and tools.
+
+- Request export reads the selected subscription’s saved token, fixing “OpenAI token has no account id” when exporting subscription requests. Export does not refresh expired tokens.
+
+- **Preview the next request as curl**: `/request` makes your next prompt a dry run, displaying a runnable curl command directly in the transcript with the live request body, headers, and actual token. Nothing is sent or written to a file, and your draft stays intact. The scrollable preview is excluded from mission history and future model context, and disappears when you switch missions or exit. A warning identifies the credentials and private conversation context.
+
 - **Shell commands in prompts**: put `! command` on its own line anywhere in a prompt to run it before sending. Lunar includes the command and output alongside your surrounding text, with output fenced as plain text (including output containing backticks). Multiple commands run in order; Esc cancels without sending.
 
 - **Switch models by exact ID**: `/model <id>` uses the ID verbatim on your current provider, even if it is missing from the catalog, while keeping your credentials, request format, context window, and thinking settings. Bare `/model` still opens the picker.

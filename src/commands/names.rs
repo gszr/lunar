@@ -20,3 +20,5 @@ pub const Q: &str = "/q";
 pub const THINKING: &str = "/thinking";
 pub const RESUME: &str = "/resume";
 pub const MISSION: &str = "/mission";
+
+pub const REQUEST: &str = "/request";

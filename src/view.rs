@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::Style;
+use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
@@ -115,7 +115,14 @@ pub(crate) fn model_picker_height(app: &App) -> u16 {
     }
 }
 
+const REQUEST_WARNING: &str = "Request export armed — next prompt displays your actual API key or OAuth token. Do not share the output.";
+
 pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
+    let request_warning = if app.request_dump.is_some() {
+        char_wrap(REQUEST_WARNING, frame.area().width as usize)
+    } else {
+        Vec::new()
+    };
     let working = u16::from(app.cancel.is_some());
     let ed_h = auth_editor_height(app, frame.area().width).unwrap_or_else(|| {
         editor_height(app.input.as_str(), app.cursor, frame.area().width)
@@ -149,6 +156,7 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
             Constraint::Length(1),
             Constraint::Min(0),
             Constraint::Length(working),
+            Constraint::Length(request_warning.len() as u16),
             Constraint::Length(ed_h),
             Constraint::Length(complete_h),
             Constraint::Length(2),
@@ -162,13 +170,23 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
     if working == 1 {
         draw_working(frame, chunks[2], working_text(app));
     }
-    draw_editor(frame, chunks[3], app);
+    frame.render_widget(
+        Paragraph::new(
+            request_warning
+                .into_iter()
+                .map(Line::from)
+                .collect::<Vec<_>>(),
+        )
+        .style(Style::default().fg(Color::Red)),
+        chunks[3],
+    );
+    draw_editor(frame, chunks[4], app);
     if let Some(rows) = &file_rows {
-        draw_files(frame, chunks[4], rows, file_selected);
+        draw_files(frame, chunks[5], rows, file_selected);
     } else if complete_h > 0 {
-        draw_complete(frame, chunks[4], &found, selected);
+        draw_complete(frame, chunks[5], &found, selected);
     }
-    draw_footer(frame, chunks[5], app);
+    draw_footer(frame, chunks[6], app);
 }
 
 pub(crate) const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];

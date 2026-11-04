@@ -206,7 +206,7 @@ fn response_model_from(value: &Value) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
-fn body(cfg: &Config, messages: &[ChatMessage], include_tools: bool) -> String {
+pub(super) fn body(cfg: &Config, messages: &[ChatMessage], include_tools: bool) -> String {
     let mut body = json!({
         "model": cfg.model,
         "stream": true,
