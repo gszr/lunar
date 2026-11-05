@@ -12,30 +12,37 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/gszr/lunar" alt="License"></a>
 </p>
 
-<p align="center">A terminal coding harness. You open <code>lunar</code> and code</p>
+<p align="center">Your harness. Your choice</p>
 
-<p align="center">Inspired by <a href="https://github.com/earendil-works/pi">Pi &lt;3</a>. Configured with Lua. Built for context you can inspect.</p>
+<p align="center">Inspired by <a href="https://github.com/earendil-works/pi">Pi &lt;3</a>. Configured with Lua. Built for transparency and customizability</p>
 
 <p align="center"><img src="docs/demo.gif" alt="Lunar fixing a failing test: read, edit, bash, confirm" width="760"></p>
 
-## Lunar Agent Harness
+## Lunar Coding Harness
 
-Lunar is deliberately small: a Rust host owns the terminal, model transport, and four tools, while a Lua guest supplies model and provider configuration. It does not impose plan modes, sub-agents, approval prompts, or another workflow between you and the model.
-
-Lunar sends your rules and context files as a leading user message that you can inspect with `/context raw`. Conversations are saved locally as missions you can leave and resume.
+Lunar is deliberately small: a Rust host owns the terminal, model transport, and 
+four tools, while a Lua guest supplies model and provider configuration. It does 
+not impose plan modes, sub-agents, approval prompts, or another workflow between you 
+and the model.
 
 ## Features
 
-### What makes Lunar different
-
-Lunar focuses on control over what the model reads, what it remembers, and how you work.
-
-- **Your instructions, not a built-in workflow.** Rules come from files you control, not a hidden coding-agent system prompt. No enforced plan mode, sub-agents, or approval prompts. Anthropic subscription access has one exception: a required identity message.[^anthropic-identity]
-- **Work across repositories without loading them all.** Define your backend, frontend, and other components in a stack, with a path and a short note for each. The model gets a map and can inspect the repositories relevant to your task. Only the map enters context automatically—not the code.
-- **See where your context and tokens go.** `/context` shows your instructions, skills, stack references, and conversation breakdown. `/context raw` shows their contents. The footer separates total token use, cache reads and writes, and current context size. `/debug` shows usage for individual responses.
-- **Configure your setup with Lua.** Define models, providers, reasoning levels, and related repositories in Lua 5.5. Share configuration through modules and override it per project.
-- **Use subscriptions, API keys, or local models.** Sign in with xAI, ChatGPT Plus/Pro, or Claude Pro/Max. Bring API credentials or connect to a compatible local model server instead.
-- **Decide when to summarize your conversation.** Lunar never compacts automatically. `/compact` summarizes older history while keeping recent messages. The original transcript remains available to scroll through.
+- Want to use your xAI, OpenAI, or Anthropic subscriptions? No problem, Lunar 
+  can help.
+- Want to bring your own provider and API key? Okay, you are one config away.
+- Want to easily switch between models, providers, and formats mid session with
+  no restarts? No problem, `/model` (or cmd+shift+m!) is there for you.
+- Want to get a sample curl request of what the next request will be?
+  `/request slim` or `/request full` to the rescue.
+- Want to see where your tokens are going? Use `/context` or 
+  `/context raw`, or keep an eye on the status bar.
+- Want to change the config and reapply without a restart? `/config`.
+- Want to inspect the provider response headers? Toggle `/debug` mode.
+- Want to see provider responses in plain text instead of rendered markdown? 
+  `/markdown`
+- Working across repositories? Use stacks and the LLM will know where to check!
+- Want a global default provider/model and per repo overrides? `.lunar/init.lua`
+  is there for the ride.
 
 <details>
 <summary><strong>All supported features</strong></summary>
