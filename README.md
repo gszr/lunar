@@ -27,7 +27,7 @@ and the model.
 
 ## Features
 
-- Want to use your xAI, OpenAI, or Anthropic subscriptions? No problem, Lunar 
+- Want to use your xAI, OpenAI, or Anthropic[^anthropic-policy] subscriptions? No problem, Lunar
   [can help](docs/models.md#subscription-sign-in).
 - Want to bring your own provider and API key? Okay, you are [one config away](docs/configuration.md).
 - Want to easily switch between models, providers, and formats mid session with
@@ -73,3 +73,5 @@ Lunar is early software for macOS and Linux.
 ## License
 
 [MIT](LICENSE)
+
+[^anthropic-policy]: Using Anthropic subscription tokens with any non-Claude harness is against Anthropic's policy and may result in an account ban. Use at your own risk.
